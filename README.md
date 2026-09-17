@@ -1,3 +1,6 @@
+
+<img width="66" height="94" alt="image" src="https://github.com/user-attachments/assets/0ac1588d-ccea-47e8-82ad-bbdd1533f0a1" />
+
 # Reqforge
 
 A standalone requirements management and traceability web application, functionally
