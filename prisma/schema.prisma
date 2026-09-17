@@ -1,0 +1,504 @@
+// Reqforge data model — draft for slice 0/1.
+// Spec: docs/specs/01-domain-model.md. Invariants the schema cannot express are
+// enforced in src/server/repositories/** and by the SQL in prisma/migrations/**.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- identity
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String
+  createdAt   DateTime @default(now())
+  memberships Membership[]
+  apiTokens   ApiToken[]
+}
+
+model Group {
+  id      String @id @default(cuid())
+  name    String @unique
+  members GroupMember[]
+}
+
+model GroupMember {
+  groupId String
+  userId  String
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+}
+
+model ApiToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  hash      String    @unique
+  scopes    String[]
+  lastUsed  DateTime?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------- space
+
+model Space {
+  id             String  @id @default(cuid())
+  key            String  @unique // [A-Z][A-Z0-9]{1,15}
+  name           String
+  isolated       Boolean @default(false) // research §6.6
+  globalKeys     Boolean @default(false) // research §2.2
+  classification String? // e.g. "Official (Closed)" — spec 07 §2.3
+  historyEnabled Boolean @default(false) // research §2.7 — off by default
+  limits         Json? // per-space overrides of spec 07 §4
+
+  documents    Document[]
+  requirements Requirement[]
+  baselines    Baseline[]
+  types        RequirementType[]
+  matrices     SavedMatrix[]
+  memberships  Membership[]
+  createdAt    DateTime          @default(now())
+}
+
+model Membership {
+  id          String  @id @default(cuid())
+  spaceId     String
+  space       Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId     String?
+  permissions SpacePermission[]
+
+  @@unique([spaceId, userId, groupId])
+}
+
+enum SpacePermission {
+  VIEW
+  EDIT
+  EXPORT
+  ADMIN
+}
+
+// ---------------------------------------------------------------- documents
+
+model Document {
+  id               String  @id @default(cuid())
+  spaceId          String
+  space            Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parentId         String?
+  parent           Document?  @relation("DocTree", fields: [parentId], references: [id])
+  children         Document[] @relation("DocTree")
+  title            String
+  ordinal          Int        @default(0)
+  classification   String?
+  restrictionMode  RestrictionMode @default(INHERIT) // spec 07 §2.2
+  currentVersionId String?         @unique
+  versions         DocumentVersion[] @relation("DocVersions")
+  restrictions     DocumentRestriction[]
+  createdAt        DateTime @default(now())
+  deletedAt        DateTime?
+
+  @@index([spaceId, parentId, ordinal])
+}
+
+enum RestrictionMode {
+  INHERIT
+  EXPLICIT
+}
+
+model DocumentRestriction {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String?
+  groupId    String?
+  canView    Boolean  @default(true)
+  canEdit    Boolean  @default(false)
+
+  @@unique([documentId, userId, groupId])
+}
+
+/// Immutable. Never deleted while `pinned` (invariant D1, spec 05 §3.2 step 6).
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation("DocVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  number     Int
+  content    Json // ProseMirror JSON
+  authorId   String
+  message    String?
+  pinned     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  requirements Requirement[]
+  links        DocumentLink[]
+
+  @@unique([documentId, number])
+}
+
+// ---------------------------------------------------------------- requirements
+
+enum RequirementStatus {
+  ACTIVE
+  ARCHIVED
+  MOVED
+  DELETED
+}
+
+/// Logical identity is (spaceId, upperKey, baselineId) — RD-001.
+/// baselineId NULL => live. Rows with baselineId set are immutable (invariant R2),
+/// enforced by a trigger in the migration, not by application code.
+model Requirement {
+  id         String  @id @default(cuid())
+  spaceId    String
+  space      Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  key        String
+  upperKey   String
+  baselineId String?
+  baseline   Baseline? @relation(fields: [baselineId], references: [id])
+
+  status          RequirementStatus @default(ACTIVE)
+  title           String
+  bodyHtml        String
+  bodySearch      String
+  anchorPath      String
+  uid             String // stable marker id, survives rename
+  originVersionId String?
+  originVersion   DocumentVersion? @relation(fields: [originVersionId], references: [id])
+
+  typeId String?
+  type   RequirementType? @relation(fields: [typeId], references: [id])
+
+  // forwarding pointers when status = MOVED, and the rename chain (RD-007)
+  newKey      String?
+  newSpaceId  String?
+  renamedFrom String?
+
+  properties    Property[]
+  parentEdges   Dependency[] @relation("AsChild")
+  childEdges    Dependency[] @relation("AsParent")
+  unresolved    UnresolvedDependency[]
+  links         DocumentLink[]
+  validations   RequirementValidation[]
+  labels        RequirementLabel[]
+  history       RequirementHistory[]
+
+  createdAt   DateTime @default(now())
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  // Invariant R1. The NULL-collision half is a partial unique index in the migration:
+  //   CREATE UNIQUE INDEX ... ON "Requirement" ("spaceId","upperKey")
+  //     WHERE "baselineId" IS NULL;
+  @@unique([spaceId, upperKey, baselineId])
+  @@index([spaceId, baselineId, status])
+  @@index([baselineId])
+  @@index([originVersionId])
+}
+
+enum PropertyKind {
+  INLINE
+  EXTERNAL
+}
+
+model Property {
+  id            String       @id @default(cuid())
+  requirementId String
+  requirement   Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  kind          PropertyKind
+  name          String
+  searchName    String // RD-011
+  value         String
+  valueOrdinal  Int          @default(0) // column order
+  valueIndex    Int          @default(0) // list member index
+  definitionId  String?
+  definition    ExternalPropertyDefinition? @relation(fields: [definitionId], references: [id])
+
+  @@index([requirementId, kind])
+  @@index([searchName, value])
+}
+
+/// Instance-global, not space-scoped — research §2.6.
+model ExternalPropertyDefinition {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  dataType    DataType
+  enumValues  String[]
+  description String?
+  values      Property[]
+  createdAt   DateTime @default(now())
+}
+
+enum DataType {
+  STRING
+  TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  ENUM
+}
+
+model RequirementLabel {
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  label         String
+
+  @@id([requirementId, label])
+  @@index([label])
+}
+
+// ---------------------------------------------------------------- links
+
+/// Invariant P1: the requirement containing the link is the CHILD.
+model Dependency {
+  relationship String
+  parentId     String
+  childId      String
+  parent       Requirement @relation("AsParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child        Requirement @relation("AsChild", fields: [childId], references: [id], onDelete: Cascade)
+  /// Pin to a baseline of the target — research §4.1
+  targetBaselineId String?
+
+  @@id([relationship, parentId, childId])
+  @@index([childId])
+  @@index([parentId])
+}
+
+/// Invariant P2: never cascade-delete a dependency because its target vanished.
+model UnresolvedDependency {
+  id               String      @id @default(cuid())
+  childId          String
+  child            Requirement @relation(fields: [childId], references: [id], onDelete: Cascade)
+  relationship     String
+  targetSpaceKey   String
+  targetKey        String
+  targetBaselineId String?
+
+  @@index([childId])
+  @@index([targetSpaceKey, targetKey])
+}
+
+/// origin = true for the defining occurrence — mirrors RY's DBLINK.ORIGIN.
+model DocumentLink {
+  id            String          @id @default(cuid())
+  requirementId String
+  requirement   Requirement     @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  versionId     String
+  version       DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  origin        Boolean         @default(false)
+  anchorPath    String?
+
+  @@index([requirementId])
+  @@index([versionId])
+}
+
+// ---------------------------------------------------------------- baselines
+
+enum BaselineState {
+  DRAFT
+  FROZEN
+}
+
+model Baseline {
+  id                  String        @id @default(cuid())
+  spaceId             String
+  space               Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  number              Int // sequential, immutable, never reused (invariant B2)
+  name                String
+  state               BaselineState @default(DRAFT)
+  sourceQuery         String
+  includedDependencies Boolean      @default(false)
+  includedExternal     Boolean      @default(false) // RD-010
+  reportDocumentId     String?
+  frozenAt             DateTime?
+  frozenById           String?
+  createdAt            DateTime     @default(now())
+  createdById          String?
+
+  requirements Requirement[]
+  revisions    BaselineRevision[]
+  dangling     BaselineDanglingDependency[]
+
+  @@unique([spaceId, number])
+  @@index([spaceId, state])
+}
+
+model BaselineRevision {
+  id           String   @id @default(cuid())
+  baselineId   String
+  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  at           DateTime @default(now())
+  actorId      String
+  reason       String
+  countBefore  Int
+  countAfter   Int
+  detail       Json
+}
+
+/// Dependencies that pointed outside the member set at freeze time — spec 05 §3.2 step 5.
+model BaselineDanglingDependency {
+  id           String   @id @default(cuid())
+  baselineId   String
+  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  childKey     String
+  relationship String
+  targetKey    String
+}
+
+// ---------------------------------------------------------------- types
+
+model RequirementType {
+  id                        String  @id @default(cuid())
+  spaceId                   String
+  space                     Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  name                      String? // null => bare key suggestion (research §2.3)
+  keyPattern                String // e.g. "FN-###"
+  colour                    String  @default("#4a5568")
+  locked                    Boolean @default(false)
+  nextSequence              Int     @default(1)
+  preventReusingDeletedKeys Boolean @default(true)
+
+  rules           RequirementTypeRule[]
+  templateColumns TemplateColumn[]
+  requirements    Requirement[]
+  validations     RequirementValidation[]
+
+  @@unique([spaceId, keyPattern])
+}
+
+enum RuleKind {
+  REQUIRED_PROPERTY
+  OPTIONAL_PROPERTY
+  REQUIRED_DEPENDENCY
+  PROPERTY_MATCHES // RD-015
+  PROPERTY_IN // RD-015
+}
+
+model RequirementTypeRule {
+  id           String          @id @default(cuid())
+  typeId       String
+  type         RequirementType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  kind         RuleKind
+  name         String?
+  relationship String?
+  direction    String? // 'to' | 'from'
+  pattern      String?
+  values       String[]
+  ordinal      Int             @default(0)
+}
+
+model TemplateColumn {
+  id       String          @id @default(cuid())
+  typeId   String
+  type     RequirementType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  name     String
+  required Boolean         @default(false)
+  ordinal  Int             @default(0)
+}
+
+enum ValidationStatus {
+  TRUE
+  FALSE
+  WARNING
+}
+
+model RequirementValidation {
+  requirementId String
+  requirement   Requirement      @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  typeId        String
+  type          RequirementType  @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  status        ValidationStatus
+  messages      Json
+  computedAt    DateTime         @default(now())
+
+  @@id([requirementId, typeId])
+  @@index([typeId, status])
+}
+
+// ---------------------------------------------------------------- matrices, jobs, audit
+
+enum MatrixKind {
+  TRACEABILITY
+  DEPENDENCY
+}
+
+model SavedMatrix {
+  id         String     @id @default(cuid())
+  spaceId    String
+  space      Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  name       String
+  kind       MatrixKind
+  query      String
+  columns    Json
+  visibility String     @default("space") // private | space | public-link
+  ownerId    String
+  createdAt  DateTime   @default(now())
+
+  @@unique([spaceId, name])
+}
+
+enum JobState {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model Job {
+  id              String   @id @default(cuid())
+  kind            String
+  spaceId         String?
+  payload         Json
+  state           JobState @default(QUEUED)
+  progress        Int      @default(0)
+  message         String?
+  error           String?
+  resultRef       String?
+  cancelRequested Boolean  @default(false)
+  actorId         String
+  createdAt       DateTime @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+
+  @@index([state, createdAt])
+}
+
+model RequirementHistory {
+  id            String      @id @default(cuid())
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  at            DateTime    @default(now())
+  actorId       String
+  changeKind    String
+  before        Json?
+  after         Json?
+
+  @@index([requirementId, at])
+  @@index([actorId, at])
+}
+
+/// Append-only. Never pruned by history retention — spec 07 §6.
+model AuditEvent {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  actorId   String
+  spaceId   String?
+  objectType String
+  objectId  String
+  operation String
+  parameters Json
+
+  @@index([spaceId, at])
+  @@index([objectType, objectId, at])
+}
