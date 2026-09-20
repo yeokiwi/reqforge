@@ -186,3 +186,24 @@ deletion. With it **off**, `DELETED` keys stop counting and become reusable — 
 what "reset sequence", gated on exactly that flag, exists to do. Keys captured in a
 baseline always count, under either setting: a baselined key names a frozen requirement
 forever (invariant R2) and must never be reissued.
+
+### RD-027 — List-valued cells, property membership, and what `text` covers
+**accepted.** Spec `03` refers to "list-valued cells" without defining one, and invariant
+R3 describes set membership as a `\x1f` serialisation inside `bodySearch`. Three
+decisions, because they are one mechanism:
+
+1. **A cell is list-valued when its content is a bullet or ordered list**; each item is
+   one member. Several paragraphs in a cell are formatting, not a list.
+2. **Membership is stored as one `Property` row per member** (`valueIndex` 0…n) rather
+   than as a separated string. `@Tag = 'item1'` is then an ordinary equality over rows,
+   which the compiler can index, and research §3.7's "for list-valued properties `=` is
+   set membership" holds without a string-splitting operator in SQL. `serialiseListValue`
+   remains for the single-column case (`04` matrix cells).
+3. **`bodySearch` excludes property values**, because `02` §4 and research §3.2 both say
+   the `text` field "excludes properties". In a table layout `bodySearch` is the title
+   field's text; in a paragraph, or in a headerless table where nothing is a property, it
+   is the whole scope. Property values are searched with `@Name`, which is the point of
+   having them.
+
+Also: the column holding the marker is not itself a property when its cell contains only
+the marker, and a column marked `isTitle` supplies the title instead of a property.

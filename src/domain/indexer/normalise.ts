@@ -1,4 +1,4 @@
-import { collapseWhitespace, plainText, type PMNode } from '@/domain/doc';
+import { collapseWhitespace, plainText, WITHOUT_MARKERS, type PMNode } from '@/domain/doc';
 
 /**
  * Separator between members of a list-valued property, so that `=` can behave as set
@@ -16,7 +16,9 @@ export const LIST_SEPARATOR = '\u001f';
  * spec: 03-authoring-and-indexing.md §3.1
  */
 export function normaliseSearchText(node: PMNode): string {
-  return normaliseSearchValue(plainText(node));
+  // The marker lozenge is the key, not part of the requirement's text; `key` is its own
+  // RQL field (spec 02 §4).
+  return normaliseSearchValue(plainText(node, WITHOUT_MARKERS));
 }
 
 export function normaliseSearchValue(raw: string): string {

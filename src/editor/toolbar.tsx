@@ -1,6 +1,7 @@
 'use client';
 
 import type { Editor } from '@tiptap/react';
+import { PropertyConfigControl } from './property-config-control';
 
 type Command = { label: string; title: string; run: () => void; active?: boolean };
 
@@ -42,6 +43,7 @@ export function EditorToolbar({ editor, extra }: { editor: Editor; extra?: React
       {commands.map((command) => (
         <Button key={command.label} command={command} />
       ))}
+      <PropertyConfigControl editor={editor} />
       {extra}
     </div>
   );

@@ -15,8 +15,9 @@ describe('scope layouts (spec 03 §2)', () => {
     const first = result.requirements[0]!;
     expect(first.layout).toBe('HORIZONTAL_TABLE');
     expect(first.title).toBe('The system shall log every access.');
-    expect(first.bodySearch).toContain('Security');
-    expect(first.bodySearch).toContain('The system shall log every access.');
+    // RD-027: `text` excludes property values; the excerpt still carries them.
+    expect(first.bodySearch).toBe('The system shall log every access.');
+    expect(first.bodyHtml).toContain('Security');
     // The body excerpt carries the header row so a popup can label the columns.
     expect(first.bodyHtml).toContain('<th><p>Category</p></th>');
     expect(first.anchorPath).toBe('0.1.2.0.0');
@@ -29,10 +30,10 @@ describe('scope layouts (spec 03 §2)', () => {
     const first = result.requirements[0]!;
     expect(first.layout).toBe('VERTICAL_TABLE');
     expect(first.title).toBe('Log every access');
-    expect(first.bodySearch).toContain('Category');
-    expect(first.bodySearch).toContain('Log every access');
+    expect(first.bodySearch).toBe('Log every access');
+    expect(first.bodyHtml).toContain('Category');
     // The other column's values are not part of this requirement.
-    expect(first.bodySearch).not.toContain('Rotate keys');
+    expect(first.bodyHtml).not.toContain('Rotate keys');
   });
 
   it('paragraph and list item: the scope is the whole block', () => {

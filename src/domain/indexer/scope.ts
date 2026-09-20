@@ -7,6 +7,7 @@ import {
   WITHOUT_MARKERS,
   type AnchorPath,
   type PMNode,
+  type TableCell,
   type TableShape,
 } from '@/domain/doc';
 import type { RequirementLayout } from './types';
@@ -38,6 +39,13 @@ export function findNodes(root: PMNode, types: ReadonlySet<string>): Marker[] {
   return found;
 }
 
+/**
+ * One candidate property of a requirement: the cell that names it and the cell that holds
+ * its value. Horizontal layout yields one per column, vertical one per row.
+ * spec: 03-authoring-and-indexing.md §2
+ */
+export type ScopeField = { index: number; header: TableCell | undefined; value: TableCell | undefined };
+
 export type Scope = {
   layout: RequirementLayout;
   /** Identity of the scope within the document; two markers sharing it break rule S1. */
@@ -48,6 +56,10 @@ export type Scope = {
   title: string;
   /** True when a table has neither a header row nor a header column — rule S4. */
   headerless: boolean;
+  /** Name/value cell pairs, in column (horizontal) or row (vertical) order. */
+  fields: ScopeField[];
+  /** The grid index of the cell holding the marker, within `fields`. */
+  markerField: number;
   table?: { node: PMNode; path: AnchorPath; shape: TableShape; row: number; column: number };
 };
 
@@ -90,6 +102,8 @@ export function resolveScope(marker: Marker): Scope {
     body: block.node,
     title: plainText(block.node, WITHOUT_MARKERS),
     headerless: false,
+    fields: [],
+    markerField: -1,
   };
 }
 
@@ -112,12 +126,23 @@ function horizontalScope(
     ],
   };
 
+  const fields: ScopeField[] = [];
+  for (let index = 0; index < shape.columnCount; index += 1) {
+    fields.push({
+      index,
+      header: headerless ? undefined : cellAt(shape, 0, index),
+      value: cellAt(shape, row, index),
+    });
+  }
+
   return {
     layout: 'HORIZONTAL_TABLE',
     id: `table:${table.path}:row:${row}`,
     body,
     title: titleFromHorizontal(shape, row, column),
     headerless,
+    fields,
+    markerField: column,
     table: { node: table.node, path: table.path, shape, row, column },
   };
 }
@@ -135,12 +160,20 @@ function verticalScope(table: Ancestor, shape: TableShape, row: number, column: 
 
   const titleCell = cellAt(shape, 0, column);
 
+  const fields: ScopeField[] = shape.rows.map((_, rowIndex) => ({
+    index: rowIndex,
+    header: cellAt(shape, rowIndex, 0),
+    value: cellAt(shape, rowIndex, column),
+  }));
+
   return {
     layout: 'VERTICAL_TABLE',
     id: `table:${table.path}:col:${column}`,
     body: { type: 'table', content: rows },
     title: titleCell ? plainText(titleCell.node, WITHOUT_MARKERS) : '',
     headerless: false,
+    fields,
+    markerField: row,
     table: { node: table.node, path: table.path, shape, row, column },
   };
 }

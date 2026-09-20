@@ -6,6 +6,7 @@ import TableHeader from '@tiptap/extension-table-header';
 import TableRow from '@tiptap/extension-table-row';
 import StarterKit from '@tiptap/starter-kit';
 import type { Extensions } from '@tiptap/react';
+import { PropertyConfig } from './nodes/property-config';
 import { Requirement } from './nodes/requirement';
 
 /**
@@ -28,5 +29,6 @@ export function baseExtensions(options: { onRequestInsert?: (() => void) | null 
     TableHeader,
     TableCell,
     Requirement.configure({ onRequestInsert: options.onRequestInsert ?? null }),
+    PropertyConfig,
   ];
 }

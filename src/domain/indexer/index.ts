@@ -1,18 +1,21 @@
 import { attr, numericAttr, renderHtml, walk, type PMNode } from '@/domain/doc';
 import { matchesAnyPattern, parsePattern, matchesPattern } from '@/domain/keys/pattern';
 import { checkKey } from '@/domain/keys/validate';
-import { normaliseSearchText } from './normalise';
+import { normaliseSearchText, normaliseSearchValue } from './normalise';
+import { extractProperties } from './properties';
 import { findNodes, resolveScope, type Marker, type Scope } from './scope';
 import type {
   Diagnostic,
   IndexInput,
   IndexResult,
+  IndexedProperty,
   IndexedRequirement,
   SpaceTypeConfig,
 } from './types';
 
 export * from './types';
 export * from './normalise';
+export * from './properties';
 export { findNodes, resolveScope } from './scope';
 export type { Marker, Scope } from './scope';
 
@@ -31,6 +34,7 @@ const LINK_TYPES = new Set(['requirementLink']);
 export function indexDocumentVersion(input: IndexInput): IndexResult {
   const diagnostics: Diagnostic[] = [];
   const requirements: IndexedRequirement[] = [];
+  const properties: IndexedProperty[] = [];
 
   const types = input.space.types ?? [];
   const configuredPatterns = types.map((type) => type.keyPattern);
@@ -119,7 +123,11 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
       });
     }
 
-    requirements.push(buildRequirement(marker, scope, checked.key, checked.upperKey, types));
+    const extracted = extractProperties(scope, checked.key, marker.path);
+    properties.push(...extracted.properties);
+    diagnostics.push(...extracted.diagnostics);
+
+    requirements.push(buildRequirement(marker, scope, checked.key, checked.upperKey, types, extracted));
   }
 
   // Citations: `requirementLink` nodes, plus markers demoted by rules S1 and S2.
@@ -140,9 +148,9 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
 
   return {
     requirements,
-    // Inline properties arrive in slice 4, dependencies in slice 7. The arrays are part of
-    // the contract from the start so consumers do not have to change shape later.
-    properties: [],
+    properties,
+    // Dependencies arrive in slice 7; the array is part of the contract from the start so
+    // consumers do not have to change shape later.
     dependencies: [],
     links,
     diagnostics,
@@ -155,8 +163,10 @@ function buildRequirement(
   key: string,
   upper: string,
   types: readonly SpaceTypeConfig[],
+  extracted: { title: string | null; contentText: string | null },
 ): IndexedRequirement {
-  const title = scope.title.length > 0 ? scope.title : key;
+  const configured = extracted.title !== null && extracted.title.length > 0 ? extracted.title : null;
+  const title = configured ?? (scope.title.length > 0 ? scope.title : key);
   return {
     key,
     upperKey: upper,
@@ -166,7 +176,13 @@ function buildRequirement(
     typeId: attr(marker.node, 'typeId') ?? typeByPattern(types, key),
     title,
     bodyHtml: renderHtml(scope.body),
-    bodySearch: normaliseSearchText(scope.body),
+    // RY's `text` field is "contents; excludes properties" (research §3.2), so in a table
+    // layout `bodySearch` carries the title field's text, not the property cells. A
+    // paragraph or a headerless table has no properties, so the whole scope is the text.
+    bodySearch:
+      extracted.contentText === null
+        ? normaliseSearchText(scope.body)
+        : normaliseSearchValue(extracted.contentText),
     anchorPath: marker.path,
     layout: scope.layout,
   };
