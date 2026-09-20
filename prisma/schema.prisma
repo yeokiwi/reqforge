@@ -82,6 +82,7 @@ model Space {
   baselines    Baseline[]
   types        RequirementType[]
   matrices     SavedMatrix[]
+  searches     SavedSearch[]
   memberships  Membership[]
   createdAt    DateTime          @default(now())
 }
@@ -487,6 +488,22 @@ model SavedMatrix {
   createdAt  DateTime   @default(now())
 
   @@unique([spaceId, name])
+}
+
+/// A named RQL query. Saved searches are per space and owned by a user; visibility
+/// matches SavedMatrix so one sharing model covers both.
+model SavedSearch {
+  id         String   @id @default(cuid())
+  spaceId    String
+  space      Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  name       String
+  query      String
+  visibility String   @default("space") // private | space
+  ownerId    String
+  createdAt  DateTime @default(now())
+
+  @@unique([spaceId, name])
+  @@index([spaceId, ownerId])
 }
 
 enum JobState {

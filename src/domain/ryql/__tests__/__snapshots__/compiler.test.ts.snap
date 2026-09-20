@@ -1,0 +1,69 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`corpus 2 — every field × every valid operator compiles > pins the SQL of one query per field 1`] = `
+[
+  "key = 'x'
+  (r."upperKey" = UPPER($1))
+  params: ["x"]",
+  "key_case_sensitive = 'x'
+  (r."key" = $1)
+  params: ["x"]",
+  "spacekey = 'x'
+  EXISTS (SELECT 1 FROM "Space" s WHERE s.id = r."spaceId" AND (s.key = $1))
+  params: ["x"]",
+  "status = 'ACTIVE'
+  (r."status"::text = UPPER($1))
+  params: ["ACTIVE"]",
+  "text = 'x'
+  (r."bodySearch" = $1)
+  params: ["x"]",
+  "title = 'x'
+  (r."title" = $1)
+  params: ["x"]",
+  "baseline = 3
+  EXISTS (SELECT 1 FROM "Baseline" b WHERE b.id = r."baselineId" AND b.number = $1)
+  params: [3]",
+  "document = 'x'
+  EXISTS ( SELECT 1 FROM "DocumentLink" dl JOIN "DocumentVersion" dv ON dv.id = dl."versionId" JOIN "Document" d ON d.id = dv."documentId" WHERE dl."requirementId" = r.id AND dl.origin AND ((d.id = $1) OR (d.title = $2)) )
+  params: ["x","x"]",
+  "documenthistory = 'x'
+  EXISTS ( SELECT 1 FROM "DocumentLink" dl JOIN "DocumentVersion" dv ON dv.id = dl."versionId" JOIN "Document" d ON d.id = dv."documentId" WHERE dl."requirementId" = r.id AND ((d.id = $1) OR (d.title = $2)) )
+  params: ["x","x"]",
+  "links = 'x'
+  EXISTS ( SELECT 1 FROM "DocumentLink" dl JOIN "DocumentVersion" dv ON dv.id = dl."versionId" JOIN "Document" d ON d.id = dv."documentId" WHERE dl."requirementId" = r.id AND ((d.id = $1) OR (d.title = $2)) )
+  params: ["x","x"]",
+  "page = 'x'
+  EXISTS ( SELECT 1 FROM "DocumentLink" dl JOIN "DocumentVersion" dv ON dv.id = dl."versionId" JOIN "Document" d ON d.id = dv."documentId" WHERE dl."requirementId" = r.id AND dl.origin AND ((d.id = $1) OR (d.title = $2)) )
+  params: ["x","x"]",
+  "pagehistory = 'x'
+  EXISTS ( SELECT 1 FROM "DocumentLink" dl JOIN "DocumentVersion" dv ON dv.id = dl."versionId" JOIN "Document" d ON d.id = dv."documentId" WHERE dl."requirementId" = r.id AND ((d.id = $1) OR (d.title = $2)) )
+  params: ["x","x"]",
+  "@Category = 'x'
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value = $3) )
+  params: ["INLINE","category","x"]",
+  "ext@Category = 'x'
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value = $3) )
+  params: ["EXTERNAL","category","x"]",
+  "to = 'x'
+  EXISTS ( SELECT 1 FROM "Dependency" d JOIN "Requirement" other ON other.id = d."parentId" WHERE d."childId" = r.id AND (other."upperKey" = UPPER($1)) )
+  params: ["x"]",
+  "parent = 'x'
+  EXISTS ( SELECT 1 FROM "Dependency" d JOIN "Requirement" other ON other.id = d."parentId" WHERE d."childId" = r.id AND (other."upperKey" = UPPER($1)) )
+  params: ["x"]",
+  "from = 'x'
+  EXISTS ( SELECT 1 FROM "Dependency" d JOIN "Requirement" other ON other.id = d."childId" WHERE d."parentId" = r.id AND (other."upperKey" = UPPER($1)) )
+  params: ["x"]",
+  "child = 'x'
+  EXISTS ( SELECT 1 FROM "Dependency" d JOIN "Requirement" other ON other.id = d."childId" WHERE d."parentId" = r.id AND (other."upperKey" = UPPER($1)) )
+  params: ["x"]",
+  "rulestatus = 'true'
+  EXISTS ( SELECT 1 FROM "RequirementValidation" rv WHERE rv."requirementId" = r.id AND rv.status::text = $1 )
+  params: ["TRUE"]",
+  "type = 'x'
+  EXISTS (SELECT 1 FROM "RequirementType" t WHERE t.id = r."typeId" AND (t.name = $1))
+  params: ["x"]",
+  "label = 'x'
+  EXISTS (SELECT 1 FROM "RequirementLabel" rl WHERE rl."requirementId" = r.id AND (rl.label = $1))
+  params: ["x"]",
+]
+`;

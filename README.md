@@ -14,8 +14,39 @@ traceability, coverage, baselines, diff) is rebuilt against Reqforge's own store
 
 ## Status
 
-**Pre-slice-0.** This repository currently contains the specification, the plan, and
-the agent team that will build it. No application code has been written yet.
+**Slices 0–6 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
+documents in a rich-text editor, mark requirements inside them, let the indexer project
+them into queryable rows with inline properties, and search them in RQL.
+
+| Slice | What works |
+|---|---|
+| 0 | Next.js + Postgres + Prisma, email/password auth, spaces, seed data, CI |
+| 1 | Document tree, TipTap editor, an immutable version on every save, history view |
+| 2 | The `requirement` marker, the three scope layouts, the pure indexer, requirement pages |
+| 3 | Key validation, key patterns, next-key suggestion, sequences, locking |
+| 4 | `propertyConfig`, column-header properties, title columns, list-valued cells |
+| 5 | RQL lexer, parser and analyser, with the query corpus |
+| 6 | The SQL compiler, the search screen, saved searches, the performance budget |
+
+Not built yet: dependencies and traceability (slices 7–10), external properties and
+requirement types (11–12), baselines, diff and renaming (13–15), and the hardening slices
+(16–18). `baseline was` and `isModified()` parse today and report `NOT_IMPLEMENTED` from
+the compiler until the diff engine lands in slice 14.
+
+## Running it
+
+```bash
+docker compose up -d db          # or any PostgreSQL 16
+cp .env.example .env
+pnpm setup                       # install, migrate, seed
+pnpm dev                         # http://localhost:3000
+```
+
+Seeded accounts: `admin@reqforge.test` / `reqforge-admin`,
+`author@reqforge.test` / `reqforge-author`, `reader@reqforge.test` / `reqforge-reader`.
+
+`pnpm verify` runs typecheck, lint, unit and integration tests, and `prisma validate`.
+`pnpm e2e` runs the Playwright suite.
 
 ## Stack
 
