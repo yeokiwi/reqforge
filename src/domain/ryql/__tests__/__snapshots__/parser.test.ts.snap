@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`corpus 1 — every example query from research §3.8 parses > pins the AST of the representative examples 1`] = `
+[
+  "key = 'IG-1'  =>  key = 'IG-1'",
+  "key ~ 'IG-%'  =>  key ~ 'IG-%'",
+  "key_case_sensitive ~ 'REQ_Work_%'  =>  key_case_sensitive ~ 'REQ_Work_%'",
+  "key ~ 'REQ-%' and not key_case_sensitive ~ 'REQ-%'  =>  (key ~ 'REQ-%' AND NOT key_case_sensitive ~ 'REQ-%')",
+  "text ~ '% something'  =>  text ~ '% something'",
+  "page = 467382  =>  page = 467382",
+  "pageHistory ~ 123  =>  pagehistory ~ 123",
+  "jira = 'JRA-21'  =>  jira = 'JRA-21'",
+  "jira@implements = 'JRA-21'  =>  jira@implements = 'JRA-21'",
+  "NOT (jira ~ '%')  =>  NOT jira ~ '%'",
+  "JIRA IS NULL  =>  jira IS NULL",
+  "@Category = 'Functional'  =>  @Category = 'Functional'",
+  "@status = 'Approved'  =>  @status = 'Approved'",
+  "@Status IN ('New', 'In progress')  =>  @Status IN ('New', 'In progress')",
+  "@Main\\ Category = 'Functional'  =>  @'Main Category' = 'Functional'",
+  "@ReleaseDate > '2026-06-30'  =>  @ReleaseDate > '2026-06-30'",
+  "@Property > 5  =>  @Property > 5",
+  "ext@Category = 'Functional'  =>  ext@Category = 'Functional'",
+  "TO = 'REQ-001'  =>  to = 'REQ-001'",
+  "FROM = 'REQ-001'  =>  from = 'REQ-001'",
+  "FROM ~ 'REQ-%'  =>  from ~ 'REQ-%'",
+  "FROM@refines = 'REQ-001'  =>  from@refines = 'REQ-001'",
+  "isModified('7')  =>  ismodified('7')",
+  "baseline = 3  =>  baseline = 3",
+  "baseline was 3  =>  baseline was 3",
+  "baseline = 4 and baseline was 3  =>  (baseline = 4 AND baseline was 3)",
+  "baseline = 'My Baseline'  =>  baseline = 'My Baseline'",
+  "ruleStatus = 'false'  =>  rulestatus = 'false'",
+  "hasLastTest('%Success%')  =>  haslasttest('%Success%')",
+  "excel = '48496653'  =>  excel = '48496653'",
+  "key ~ 'FN%' AND NOT (@Property = 'Functional' AND @Component = 'Core')  =>  (key ~ 'FN%' AND NOT (@Property = 'Functional' AND @Component = 'Core'))",
+]
+`;

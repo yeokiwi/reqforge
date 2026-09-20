@@ -59,7 +59,9 @@ export default tseslint.config(
         'error',
         { selector: 'ExportDefaultDeclaration', message: 'No default exports (CLAUDE.md).' },
         {
-          selector: "Literal[value=/\\bSELECT\\b|\\bFROM\\b|\\bWHERE\\b/i]",
+          // A literal that reads like SQL, not prose that happens to contain "from".
+          selector:
+            "Literal[value=/\\bselect\\b[\\s\\S]*\\bfrom\\b|\\binsert\\s+into\\b|\\bdelete\\s+from\\b|\\bupdate\\b[\\s\\S]*\\bset\\b|\\bjoin\\b[\\s\\S]*\\bon\\b/i]",
           message: 'spec 02 §1: the lexer, parser and analyser are pure. Only compiler.ts emits SQL.',
         },
       ],

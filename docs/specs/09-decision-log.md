@@ -207,3 +207,10 @@ decisions, because they are one mechanism:
 
 Also: the column holding the marker is not itself a property when its cell contains only
 the marker, and a column marked `isTitle` supplies the title instead of a property.
+
+### RD-028 — `~` on document-id fields is a case-insensitive match on the id
+**accepted.** Research §3.2 marks `~` as "undefined" for `pageHistory` and `links`, yet
+§3.8 lists `pageHistory ~ 123` as a documented example, so the corpus requires it to
+parse. Ours: `document`, `documentHistory` and `links` accept `~`, compiled as `ILIKE`
+over the id, which is meaningful because Reqforge's ids are text. It costs nothing and
+keeps every documented Requirement Yogi query working.

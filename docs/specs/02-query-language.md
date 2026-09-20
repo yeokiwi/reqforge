@@ -186,10 +186,15 @@ query overrides it — matching Cloud's documented rule.
 
 ## 9. Errors
 
-Every failure carries `{ code, message, offset, length, hint }` so the editor can
-underline. Codes: `UNKNOWN_FIELD`, `UNKNOWN_FUNCTION`, `BAD_OPERATOR_FOR_FIELD`,
+Every failure carries `{ code, message, offset, length, hint, severity }` so the editor
+can underline. Codes: `UNKNOWN_FIELD`, `UNKNOWN_FUNCTION`, `BAD_OPERATOR_FOR_FIELD`,
 `TYPE_MISMATCH`, `UNTERMINATED_STRING`, `TRAVERSAL_TOO_DEEP`, `AMBIGUOUS_PRECEDENCE`
-(warning), `NOT_IMPLEMENTED`.
+(warning), `CROSS_SPACE_NOT_ALLOWED`, `SYNTAX_ERROR`, `NOT_IMPLEMENTED`.
+
+`CROSS_SPACE_NOT_ALLOWED` is raised when a query run from an isolated space names another
+space (`07` §3). `SYNTAX_ERROR` covers everything the grammar itself rejects — a missing
+operator, an unclosed parenthesis, a trailing token. A deprecated alias (`RD-002`) reports
+`UNKNOWN_FIELD` at **warning** severity and still compiles.
 
 `UNKNOWN_FIELD` suggests the nearest known field by edit distance, and specifically maps
 `page` → `document`, `pageHistory` → `documentHistory`, `jira` → "not supported".
