@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import type { PMNode } from '@/domain/doc';
 import type { Diagnostic } from '@/domain/indexer';
 import { baseExtensions } from './extensions';
-import { RequirementInsert } from './requirement-insert';
+import { RequirementInsert, type KeySuggester } from './requirement-insert';
 import { EditorToolbar } from './toolbar';
 
 export type SaveResult =
@@ -19,6 +19,7 @@ export function DocumentEditor({
   canEdit,
   initialDiagnostics,
   onSave,
+  suggestKey,
 }: {
   documentId: string;
   initialContent: PMNode;
@@ -28,6 +29,7 @@ export function DocumentEditor({
   /** The body is sent as JSON text: ProseMirror's `attrs` objects have a null prototype,
    *  which a React server action cannot serialise. */
   onSave: (documentId: string, contentJson: string) => Promise<SaveResult>;
+  suggestKey?: KeySuggester;
 }) {
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
@@ -79,7 +81,7 @@ export function DocumentEditor({
             editor={editor}
             extra={
               <div className="ml-auto flex items-center gap-3">
-                <RequirementInsert editor={editor} focusSignal={focusSignal} />
+                <RequirementInsert editor={editor} focusSignal={focusSignal} suggestKey={suggestKey} />
                 <span data-testid="editor-status" className="text-xs text-[var(--rf-muted)]">
                   {dirty ? 'Unsaved changes' : status}
                 </span>

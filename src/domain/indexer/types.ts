@@ -76,11 +76,19 @@ export type IndexResult = {
   diagnostics: Diagnostic[];
 };
 
+/** A requirement type, reduced to what indexing needs. spec: 06-requirement-types.md §1 */
+export type SpaceTypeConfig = {
+  id: string;
+  name: string | null;
+  keyPattern: string;
+  /** spec: 03 §4.3 — with any type locked, a key matching no configured pattern is refused. */
+  locked: boolean;
+};
+
 /** Everything the indexer needs beyond the document itself. It reads no database. */
 export type SpaceConfig = {
   key: string;
-  /** spec: 03 §4.3 — when set, keys matching no configured pattern are refused. */
-  lockedKeyPatterns?: readonly string[] | null;
+  types?: readonly SpaceTypeConfig[];
 };
 
 export type IndexInput = {

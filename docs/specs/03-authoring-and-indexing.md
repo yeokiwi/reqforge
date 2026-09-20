@@ -143,6 +143,9 @@ part. Suggestion:
 3. `nextSequence` advances on use and **does not rewind on delete** (research §2.3).
 4. A "reset sequence" action rewinds it to `highestExistingNumber + 1`, gated on
    `preventReusingDeletedKeys = false` and the edit-space permission.
+5. "Existing" depends on that same flag (`RD-026`): with it on, every key the space has
+   ever used counts, including `DELETED` ones; with it off, only keys that are not
+   `DELETED` count. Keys captured in a baseline always count, under either setting.
 
 ### 4.3 Locking
 

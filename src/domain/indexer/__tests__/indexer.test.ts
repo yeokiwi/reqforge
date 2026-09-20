@@ -150,3 +150,44 @@ describe('contract I1 — determinism', () => {
     expect(early.requirements.map(strip)).toEqual(late.requirements.map(strip));
   });
 });
+
+describe('key locking and type inference (spec 03 §4.3, 06 §1)', () => {
+  const types = [
+    { id: 'type-fn', name: 'Functional', keyPattern: 'FN-###', locked: true },
+    { id: 'type-br', name: null, keyPattern: 'BR-###', locked: false },
+  ];
+
+  it('assigns the type whose pattern the key matches', () => {
+    const result = indexDocumentVersion({
+      content: doc(para(marker('FN-001'), text(' Functional.')), para(marker('BR-002'), text(' Business.'))),
+      space: { key: 'SJ', types },
+    });
+    expect(result.requirements.map((r) => r.typeId)).toEqual(['type-fn', 'type-br']);
+  });
+
+  it('an explicit typeId on the marker wins over the pattern', () => {
+    const result = indexDocumentVersion({
+      content: doc(para({ type: 'requirement', attrs: { key: 'FN-001', typeId: 'type-br' } })),
+      space: { key: 'SJ', types },
+    });
+    expect(result.requirements[0]!.typeId).toBe('type-br');
+  });
+
+  it('with locking on, a key matching no configured pattern is KEY_NOT_ALLOWED', () => {
+    const result = indexDocumentVersion({
+      content: doc(para(marker('XX-001'), text(' Off pattern.'))),
+      space: { key: 'SJ', types },
+    });
+    expect(result.diagnostics.map((d) => d.code)).toContain('KEY_NOT_ALLOWED');
+    // The row is still indexed: the diagnostic is the enforcement surface, not data loss.
+    expect(result.requirements.map((r) => r.key)).toEqual(['XX-001']);
+  });
+
+  it('with no type locked, any valid key is accepted', () => {
+    const result = indexDocumentVersion({
+      content: doc(para(marker('XX-001'), text(' Off pattern.'))),
+      space: { key: 'SJ', types: types.map((type) => ({ ...type, locked: false })) },
+    });
+    expect(result.diagnostics).toHaveLength(0);
+  });
+});

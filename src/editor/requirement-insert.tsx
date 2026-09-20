@@ -8,13 +8,36 @@ import type { Editor } from '@tiptap/react';
  * the space's key patterns; the insertion path itself does not change.
  * spec: 03-authoring-and-indexing.md §6
  */
-export function RequirementInsert({ editor, focusSignal }: { editor: Editor; focusSignal: number }) {
+export type KeySuggester = () => Promise<{ key: string } | { error: string }>;
+
+export function RequirementInsert({
+  editor,
+  focusSignal,
+  suggestKey,
+}: {
+  editor: Editor;
+  focusSignal: number;
+  suggestKey?: KeySuggester;
+}) {
   const [key, setKey] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (focusSignal > 0) input.current?.focus();
   }, [focusSignal]);
+
+  const suggest = async () => {
+    if (!suggestKey) return;
+    const result = await suggestKey();
+    if ('error' in result) {
+      setProblem(result.error);
+      return;
+    }
+    setProblem(null);
+    setKey(result.key);
+    input.current?.focus();
+  };
 
   const insert = () => {
     const trimmed = key.trim();
@@ -39,6 +62,16 @@ export function RequirementInsert({ editor, focusSignal }: { editor: Editor; foc
         aria-label="Requirement key"
         className="w-28 rounded border border-[var(--rf-line)] px-2 py-1 text-xs"
       />
+      {suggestKey ? (
+        <button
+          type="button"
+          onClick={() => void suggest()}
+          title="Suggest the next key from this space's patterns"
+          className="rounded bg-[var(--rf-bg)] px-2 py-1 text-xs"
+        >
+          Suggest
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={insert}
@@ -47,6 +80,11 @@ export function RequirementInsert({ editor, focusSignal }: { editor: Editor; foc
       >
         + Requirement
       </button>
+      {problem ? (
+        <span role="alert" className="text-xs text-red-600">
+          {problem}
+        </span>
+      ) : null}
     </div>
   );
 }

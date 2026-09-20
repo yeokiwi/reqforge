@@ -5,6 +5,7 @@ import type { Diagnostic } from '@/domain/indexer';
 import { requireSpace } from '@/server/authz';
 import { listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { openDocument } from '@/server/usecases/documents';
+import { suggestKeyAction } from '../../admin/keys/actions';
 import { RequirementPopup } from '../../r/requirement-popup';
 import { deleteDocumentAction, renameDocumentAction, saveDocumentAction } from '../actions';
 
@@ -68,6 +69,7 @@ export default async function DocumentPage({
           canEdit={can('EDIT')}
           initialDiagnostics={diagnostics}
           onSave={saveDocumentAction.bind(null, spaceKey)}
+          suggestKey={suggestKeyAction.bind(null, spaceKey, docId)}
         />
       </RequirementPopup>
     </main>

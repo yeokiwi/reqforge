@@ -174,3 +174,15 @@ marker creates no row and instead writes a `KEY_CONFLICT` error, and a mirror ro
 written against the owning document, so the conflict is visible in both editors and on the
 Conflicts screen. Nothing is silently picked and nothing is hidden, which is what S3 was
 protecting. Diagnostics are persisted in `IndexDiagnostic`, rewritten on every index.
+
+### RD-026 — `preventReusingDeletedKeys` decides whether deleted keys still block reuse
+**accepted.** Spec `03` §4.2 uses "highest existing number" for both the suggestion
+(step 2) and the reset action (step 4) without saying whether a `DELETED` requirement
+counts as existing. Read one way, reset is a no-op; read the other, the sequence rewinds
+under a type that is supposed to protect deleted keys. Ours: the flag decides.
+`preventReusingDeletedKeys = true` (the default, and Requirement Yogi's behaviour per
+research §2.3) counts every key the space has ever used, so the sequence survives
+deletion. With it **off**, `DELETED` keys stop counting and become reusable — which is
+what "reset sequence", gated on exactly that flag, exists to do. Keys captured in a
+baseline always count, under either setting: a baselined key names a frozen requirement
+forever (invariant R2) and must never be reissued.

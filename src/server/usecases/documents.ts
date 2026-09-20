@@ -2,6 +2,7 @@ import { isPMNode, type PMNode } from '@/domain/doc';
 import { NotFoundError, ValidationError } from '@/domain/errors';
 import { indexDocumentVersion, type Diagnostic } from '@/domain/indexer';
 import { applyIndexResult } from '@/server/repositories/requirements';
+import { listRequirementTypes } from '@/server/repositories/requirement-types';
 import { requireSpace } from '@/server/authz';
 import {
   createDocument,
@@ -79,7 +80,19 @@ export async function saveDocumentUseCase(input: {
   if (!document) throw new NotFoundError('That document no longer exists.');
 
   const content = input.content as PMNode;
-  const indexed = indexDocumentVersion({ content, space: { key: space.key } });
+  const types = await listRequirementTypes(space.id);
+  const indexed = indexDocumentVersion({
+    content,
+    space: {
+      key: space.key,
+      types: types.map((type) => ({
+        id: type.id,
+        name: type.name,
+        keyPattern: type.keyPattern,
+        locked: type.locked,
+      })),
+    },
+  });
 
   let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: indexed.diagnostics };
 

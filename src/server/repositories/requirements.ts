@@ -1,5 +1,6 @@
 import type { Prisma, Requirement } from '@prisma/client';
 import type { Diagnostic, IndexResult } from '@/domain/indexer';
+import { advanceSequencesForKeys } from './requirement-types';
 import { prisma } from './client';
 
 export type ApplyIndexInput = {
@@ -113,6 +114,9 @@ export async function applyIndexResult(
       data: { status: 'DELETED', updatedById: input.actorId },
     });
   }
+
+  // spec 03 §4.2 step 3 — using a key advances its type's sequence and never rewinds it.
+  await advanceSequencesForKeys(tx, input.spaceId, indexedKeys);
 
   await rewriteDerivedRows(tx, input, definedHere, diagnostics);
   await rewriteDiagnostics(tx, input, diagnostics, conflicts);

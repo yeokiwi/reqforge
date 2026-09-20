@@ -1,4 +1,5 @@
 import { attr, numericAttr, renderHtml, walk, type PMNode } from '@/domain/doc';
+import { matchesAnyPattern, parsePattern, matchesPattern } from '@/domain/keys/pattern';
 import { checkKey } from '@/domain/keys/validate';
 import { normaliseSearchText } from './normalise';
 import { findNodes, resolveScope, type Marker, type Scope } from './scope';
@@ -7,6 +8,7 @@ import type {
   IndexInput,
   IndexResult,
   IndexedRequirement,
+  SpaceTypeConfig,
 } from './types';
 
 export * from './types';
@@ -30,6 +32,10 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
   const diagnostics: Diagnostic[] = [];
   const requirements: IndexedRequirement[] = [];
 
+  const types = input.space.types ?? [];
+  const configuredPatterns = types.map((type) => type.keyPattern);
+  const lockingIsOn = types.some((type) => type.locked);
+
   const markers = findNodes(input.content, MARKER_TYPES);
   const scopeOwner = new Map<string, string>(); // scope id -> key that claimed it
   const definedKeys = new Map<string, Marker>(); // upperKey -> defining marker
@@ -49,6 +55,17 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
         key: rawKey,
       });
       continue;
+    }
+
+    if (lockingIsOn && !matchesAnyPattern(configuredPatterns, checked.key)) {
+      // spec 03 §4.3 — the row is still indexed; the diagnostic is what the editor shows.
+      diagnostics.push({
+        code: 'KEY_NOT_ALLOWED',
+        severity: 'error',
+        message: `${checked.key} matches none of this space's key patterns (${configuredPatterns.join(', ')}).`,
+        path: marker.path,
+        key: checked.key,
+      });
     }
 
     const scope = resolveScope(marker);
@@ -102,7 +119,7 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
       });
     }
 
-    requirements.push(buildRequirement(marker, scope, checked.key, checked.upperKey));
+    requirements.push(buildRequirement(marker, scope, checked.key, checked.upperKey, types));
   }
 
   // Citations: `requirementLink` nodes, plus markers demoted by rules S1 and S2.
@@ -132,7 +149,13 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
   };
 }
 
-function buildRequirement(marker: Marker, scope: Scope, key: string, upper: string): IndexedRequirement {
+function buildRequirement(
+  marker: Marker,
+  scope: Scope,
+  key: string,
+  upper: string,
+  types: readonly SpaceTypeConfig[],
+): IndexedRequirement {
   const title = scope.title.length > 0 ? scope.title : key;
   return {
     key,
@@ -140,13 +163,25 @@ function buildRequirement(marker: Marker, scope: Scope, key: string, upper: stri
     // A stable uid survives renames (spec 03 §1.1). The fallback is derived from the key
     // rather than generated, so contract I1 (determinism) holds for older documents.
     uid: attr(marker.node, 'uid') ?? `auto-${upper}`,
-    typeId: attr(marker.node, 'typeId') ?? null,
+    typeId: attr(marker.node, 'typeId') ?? typeByPattern(types, key),
     title,
     bodyHtml: renderHtml(scope.body),
     bodySearch: normaliseSearchText(scope.body),
     anchorPath: marker.path,
     layout: scope.layout,
   };
+}
+
+/**
+ * A marker without an explicit type takes the type whose pattern its key matches.
+ * spec: 06-requirement-types.md §1 — a type *is* its key pattern; research §2.3.
+ */
+function typeByPattern(types: readonly SpaceTypeConfig[], key: string): string | null {
+  for (const type of types) {
+    const parsed = parsePattern(type.keyPattern);
+    if (parsed.ok && matchesPattern(parsed.pattern, key)) return type.id;
+  }
+  return null;
 }
 
 function containsImage(node: PMNode): boolean {
