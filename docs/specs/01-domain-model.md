@@ -5,6 +5,21 @@ explains the *why* and states the invariants the schema cannot express.
 
 ## Entities
 
+### User, Group, Session
+
+Reqforge owns authentication, because there is no Confluence to delegate it to. This is
+not a Requirement Yogi divergence — RY has no opinion here — so it carries no `RD-` entry.
+
+- `User` — `email` (unique, lower-cased), `name`, `passwordHash` (scrypt, encoded
+  `scrypt$<salt>$<hash>`), `isAdmin` for instance-level administration.
+- `Group` / `GroupMember` — subjects for permissions alongside users
+  (`07-permissions-and-limits.md` §2).
+- `Session` — server-side session record (`id`, `userId`, `expiresAt`). The cookie carries
+  `<id>.<HMAC(id)>`; expiry and revocation are decided server-side, never by the client.
+  A tampered id is rejected before it reaches the database.
+- `Membership` — `(space, user | group) → SpacePermission[]`. Effective permissions are the
+  **union** of every membership matching the user directly or through one of their groups.
+
 ### Space
 
 A container for documents and requirements. Owns: key-suggestion sequences, requirement

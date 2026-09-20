@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: reqforge
+      POSTGRES_PASSWORD: reqforge
+      POSTGRES_DB: reqforge
+    ports:
+      - '5432:5432'
+    volumes:
+      - reqforge-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U reqforge']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  reqforge-db:
