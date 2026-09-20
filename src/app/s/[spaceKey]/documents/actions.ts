@@ -2,8 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import type { PMNode } from '@/domain/doc';
-import { isAppError } from '@/domain/errors';
+import { isAppError, ValidationError } from '@/domain/errors';
 import {
   createDocumentUseCase,
   deleteDocumentUseCase,
@@ -43,13 +42,17 @@ export async function createDocumentAction(
 export async function saveDocumentAction(
   spaceKey: string,
   documentId: string,
-  content: PMNode,
-): Promise<{ versionNumber: number } | { error: string }> {
+  contentJson: string,
+): Promise<Awaited<ReturnType<typeof saveDocumentUseCase>> | { error: string }> {
   try {
+    const content: unknown = JSON.parse(contentJson);
     const result = await saveDocumentUseCase({ spaceKey, documentId, content });
     revalidatePath(`/s/${spaceKey}/documents/${documentId}`);
     return result;
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return { error: new ValidationError('The editor sent a document body that is not valid JSON.').message };
+    }
     return { error: message(error) };
   }
 }

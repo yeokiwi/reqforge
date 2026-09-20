@@ -141,3 +141,36 @@ recursive CTE with a visited-set guard and the same cap.
 implemented. `UNKNOWN_FIELD` maps them to an explanatory message rather than a
 did-you-mean. Integration links (`08` §8) will introduce a generic `externalLink` field
 when they land, not a vendor-named one.
+
+### RD-023 — Table layout precedence: a header row wins over a header column
+**accepted.** Spec `03` §2 defines the horizontal layout by "a table with a header row"
+and the vertical layout by "a table whose *first column* is the header", but says nothing
+about a table that has both, which is common as soon as someone styles the first column.
+Ours: **if the table has a header row, the layout is horizontal**; the vertical layout
+applies only when there is a header column and no header row. A table with neither is
+treated as horizontal (the row is the scope) and every requirement in it carries the
+`TABLE_HAS_NO_HEADER` warning of rule S4. *Why:* the horizontal layout is Requirement
+Yogi's documented common case (research §2.1), and in a both-headers table the column
+headers still name the properties, so the horizontal reading loses nothing. Requirement
+Yogi's documentation does not state a rule; this is ours.
+
+### RD-024 — `bodySearch` keeps its original case; `~` compiles to `ILIKE`
+**supersedes the `bodySearchCI` sentence in `03` §3.1.** That spec step called for a
+second, lowercased generated column for the `~` path. A generated column doubles the
+storage of the largest text field in the largest table to buy what PostgreSQL's `ILIKE`
+already does, and it would make `text = 'Exact'` (which spec `02` §5 defines as strict
+equality) impossible to answer from the same column. Ours: one `bodySearch` column in
+original case; `~` and `LIKE` compile to `ILIKE`; case-insensitive lookups are backed by
+an index on `lower("bodySearch")`. The normalisation pipeline is otherwise unchanged:
+strip markup → collapse whitespace → NFKC → `\x1f`-separated list members.
+
+### RD-025 — Rule S3 keeps one row per key; the conflict is recorded against both documents
+**accepted.** Spec `03` rule S3 said a key defined in two documents of one space keeps
+"both rows", which invariant R1 (`01`) makes impossible: `(spaceId, upperKey, baselineId)`
+is unique with NULL baselines colliding, so a space cannot hold two live rows for one key.
+R1 is one of the four load-bearing decisions in `CLAUDE.md` and outranks the wording of
+S3. Ours: the **first** definition keeps the requirement row; the second document's
+marker creates no row and instead writes a `KEY_CONFLICT` error, and a mirror row is
+written against the owning document, so the conflict is visible in both editors and on the
+Conflicts screen. Nothing is silently picked and nothing is hidden, which is what S3 was
+protecting. Diagnostics are persisted in `IndexDiagnostic`, rewritten on every index.

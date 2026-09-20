@@ -46,28 +46,14 @@ function wrapMarks(html: string, marks: PMMark[] | undefined): string {
 }
 
 /**
- * Renders a node to HTML. Custom nodes (`requirement`, `requirementLink`,
- * `propertyConfig`) register renderers here so the indexer, the read-only version view
- * and the requirement popup all produce the same markup.
+ * Renders a node to HTML, including the three custom nodes of spec 03 §1, so that the
+ * indexer, the read-only version view and the requirement popup all produce the same
+ * markup.
  *
  * Deliberately *not* ProseMirror's own `DOMSerializer`: this runs on the server with no
  * DOM, and the indexer (spec 03 §3, "pure") must not pull in a browser shim.
  */
-export type CustomRenderer = (node: PMNode, renderChildren: (node: PMNode) => string) => string | null;
-
-const customRenderers = new Map<string, CustomRenderer>();
-
-export function registerNodeRenderer(type: string, renderer: CustomRenderer): void {
-  customRenderers.set(type, renderer);
-}
-
 export function renderHtml(node: PMNode): string {
-  const custom = customRenderers.get(node.type);
-  if (custom) {
-    const rendered = custom(node, renderHtml);
-    if (rendered !== null) return rendered;
-  }
-
   if (typeof node.text === 'string') {
     return wrapMarks(escapeHtml(node.text), node.marks);
   }
@@ -108,6 +94,27 @@ export function renderHtml(node: PMNode): string {
       return `<th${spanAttrs(node)}>${inner}</th>`;
     case 'tableCell':
       return `<td${spanAttrs(node)}>${inner}</td>`;
+    case 'requirement': {
+      // spec: 03-authoring-and-indexing.md §1.1 — "Rendered inline as a lozenge."
+      const key = escapeHtml(attr(node, 'key') ?? '');
+      return `<span class="rf-req" data-key="${key}">${key}</span>`;
+    }
+    case 'requirementLink': {
+      // spec: 03-authoring-and-indexing.md §1.2
+      const key = escapeHtml(attr(node, 'key') ?? '');
+      const space = attr(node, 'spaceKey');
+      const baseline = numericAttr(node, 'baselineNumber');
+      const label = space ? `${escapeHtml(space)}/${key}` : key;
+      const suffix = baseline !== undefined ? `@${baseline}` : '';
+      return `<span class="rf-req-link" data-key="${key}"${
+        space ? ` data-space="${escapeHtml(space)}"` : ''
+      }>${label}${suffix}</span>`;
+    }
+    case 'propertyConfig': {
+      // spec: 03-authoring-and-indexing.md §1.3 — configuration, not content. The column
+      // header's own text renders; the configuration itself is invisible in the excerpt.
+      return inner;
+    }
     case 'image': {
       const src = safeUrl(attr(node, 'src'));
       if (!src) return '';

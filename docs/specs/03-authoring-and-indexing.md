@@ -67,13 +67,20 @@ later occurrences of the same key become links to it — RY's documented duplica
 behaviour (research §6.1), applied uniformly rather than only on Word paste.
 
 **Rule S3.** A key defined in two different documents of the same space is a **conflict**.
-Both rows are kept, both flagged `KEY_CONFLICT`, both shown in red in the UI and listed
-on the Broken Links / Conflicts screen. We do not silently pick a winner. RY's own
+The **first** definition keeps the requirement row — invariant R1 permits only one live
+row per key — and the second document's marker produces no row. Both documents are
+flagged `KEY_CONFLICT`, shown in red in the UI and listed on the Broken Links / Conflicts
+screen. We do not silently pick a winner and we hide neither definition. RY's own
 behaviour here is "surfaces in bright red for manual resolution" (research §2.2).
+See `RD-025`; diagnostics are persisted per document in `IndexDiagnostic`.
 
 **Rule S4.** Table layout is decided by the presence of a header row or header column. A
 table with neither produces a **warning** on every requirement in it, matching RY's
-"grey first row that is not a real header" warning case (research §2.4).
+"grey first row that is not a real header" warning case (research §2.4), and is read as
+horizontal so the row is still the scope.
+
+**Rule S5.** A table with **both** a header row and a header column is horizontal: the
+header row wins (`RD-023`).
 
 ## 3. The indexer contract
 
@@ -109,9 +116,13 @@ headless pipelines. Reqforge extracts everything during indexing. This is `RD-00
 
 ### 3.1 `bodySearch` normalisation
 
-In order: strip markup → collapse whitespace → normalise Unicode to NFKC → lowercase for
-the `~` path (a separate `bodySearchCI` generated column) → serialise list-valued cells
-as `\x1f`-separated members so `=` can be set membership (research §3.7, invariant R3).
+In order: strip markup → collapse whitespace → normalise Unicode to NFKC → serialise
+list-valued cells as `\x1f`-separated members so `=` can be set membership
+(research §3.7, invariant R3).
+
+The column keeps its original case and `~` compiles to `ILIKE`, backed by an index on
+`lower("bodySearch")`. There is no `bodySearchCI` column — see `RD-024`, which supersedes
+the earlier lowercasing step.
 
 ## 4. Keys
 

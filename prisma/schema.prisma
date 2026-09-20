@@ -121,6 +121,8 @@ model Document {
   currentVersionId String?         @unique
   versions         DocumentVersion[] @relation("DocVersions")
   restrictions     DocumentRestriction[]
+  diagnostics      IndexDiagnostic[]     @relation("DiagnosticDocument")
+  causedDiagnostics IndexDiagnostic[]    @relation("DiagnosticRelated")
   createdAt        DateTime @default(now())
   deletedAt        DateTime?
 
@@ -160,6 +162,29 @@ model DocumentVersion {
   links        DocumentLink[]
 
   @@unique([documentId, number])
+}
+
+/// Indexer output that is not a requirement: the diagnostics catalogue of spec 03 §7.
+/// Rewritten whenever the document is indexed. A KEY_CONFLICT (rule S3) writes one row
+/// against each document involved, with `relatedDocument` pointing at the other, so both
+/// editors see it and neither definition is hidden.
+model IndexDiagnostic {
+  id                String   @id @default(cuid())
+  documentId        String
+  document          Document @relation("DiagnosticDocument", fields: [documentId], references: [id], onDelete: Cascade)
+  versionId         String?
+  code              String
+  severity          String // 'error' | 'warning'
+  message           String
+  path              String
+  key               String?
+  relatedDocumentId String?
+  relatedDocument   Document? @relation("DiagnosticRelated", fields: [relatedDocumentId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+
+  @@index([documentId])
+  @@index([relatedDocumentId])
+  @@index([code])
 }
 
 // ---------------------------------------------------------------- requirements

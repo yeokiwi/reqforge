@@ -1,5 +1,7 @@
 import { isPMNode, type PMNode } from '@/domain/doc';
 import { NotFoundError, ValidationError } from '@/domain/errors';
+import { indexDocumentVersion, type Diagnostic } from '@/domain/indexer';
+import { applyIndexResult } from '@/server/repositories/requirements';
 import { requireSpace } from '@/server/authz';
 import {
   createDocument,
@@ -50,12 +52,24 @@ export async function createDocumentUseCase(input: {
   });
 }
 
+export type SaveOutcome = {
+  versionNumber: number;
+  diagnostics: Diagnostic[];
+  requirements: { created: number; updated: number; deleted: number };
+};
+
+/**
+ * Saving is indexing. The new version and the requirement rows it projects are written in
+ * one transaction, so a requirement can never reference a version that does not exist and
+ * the history row carries the editing actor (RD-014).
+ * spec: 00-overview.md decision 2; 03-authoring-and-indexing.md §3
+ */
 export async function saveDocumentUseCase(input: {
   spaceKey: string;
   documentId: string;
   content: unknown;
   message?: string | null;
-}): Promise<{ versionNumber: number }> {
+}): Promise<SaveOutcome> {
   const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
 
   if (!isPMNode(input.content) || input.content.type !== 'doc') {
@@ -64,14 +78,37 @@ export async function saveDocumentUseCase(input: {
   const document = await findDocument(space.id, input.documentId);
   if (!document) throw new NotFoundError('That document no longer exists.');
 
+  const content = input.content as PMNode;
+  const indexed = indexDocumentVersion({ content, space: { key: space.key } });
+
+  let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: indexed.diagnostics };
+
   const version = await saveDocumentVersion({
     documentId: document.id,
-    content: input.content as PMNode,
+    content,
     authorId: user.id,
     message: input.message ?? null,
+    onVersion: async (tx, created) => {
+      outcome = await applyIndexResult(tx, {
+        spaceId: space.id,
+        spaceKey: space.key,
+        documentId: document.id,
+        versionId: created.id,
+        actorId: user.id,
+        result: indexed,
+      });
+    },
   });
 
-  return { versionNumber: version.number };
+  return {
+    versionNumber: version.number,
+    diagnostics: outcome.diagnostics,
+    requirements: {
+      created: outcome.created.length,
+      updated: outcome.updated.length,
+      deleted: outcome.deleted.length,
+    },
+  };
 }
 
 export async function renameDocumentUseCase(spaceKey: string, documentId: string, title: unknown): Promise<void> {

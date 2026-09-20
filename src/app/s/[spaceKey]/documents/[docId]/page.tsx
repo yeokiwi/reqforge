@@ -1,8 +1,11 @@
 import Link from 'next/link';
 import { emptyDocument, type PMNode } from '@/domain/doc';
 import { DocumentEditor } from '@/editor/document-editor';
+import type { Diagnostic } from '@/domain/indexer';
 import { requireSpace } from '@/server/authz';
+import { listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { openDocument } from '@/server/usecases/documents';
+import { RequirementPopup } from '../../r/requirement-popup';
 import { deleteDocumentAction, renameDocumentAction, saveDocumentAction } from '../actions';
 
 export default async function DocumentPage({
@@ -14,6 +17,13 @@ export default async function DocumentPage({
   const { can } = await requireSpace(spaceKey);
   const document = await openDocument(spaceKey, docId);
   const content = (document.currentVersion?.content as PMNode | undefined) ?? emptyDocument();
+  const diagnostics: Diagnostic[] = (await listDocumentDiagnostics(docId)).map((row) => ({
+    code: row.code as Diagnostic['code'],
+    severity: row.severity === 'error' ? 'error' : 'warning',
+    message: row.message,
+    path: row.path,
+    ...(row.key ? { key: row.key } : {}),
+  }));
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8">
@@ -50,13 +60,16 @@ export default async function DocumentPage({
         </div>
       ) : null}
 
-      <DocumentEditor
-        documentId={docId}
-        initialContent={content}
-        currentVersion={document.currentVersion?.number ?? 1}
-        canEdit={can('EDIT')}
-        onSave={saveDocumentAction.bind(null, spaceKey)}
-      />
+      <RequirementPopup spaceKey={spaceKey}>
+        <DocumentEditor
+          documentId={docId}
+          initialContent={content}
+          currentVersion={document.currentVersion?.number ?? 1}
+          canEdit={can('EDIT')}
+          initialDiagnostics={diagnostics}
+          onSave={saveDocumentAction.bind(null, spaceKey)}
+        />
+      </RequirementPopup>
     </main>
   );
 }

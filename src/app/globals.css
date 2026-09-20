@@ -39,3 +39,27 @@ body {
 .rf-prose td { border: 1px solid var(--rf-line); padding: 0.4rem 0.6rem; vertical-align: top; }
 .rf-prose th { background: var(--rf-bg); text-align: left; font-weight: 600; }
 .rf-prose .selectedCell { background: rgba(59, 91, 219, 0.08); }
+
+/* Requirement marker lozenge — spec 03 §1.1. */
+.rf-req {
+  display: inline-block;
+  border-radius: 0.25rem;
+  background: #e7ecfd;
+  color: #21316e;
+  border: 1px solid #c3cef8;
+  padding: 0 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.rf-req-link {
+  display: inline-block;
+  border-radius: 0.25rem;
+  background: var(--rf-bg);
+  color: var(--rf-muted);
+  border: 1px dashed var(--rf-line);
+  padding: 0 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8em;
+}
