@@ -9,7 +9,7 @@ contradictory implementations of the same rule in the same week.
 | `spec-keeper` | `docs/**` | everything | Ambiguity, spec drift, new decisions, slice kick-off and sign-off |
 | `domain-modeler` | `prisma/**`, `src/server/repositories/**` | `01`, `06` | Schema, migrations, invariants, external properties, requirement types |
 | `ryql-engineer` | `src/domain/ryql/**` | `02` | Grammar, parser, analyser, SQL compiler, query errors |
-| `authoring-engineer` | `src/editor/**`, `src/domain/indexer/**`, `src/domain/keys/**` | `03` | Editor nodes, scope rules, indexing, keys, renaming |
+| `authoring-engineer` | `src/editor/**`, `src/domain/doc/**`, `src/domain/indexer/**`, `src/domain/keys/**` | `03` | Editor nodes, scope rules, indexing, keys, renaming |
 | `traceability-engineer` | `src/domain/traceability/**` + its routes | `04` | Dependencies, matrices, coverage, reports |
 | `baseline-engineer` | `src/domain/baselines/**` + its routes | `05` | Freeze, refreeze, diff, `isModified`, history |
 | `platform-engineer` | `src/app/**`, `src/server/{usecases,authz,jobs}/**` | `00`, `07`, `08` | Routes, screens, auth, permissions, jobs, API, infra |
