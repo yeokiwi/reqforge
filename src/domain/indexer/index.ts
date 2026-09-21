@@ -1,6 +1,7 @@
 import { attr, numericAttr, renderHtml, walk, type PMNode } from '@/domain/doc';
 import { matchesAnyPattern, parsePattern, matchesPattern } from '@/domain/keys/pattern';
 import { checkKey } from '@/domain/keys/validate';
+import { classifyLink } from './dependencies';
 import { normaliseSearchText, normaliseSearchValue } from './normalise';
 import { extractProperties } from './properties';
 import { findNodes, resolveScope, type Marker, type Scope } from './scope';
@@ -8,6 +9,8 @@ import type {
   Diagnostic,
   IndexInput,
   IndexResult,
+  IndexedDependency,
+  IndexedLink,
   IndexedProperty,
   IndexedRequirement,
   SpaceTypeConfig,
@@ -16,6 +19,7 @@ import type {
 export * from './types';
 export * from './normalise';
 export * from './properties';
+export * from './dependencies';
 export { findNodes, resolveScope } from './scope';
 export type { Marker, Scope } from './scope';
 
@@ -130,13 +134,20 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
     requirements.push(buildRequirement(marker, scope, checked.key, checked.upperKey, types, extracted));
   }
 
-  // Citations: `requirementLink` nodes, plus markers demoted by rules S1 and S2.
+  // A `requirementLink` inside a requirement's scope is a dependency (invariant P1);
+  // anywhere else it is a citation. A marker demoted by rule S1 or S2 stays a citation:
+  // a duplicate marker is a user error, not a declared relationship (RD-029).
+  const dependencies: IndexedDependency[] = [];
+  const citations: IndexedLink[] = [];
+
+  for (const link of findNodes(input.content, LINK_TYPES)) {
+    const classified = classifyLink(link, scopeOwner, input.space.key);
+    if (classified.kind === 'dependency') dependencies.push(classified.dependency);
+    else citations.push(classified.citation);
+  }
+
   const links = [
-    ...findNodes(input.content, LINK_TYPES).map((link) => ({
-      targetSpaceKey: attr(link.node, 'spaceKey') ?? input.space.key,
-      targetKey: attr(link.node, 'key') ?? '',
-      path: link.path,
-    })),
+    ...citations,
     ...demoted.map((marker) => ({
       targetSpaceKey: input.space.key,
       targetKey: attr(marker.node, 'key') ?? '',
@@ -149,9 +160,7 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
   return {
     requirements,
     properties,
-    // Dependencies arrive in slice 7; the array is part of the contract from the start so
-    // consumers do not have to change shape later.
-    dependencies: [],
+    dependencies: dependencies.filter((dependency) => dependency.targetKey.length > 0).sort(byPath),
     links,
     diagnostics,
   };

@@ -91,6 +91,25 @@ export function RequirementPopup({ spaceKey, children }: { spaceKey: string; chi
                   ))}
                 </ul>
               ) : null}
+              {state.summary.dependencies.length > 0 ? (
+                <dl className="mt-2 flex flex-col gap-1 text-xs" data-testid="popup-dependencies">
+                  {state.summary.dependencies.map((group) => (
+                    <div key={group.label} className="flex gap-2">
+                      <dt className="shrink-0 text-[var(--rf-muted)]">{group.label}:</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {group.keys.map((entry) => (
+                          <span
+                            key={entry.key}
+                            className={entry.unresolved ? 'rf-req-link text-red-600' : 'rf-req'}
+                          >
+                            {entry.key}
+                          </span>
+                        ))}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
               <a href={state.summary.href} className="mt-2 inline-block text-xs text-[var(--rf-accent)]">
                 Open requirement →
               </a>

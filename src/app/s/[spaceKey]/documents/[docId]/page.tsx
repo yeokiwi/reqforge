@@ -6,6 +6,7 @@ import { requireSpace } from '@/server/authz';
 import { listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { openDocument } from '@/server/usecases/documents';
 import { suggestKeyAction } from '../../admin/keys/actions';
+import { findRequirementsAction } from '../link-actions';
 import { RequirementPopup } from '../../r/requirement-popup';
 import { deleteDocumentAction, renameDocumentAction, saveDocumentAction } from '../actions';
 
@@ -70,6 +71,7 @@ export default async function DocumentPage({
           initialDiagnostics={diagnostics}
           onSave={saveDocumentAction.bind(null, spaceKey)}
           suggestKey={suggestKeyAction.bind(null, spaceKey, docId)}
+          findRequirements={findRequirementsAction.bind(null, spaceKey)}
         />
       </RequirementPopup>
     </main>

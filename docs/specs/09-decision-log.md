@@ -214,3 +214,29 @@ the marker, and a column marked `isTitle` supplies the title instead of a proper
 parse. Ours: `document`, `documentHistory` and `links` accept `~`, compiled as `ILIKE`
 over the id, which is meaningful because Reqforge's ids are text. It costs nothing and
 keeps every documented Requirement Yogi query working.
+
+### RD-029 — What a link is, and what happens when its target is missing
+**accepted.** Spec `03` §1.2 says a `requirementLink` inside a requirement's scope is a
+dependency and elsewhere a citation, and research §4.1 gives the relationship its name
+from the column header. Three cases neither document settles:
+
+1. **A cell holding only links is a relationship column, not a property column.** Its
+   cell produces dependencies and no `Property` row; a cell mixing text and links produces
+   both, and its property value includes the linked keys as text. Without this rule every
+   "Refines" column would also become a property whose value is a key, which then pollutes
+   `@Refines` queries and the traceability matrix.
+2. **A marker demoted by rule S1 or S2 stays a citation and never becomes a dependency.**
+   A second marker in one scope is a user error (spec `03` rule S1 already reports it);
+   inventing a relationship out of it would put a wrong edge into a traceability report,
+   which is worse than recording a mention.
+3. **Unresolved links are retried, not just retained.** Invariant P2 keeps the edge as an
+   `UnresolvedDependency`; we additionally **promote** it to a real dependency the moment
+   a requirement with that key is indexed, without re-saving the citing document. RY
+   requires a reindex of the citing page. *Why:* the common case is writing the child
+   before the parent, and a broken-links screen that only clears after unrelated edits
+   trains people to ignore it.
+
+Also decided here: a link crossing an `isolated` space boundary in either direction is
+refused with an error diagnostic and kept as unresolved (spec `07` §3), so turning
+isolation off later resolves it; and a link pinned to a baseline that does not exist warns
+and falls back to the live requirement rather than failing the save.

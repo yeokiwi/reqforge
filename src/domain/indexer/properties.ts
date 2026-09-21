@@ -1,5 +1,5 @@
 import { booleanAttr, childrenOf, plainText, walk, WITHOUT_MARKERS, type PMNode } from '@/domain/doc';
-import { attr } from '@/domain/doc';
+import { attr, isLinkOnlyCell } from '@/domain/doc';
 import { nameIsSearchableUnquoted, searchNameOf } from './normalise';
 import type { ScopeField, Scope } from './scope';
 import type { Diagnostic, IndexedProperty } from './types';
@@ -48,6 +48,9 @@ const LIST_TYPES = new Set(['bulletList', 'orderedList']);
  */
 export function cellValues(cell: PMNode | undefined): string[] {
   if (!cell) return [];
+  // RD-029: a cell holding only links is a relationship column, not a property. A cell
+  // mixing text and links is both, and its text includes the linked keys.
+  if (isLinkOnlyCell(cell)) return [];
 
   const list = childrenOf(cell).find((child) => LIST_TYPES.has(child.type));
   if (list) {

@@ -1,8 +1,10 @@
 'use server';
 
 import { isAppError } from '@/domain/errors';
+import { groupDependencies } from '@/domain/traceability/dependencies';
 import { requireSpace } from '@/server/authz';
 import { findRequirementDetail } from '@/server/repositories/requirements';
+import { edgesOf } from './edges';
 
 export type RequirementSummary = {
   key: string;
@@ -11,6 +13,8 @@ export type RequirementSummary = {
   typeName: string | null;
   bodyHtml: string;
   properties: Array<{ name: string; value: string; external: boolean }>;
+  /** Both directions, grouped by relationship (spec 03 §6). */
+  dependencies: Array<{ label: string; keys: Array<{ key: string; unresolved: boolean }> }>;
   documentTitle: string | null;
   href: string;
 };
@@ -37,6 +41,13 @@ export async function requirementSummaryAction(
         value: property.value,
         // External properties are marked with * in the popup (spec 03 §6).
         external: property.kind === 'EXTERNAL',
+      })),
+      dependencies: groupDependencies(edgesOf(requirement, space.key)).map((group) => ({
+        label: group.label,
+        keys: group.edges.map((edge) => ({
+          key: edge.otherSpaceKey ? `${edge.otherSpaceKey}/${edge.otherKey}` : edge.otherKey,
+          unresolved: edge.unresolved,
+        })),
       })),
       documentTitle: origin?.version.document.title ?? null,
       href: `/s/${spaceKey}/r/${encodeURIComponent(requirement.key)}`,

@@ -8,6 +8,7 @@ import StarterKit from '@tiptap/starter-kit';
 import type { Extensions } from '@tiptap/react';
 import { PropertyConfig } from './nodes/property-config';
 import { Requirement } from './nodes/requirement';
+import { RequirementLink } from './nodes/requirement-link';
 
 /**
  * The document schema. spec: 03-authoring-and-indexing.md §1 — "standard rich text
@@ -29,6 +30,7 @@ export function baseExtensions(options: { onRequestInsert?: (() => void) | null 
     TableHeader,
     TableCell,
     Requirement.configure({ onRequestInsert: options.onRequestInsert ?? null }),
+    RequirementLink,
     PropertyConfig,
   ];
 }

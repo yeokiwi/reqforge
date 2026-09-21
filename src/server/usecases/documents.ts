@@ -105,6 +105,7 @@ export async function saveDocumentUseCase(input: {
       outcome = await applyIndexResult(tx, {
         spaceId: space.id,
         spaceKey: space.key,
+        isolated: space.isolated,
         documentId: document.id,
         versionId: created.id,
         actorId: user.id,

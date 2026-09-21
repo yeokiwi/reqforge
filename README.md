@@ -14,9 +14,10 @@ traceability, coverage, baselines, diff) is rebuilt against Reqforge's own store
 
 ## Status
 
-**Slices 0–6 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
-documents in a rich-text editor, mark requirements inside them, let the indexer project
-them into queryable rows with inline properties, and search them in RQL.
+**Slices 0–7 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
+documents in a rich-text editor, mark requirements inside them, link them to each other,
+let the indexer project them into queryable rows with inline properties and dependencies,
+and search them in RQL.
 
 | Slice | What works |
 |---|---|
@@ -27,11 +28,13 @@ them into queryable rows with inline properties, and search them in RQL.
 | 4 | `propertyConfig`, column-header properties, title columns, list-valued cells |
 | 5 | RQL lexer, parser and analyser, with the query corpus |
 | 6 | The SQL compiler, the search screen, saved searches, the performance budget |
+| 7 | `requirementLink`, dependencies named by column header, broken links, `to`/`from` |
 
-Not built yet: dependencies and traceability (slices 7–10), external properties and
-requirement types (11–12), baselines, diff and renaming (13–15), and the hardening slices
-(16–18). `baseline was` and `isModified()` parse today and report `NOT_IMPLEMENTED` from
-the compiler until the diff engine lands in slice 14.
+Not built yet: the traceability and dependency matrices, coverage and reports (slices
+8–10), external properties and requirement types (11–12), baselines, diff and renaming
+(13–15), and the hardening slices (16–18). `baseline was` and `isModified()` parse today
+and report `NOT_IMPLEMENTED` from the compiler until the diff engine lands in slice 14; a
+link's `displayProperty` is stored but rendered live only from slice 8.
 
 ## Running it
 

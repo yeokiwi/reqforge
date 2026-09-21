@@ -33,7 +33,11 @@ A reference to an existing requirement. Attributes:
 | `displayProperty` | optional property of the target to render live |
 
 Inside a requirement's scope it becomes a **dependency**; elsewhere it is a plain
-citation recorded as a `DocumentLink`.
+citation recorded as a `DocumentLink`. The relationship comes from the column (or row)
+header holding the link, overridden by `propertyConfig.relationship`, and defaults to
+`Dependency` in a paragraph (research §4.1). A cell holding only links is a relationship
+column and produces no property — see `RD-029`, which also covers demoted markers and the
+retry of unresolved links.
 
 ### 1.3 `propertyConfig` (block node, lives in a table header cell)
 

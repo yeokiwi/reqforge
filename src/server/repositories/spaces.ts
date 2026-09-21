@@ -44,6 +44,12 @@ export async function listSpacesForUser(userId: string): Promise<SpaceWithPermis
     .filter((entry) => entry.permissions.includes('VIEW'));
 }
 
+export async function spaceKeysByIds(ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.space.findMany({ where: { id: { in: [...ids] } }, select: { id: true, key: true } });
+  return new Map(rows.map((row) => [row.id, row.key]));
+}
+
 export async function findSpaceByKey(key: string): Promise<Space | null> {
   return prisma.space.findUnique({ where: { key } });
 }

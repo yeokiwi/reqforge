@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { Panel } from '@/app/_components/chrome';
 import { requireSpace } from '@/server/authz';
 import { findRequirementDetail } from '@/server/repositories/requirements';
+import { DependencyPanel } from '../dependency-panel';
+import { edgesOf } from '../edges';
 
 const STATUS_STYLES: Record<string, string> = {
   ACTIVE: 'bg-emerald-50 text-emerald-700',
@@ -60,6 +62,15 @@ export default async function RequirementPage({
           </dl>
         </Panel>
       ) : null}
+
+      <Panel>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--rf-muted)]">Dependencies</h2>
+        <DependencyPanel
+          spaceKey={spaceKey}
+          requirementKey={requirement.key}
+          edges={edgesOf(requirement, space.key)}
+        />
+      </Panel>
 
       <Panel>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--rf-muted)]">Occurrences</h2>

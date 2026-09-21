@@ -6,6 +6,7 @@ import type { PMNode } from '@/domain/doc';
 import type { Diagnostic } from '@/domain/indexer';
 import { baseExtensions } from './extensions';
 import { RequirementInsert, type KeySuggester } from './requirement-insert';
+import { RequirementLinkInsert, type RequirementFinder } from './requirement-link-insert';
 import { EditorToolbar } from './toolbar';
 
 export type SaveResult =
@@ -20,6 +21,7 @@ export function DocumentEditor({
   initialDiagnostics,
   onSave,
   suggestKey,
+  findRequirements,
 }: {
   documentId: string;
   initialContent: PMNode;
@@ -30,6 +32,7 @@ export function DocumentEditor({
    *  which a React server action cannot serialise. */
   onSave: (documentId: string, contentJson: string) => Promise<SaveResult>;
   suggestKey?: KeySuggester;
+  findRequirements?: RequirementFinder;
 }) {
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
@@ -82,6 +85,7 @@ export function DocumentEditor({
             extra={
               <div className="ml-auto flex items-center gap-3">
                 <RequirementInsert editor={editor} focusSignal={focusSignal} suggestKey={suggestKey} />
+                {findRequirements ? <RequirementLinkInsert editor={editor} find={findRequirements} /> : null}
                 <span data-testid="editor-status" className="text-xs text-[var(--rf-muted)]">
                   {dirty ? 'Unsaved changes' : status}
                 </span>

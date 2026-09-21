@@ -6,6 +6,8 @@ import { prisma } from './client';
 export type ApplyIndexInput = {
   spaceId: string;
   spaceKey: string;
+  /** spec 07 §3 — an isolated space refuses cross-space requirement links. */
+  isolated?: boolean;
   documentId: string;
   versionId: string;
   actorId: string;
@@ -119,6 +121,8 @@ export async function applyIndexResult(
   await advanceSequencesForKeys(tx, input.spaceId, indexedKeys);
 
   await rewriteDerivedRows(tx, input, definedHere, diagnostics);
+  await writeDependencies(tx, input, definedHere, diagnostics);
+  await promoteResolvedDependencies(tx, input, definedHere);
   await rewriteDiagnostics(tx, input, diagnostics, conflicts);
 
   return { created, updated, deleted: removed.map((row) => row.id), diagnostics };
@@ -139,6 +143,8 @@ async function rewriteDerivedRows(
 
   if (ids.length > 0) {
     await tx.property.deleteMany({ where: { requirementId: { in: ids }, kind: 'INLINE' } });
+    // Contract I2: the edges this document declares are rewritten. Edges *into* these
+    // requirements belong to other documents and are untouched.
     await tx.dependency.deleteMany({ where: { childId: { in: ids } } });
     await tx.unresolvedDependency.deleteMany({ where: { childId: { in: ids } } });
   }
@@ -206,6 +212,158 @@ async function rewriteDerivedRows(
   if (links.length > 0) await tx.documentLink.createMany({ data: links });
 }
 
+/**
+ * Turns `IndexedDependency` records into rows.
+ * Invariant P1 — the requirement containing the link is the child, the linked requirement
+ * is the parent.
+ * Invariant P2 — a target that does not resolve is kept as an `UnresolvedDependency`,
+ * never dropped and never cascade-deleted.
+ */
+async function writeDependencies(
+  tx: Prisma.TransactionClient,
+  input: ApplyIndexInput,
+  definedHere: Map<string, string>,
+  diagnostics: Diagnostic[],
+): Promise<void> {
+  const declared = input.result.dependencies.filter((dependency) =>
+    definedHere.has(dependency.childKey.toUpperCase()),
+  );
+  if (declared.length === 0) return;
+
+  const targetSpaceKeys = [...new Set(declared.map((dependency) => dependency.targetSpaceKey))];
+  const spaces = await tx.space.findMany({
+    where: { key: { in: targetSpaceKeys } },
+    select: { id: true, key: true, isolated: true },
+  });
+  const spaceByKey = new Map(spaces.map((space) => [space.key, space]));
+
+  const wantedKeys = [...new Set(declared.map((dependency) => dependency.targetKey.toUpperCase()))];
+  const targets = await tx.requirement.findMany({
+    where: {
+      baselineId: null,
+      upperKey: { in: wantedKeys },
+      spaceId: { in: [...new Set(spaces.map((space) => space.id))] },
+    },
+    select: { id: true, upperKey: true, spaceId: true },
+  });
+  const targetById = new Map(targets.map((row) => [`${row.spaceId}:${row.upperKey}`, row.id]));
+
+  const pinnedNumbers = [
+    ...new Set(
+      declared
+        .map((dependency) => dependency.targetBaselineNumber)
+        .filter((number): number is number => number !== null),
+    ),
+  ];
+  const baselines = pinnedNumbers.length
+    ? await tx.baseline.findMany({
+        where: { number: { in: pinnedNumbers }, spaceId: { in: spaces.map((space) => space.id) } },
+        select: { id: true, number: true, spaceId: true },
+      })
+    : [];
+  const baselineById = new Map(baselines.map((row) => [`${row.spaceId}:${row.number}`, row.id]));
+
+  const edges: Prisma.DependencyCreateManyInput[] = [];
+  const unresolved: Prisma.UnresolvedDependencyCreateManyInput[] = [];
+
+  for (const dependency of declared) {
+    const childId = definedHere.get(dependency.childKey.toUpperCase())!;
+    const targetSpace = spaceByKey.get(dependency.targetSpaceKey);
+    const crossSpace = dependency.targetSpaceKey !== input.spaceKey;
+
+    const keep = (message: string, severity: Diagnostic['severity'] = 'warning') => {
+      diagnostics.push({
+        code: 'UNRESOLVED_LINK',
+        severity,
+        message,
+        path: dependency.path,
+        key: dependency.targetKey,
+      });
+      unresolved.push({
+        childId,
+        relationship: dependency.relationship,
+        targetSpaceKey: dependency.targetSpaceKey,
+        targetKey: dependency.targetKey,
+        targetBaselineId: null,
+      });
+    };
+
+    // spec 07 §3 — isolation refuses cross-space links in either direction. The edge is
+    // still retained, so turning isolation off later makes it resolve.
+    if (crossSpace && (input.isolated || targetSpace?.isolated)) {
+      keep(
+        `${dependency.targetSpaceKey}/${dependency.targetKey} cannot be linked: one of the two spaces is isolated.`,
+        'error',
+      );
+      continue;
+    }
+
+    if (!targetSpace) {
+      keep(`There is no space with key ${dependency.targetSpaceKey}.`);
+      continue;
+    }
+
+    const parentId = targetById.get(`${targetSpace.id}:${dependency.targetKey.toUpperCase()}`);
+    if (!parentId) {
+      keep(`${dependency.targetKey} does not exist in ${dependency.targetSpaceKey} yet.`);
+      continue;
+    }
+
+    const targetBaselineId =
+      dependency.targetBaselineNumber === null
+        ? null
+        : (baselineById.get(`${targetSpace.id}:${dependency.targetBaselineNumber}`) ?? null);
+
+    if (dependency.targetBaselineNumber !== null && targetBaselineId === null) {
+      diagnostics.push({
+        code: 'UNRESOLVED_LINK',
+        severity: 'warning',
+        message: `Baseline ${dependency.targetBaselineNumber} does not exist in ${dependency.targetSpaceKey}; the link points at the live requirement.`,
+        path: dependency.path,
+        key: dependency.targetKey,
+      });
+    }
+
+    edges.push({ relationship: dependency.relationship, parentId, childId, targetBaselineId });
+  }
+
+  if (edges.length > 0) await tx.dependency.createMany({ data: edges, skipDuplicates: true });
+  if (unresolved.length > 0) await tx.unresolvedDependency.createMany({ data: unresolved });
+}
+
+/**
+ * RD-029: resolution is retried. A key that was missing when another document cited it
+ * resolves as soon as it exists, without re-saving that document.
+ */
+async function promoteResolvedDependencies(
+  tx: Prisma.TransactionClient,
+  input: ApplyIndexInput,
+  definedHere: Map<string, string>,
+): Promise<void> {
+  if (definedHere.size === 0) return;
+
+  const waiting = await tx.unresolvedDependency.findMany({
+    where: { targetSpaceKey: input.spaceKey },
+    select: { id: true, childId: true, relationship: true, targetKey: true },
+  });
+
+  const promotable = waiting
+    .map((row) => ({ row, parentId: definedHere.get(row.targetKey.toUpperCase()) }))
+    .filter((entry): entry is { row: (typeof waiting)[number]; parentId: string } => entry.parentId !== undefined);
+
+  if (promotable.length === 0) return;
+
+  await tx.dependency.createMany({
+    data: promotable.map(({ row, parentId }) => ({
+      relationship: row.relationship,
+      parentId,
+      childId: row.childId,
+    })),
+    skipDuplicates: true,
+  });
+  await tx.unresolvedDependency.deleteMany({ where: { id: { in: promotable.map(({ row }) => row.id) } } });
+}
+
 async function rewriteDiagnostics(
   tx: Prisma.TransactionClient,
   input: ApplyIndexInput,
@@ -263,6 +421,9 @@ export type RequirementDetail = Prisma.RequirementGetPayload<{
     properties: true;
     links: { include: { version: { include: { document: true } } } };
     type: true;
+    parentEdges: { include: { parent: { include: { space: true } } } };
+    childEdges: { include: { child: { include: { space: true } } } };
+    unresolved: true;
   };
 }>;
 
@@ -277,6 +438,11 @@ export async function findRequirementDetail(
       properties: { orderBy: [{ valueOrdinal: 'asc' }, { valueIndex: 'asc' }] },
       links: { include: { version: { include: { document: true } } } },
       type: true,
+      // `parentEdges` are the edges where this requirement is the child, i.e. the ones it
+      // declared; `childEdges` are the edges pointing at it (invariant P1).
+      parentEdges: { include: { parent: { include: { space: true } } } },
+      childEdges: { include: { child: { include: { space: true } } } },
+      unresolved: true,
     },
   });
 }
@@ -290,6 +456,46 @@ export async function listRequirements(
     orderBy: { upperKey: 'asc' },
     take: options.take ?? 200,
   });
+}
+
+/** Everything the Broken links screen shows for a space (invariant P2, rule S3). */
+export async function listBrokenLinks(spaceId: string) {
+  const unresolved = await prisma.unresolvedDependency.findMany({
+    where: { child: { spaceId, baselineId: null } },
+    include: {
+      child: {
+        select: {
+          key: true,
+          upperKey: true,
+          status: true,
+          originVersion: { select: { document: { select: { id: true, title: true } } } },
+        },
+      },
+    },
+    orderBy: [{ targetKey: 'asc' }],
+  });
+
+  const conflicts = await prisma.indexDiagnostic.findMany({
+    where: { code: 'KEY_CONFLICT', document: { spaceId, deletedAt: null } },
+    include: {
+      document: { select: { id: true, title: true } },
+      relatedDocument: { select: { id: true, title: true } },
+    },
+    orderBy: [{ key: 'asc' }],
+  });
+
+  // Dependencies whose target exists but is no longer ACTIVE: the edge is intact
+  // (invariant P2) and the target is gone, which is exactly what a reviewer must see.
+  const toDeleted = await prisma.dependency.findMany({
+    where: { child: { spaceId, baselineId: null }, parent: { status: { not: 'ACTIVE' } } },
+    include: {
+      parent: { select: { key: true, status: true } },
+      child: { select: { key: true } },
+    },
+    orderBy: [{ relationship: 'asc' }],
+  });
+
+  return { unresolved, conflicts, toDeleted };
 }
 
 export async function listDocumentDiagnostics(documentId: string) {
