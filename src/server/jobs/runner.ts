@@ -9,38 +9,44 @@ import {
   reportProgress,
 } from '@/server/repositories/jobs';
 
+/** What a traceability-matrix export pages over. */
 export type JobPage = { rows: MatrixRow[]; total: number };
 
-export type JobContext = {
+export type JobContext<TPage = JobPage> = {
   jobId: string;
   /** Checked between pages: a job stops where it is rather than at the end. */
   cancelled: () => Promise<boolean>;
   progress: (percent: number, message?: string) => Promise<void>;
-  /** Supplied by the job's kind — for an export, the next page of matrix rows. */
-  fetchPage: (offset: number) => Promise<JobPage>;
+  /** Supplied by the job's kind — each kind decides what a page of its work is. */
+  fetchPage: (offset: number) => Promise<TPage>;
 };
 
 export type JobOutcome = { resultRef?: string; cancelled?: boolean };
 
-export type JobHandler<TPayload> = (payload: TPayload, context: JobContext) => Promise<JobOutcome>;
+export type JobHandler<TPayload, TPage = JobPage> = (
+  payload: TPayload,
+  context: JobContext<TPage>,
+) => Promise<JobOutcome>;
 
 /**
  * How a job's pages are produced. The handler itself never touches the database: the
  * page source is registered by the use case that knows how to authorise the read, so a
  * job can never see more than the person who queued it.
  */
-export type PageSource = (job: Job, offset: number) => Promise<JobPage>;
+export type PageSource<TPage = JobPage> = (job: Job, offset: number) => Promise<TPage>;
 
-const handlers = new Map<string, JobHandler<never>>();
-const pageSources = new Map<string, PageSource>();
+// Erased at the boundary: each kind's handler and page source agree on the page type,
+// and `registerJobHandler` is the only place that pairs them.
+const handlers = new Map<string, JobHandler<never, never>>();
+const pageSources = new Map<string, PageSource<never>>();
 
-export function registerJobHandler<TPayload>(
+export function registerJobHandler<TPayload, TPage = JobPage>(
   kind: string,
-  handler: JobHandler<TPayload>,
-  pageSource: PageSource,
+  handler: JobHandler<TPayload, TPage>,
+  pageSource: PageSource<TPage>,
 ): void {
-  handlers.set(kind, handler as JobHandler<never>);
-  pageSources.set(kind, pageSource);
+  handlers.set(kind, handler as unknown as JobHandler<never, never>);
+  pageSources.set(kind, pageSource as unknown as PageSource<never>);
 }
 
 /** Runs one already-claimed job to completion. */
@@ -53,15 +59,15 @@ export async function runClaimedJob(job: Job): Promise<void> {
     return;
   }
 
-  const context: JobContext = {
+  const context: JobContext<unknown> = {
     jobId: job.id,
     cancelled: () => isCancelRequested(job.id),
     progress: (percent, message) => reportProgress(job.id, percent, message),
-    fetchPage: (offset) => pageSource(job, offset),
+    fetchPage: (offset) => (pageSource as unknown as PageSource<unknown>)(job, offset),
   };
 
   try {
-    const outcome = await (handler as JobHandler<unknown>)(job.payload, context);
+    const outcome = await (handler as unknown as JobHandler<unknown, unknown>)(job.payload, context);
     if (outcome.cancelled) {
       await finishJob(job.id, 'CANCELLED');
       return;

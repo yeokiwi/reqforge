@@ -89,7 +89,11 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
     data: { spaceId: space.id, userId: user.id, permissions: ['VIEW', 'EDIT', 'EXPORT'] },
   });
   await prisma.membership.create({ data: { spaceId: other.id, userId: user.id, permissions: ['VIEW'] } });
-  await prisma.membership.create({ data: { spaceId: space.id, userId: stranger.id, permissions: ['VIEW'] } });
+  // The stranger can run the same screens as the owner — what differs is which documents
+  // they may read, which is what the visibility tests are about.
+  await prisma.membership.create({
+    data: { spaceId: space.id, userId: stranger.id, permissions: ['VIEW', 'EXPORT'] },
+  });
 
   const documents: string[] = [];
   const versions: string[] = [];

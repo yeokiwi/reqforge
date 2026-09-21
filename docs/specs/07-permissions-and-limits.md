@@ -81,6 +81,7 @@ numbers where they exist, because they were derived from real deployments.
 | Diff rows (interactive) | 600 | RY |
 | Matrix page size | 100 default, 600 max | RY |
 | Dependency matrix web cells | 40,000 | RY |
+| Dependency matrix export axis | 5,000 | RY's tested size (research §4.3) |
 | Traversal depth (`->`) | 4 | ours (`02` §5.1) |
 | Rules per requirement type | 40 | ours |
 | Types applying to one document | 20 | RY |

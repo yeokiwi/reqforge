@@ -11,12 +11,19 @@ type Fixture = Awaited<ReturnType<typeof createCorpusSpace>>;
 let fixture: Fixture;
 
 let counting = false;
-let queries = 0;
+let queries: string[] = [];
 
+// Only statements that read data are interesting. A pool that opens a connection
+// mid-test also emits SET/BEGIN/DEALLOCATE, which says nothing about N+1 and makes the
+// count depend on contention from other test files.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(prisma as any).$on('query', () => {
-  if (counting) queries += 1;
+(prisma as any).$on('query', (event: { query: string }) => {
+  if (!counting) return;
+  if (/^\s*(SELECT|WITH)\b/i.test(event.query)) queries.push(event.query);
 });
+
+/** Prisma emits query events asynchronously, so the window has to be closed explicitly. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 /** Runs the matrix and reports how many SQL statements it took. */
 async function statementsFor(options: { columns: unknown[]; pageSize: number }): Promise<number> {
@@ -29,18 +36,20 @@ async function statementsFor(options: { columns: unknown[]; pageSize: number }):
     config,
   });
 
-  queries = 0;
+  await settle();
+  queries = [];
   counting = true;
   const result = await runMatrixForUser({
     space: { id: fixture.spaceId, key: fixture.spaceKey, isolated: false },
     userId: fixture.userId,
     config,
   });
+  await settle();
   counting = false;
 
   if (!result.ok) throw new Error(result.errors.map((error) => error.message).join('; '));
   expect(result.page.rows.length).toBe(options.pageSize);
-  return queries;
+  return queries.length;
 }
 
 const EIGHT_COLUMNS = [

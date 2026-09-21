@@ -1,7 +1,7 @@
 import type { SavedSearch } from '@prisma/client';
-import { compile, type CompileContext } from '@/domain/ryql/compiler';
+import { compile, compilePredicate, type CompileContext } from '@/domain/ryql/compiler';
 import type { Expr } from '@/domain/ryql/ast';
-import { param, sql, type SqlFragment } from '@/domain/ryql/sql';
+import { param, render, sql, substituteAlias, type SqlFragment } from '@/domain/ryql/sql';
 import { prisma } from './client';
 
 export type SearchRow = {
@@ -73,6 +73,32 @@ export async function runSearch(expr: Expr, context: CompileContext): Promise<Se
 
   return { rows, total: counted[0]?.count ?? 0, sql: compiled.text };
 }
+
+/**
+ * Every requirement id matching a query, not just a page of them. Coverage needs the
+ * whole population as its denominator (spec 04 §4.1), and the per-space requirement limit
+ * is 12,000 (spec 07 §4), so the bound here is generous rather than a page size.
+ */
+export const POPULATION_MAX = 20_000;
+
+export async function runSearchIds(expr: Expr, context: CompileContext): Promise<string[]> {
+  const where = compilePredicate(expr, 'r', context);
+  const visibility = substituteAlias(context.visibility, 'r');
+
+  const statement = sql`
+    SELECT r.id AS id
+    FROM "Requirement" r
+    WHERE (${where}) AND (${visibility})
+    ORDER BY r."upperKey" ASC
+    LIMIT ${param(POPULATION_MAX)}
+  `;
+
+  const { text, params } = render(statement);
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(text, ...params);
+  return rows.map((row) => row.id);
+}
+
+
 
 export async function listSavedSearches(spaceId: string, userId: string): Promise<SavedSearch[]> {
   return prisma.savedSearch.findMany({

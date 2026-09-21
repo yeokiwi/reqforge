@@ -28,6 +28,8 @@ export default async function SpaceLayout({
     { href: `/s/${spaceKey}/documents`, label: 'Documents' },
     { href: `/s/${spaceKey}/search`, label: 'Search' },
     { href: `/s/${spaceKey}/traceability`, label: 'Traceability' },
+    { href: `/s/${spaceKey}/dependencies`, label: 'Dependencies' },
+    { href: `/s/${spaceKey}/coverage`, label: 'Coverage' },
     { href: `/s/${spaceKey}/links`, label: 'Broken links' },
     { href: `/s/${spaceKey}/admin/keys`, label: 'Keys' },
   ];

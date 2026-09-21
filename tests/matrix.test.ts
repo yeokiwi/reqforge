@@ -288,10 +288,19 @@ describe('xlsx export as a job (spec 04 §2.5)', () => {
   });
 
   it('fails the job when the person who queued it may no longer export', async () => {
+    // A member with VIEW alone: the export is re-authorised when the job runs, not only
+    // when it is queued.
+    const viewer = await prisma.user.create({
+      data: { email: `viewer-${Date.now()}@test`, name: 'Viewer', passwordHash: 'scrypt$x$y' },
+    });
+    await prisma.membership.create({
+      data: { spaceId: fixture.spaceId, userId: viewer.id, permissions: ['VIEW'] },
+    });
+
     const queued = await enqueueJob({
       kind: 'export-matrix',
       spaceId: fixture.spaceId,
-      actorId: fixture.strangerId, // VIEW only
+      actorId: viewer.id,
       payload: payloadFor('Refused export'),
     });
 
@@ -300,5 +309,8 @@ describe('xlsx export as a job (spec 04 §2.5)', () => {
 
     expect(job?.state).toBe('FAILED');
     expect(job?.error).toContain('EXPORT');
+
+    await prisma.membership.deleteMany({ where: { spaceId: fixture.spaceId, userId: viewer.id } });
+    await prisma.user.delete({ where: { id: viewer.id } });
   });
 });

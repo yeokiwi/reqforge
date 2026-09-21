@@ -47,6 +47,36 @@ export async function exportMatrixUseCase(input: {
   return (await findJob(job.id)) ?? job;
 }
 
+/** spec 04 §3 — the grid's export, with no cell cap and the axis limit of RD/spec 07 §4. */
+export async function exportDependencyMatrixUseCase(input: {
+  spaceKey: string;
+  query: unknown;
+}): Promise<Job> {
+  const { space, user } = await requireSpace(input.spaceKey, 'EXPORT');
+  const query = typeof input.query === 'string' ? input.query.trim() : '';
+  if (query.length === 0) throw new ValidationError('An export needs a query.');
+
+  registerJobHandlers();
+
+  const job = await enqueueJob({
+    kind: 'export-dependency-matrix',
+    spaceId: space.id,
+    actorId: user.id,
+    payload: {
+      spaceKey: space.key,
+      classification: space.classification,
+      name: 'Dependency matrix',
+      query,
+      pageSize: 200,
+    },
+  });
+
+  if (jobsRunInline()) await runJobNow(job.id);
+  else void runJobNow(job.id);
+
+  return (await findJob(job.id)) ?? job;
+}
+
 export async function jobStatusUseCase(spaceKey: string, jobId: string): Promise<Job> {
   const { space } = await requireSpace(spaceKey);
   const job = await findJob(jobId);

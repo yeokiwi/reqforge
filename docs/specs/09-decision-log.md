@@ -240,3 +240,36 @@ Also decided here: a link crossing an `isolated` space boundary in either direct
 refused with an error diagnostic and kept as unresolved (spec `07` §3), so turning
 isolation off later resolves it; and a link pinned to a baseline that does not exist warns
 and falls back to the live requirement rather than failing the save.
+
+### RD-032 — Relationship names are case-sensitive, and collisions are surfaced
+**accepted.** Research §4 lists "relationship-name normalisation (case, whitespace)" as an
+open gap, and coverage forces the question: is `Refines` the same relationship as
+`refines`? Ours: a relationship name behaves **exactly like a property name** — trimmed
+and whitespace-collapsed when the indexer reads it from the column header, stored
+verbatim, and compared **case-sensitively**. That is what spec `02` §2.1 already decided
+for property names and values, and `RD-011` for their storage; a relationship qualifier
+(`to@Refines`) is the same syntactic class as a property qualifier (`@Category`), so
+treating the two differently would be the surprising choice, and it would mean the query
+grammar's case rules depended on which field you were querying.
+
+Case-folding would also silently merge two names a space may have meant to keep apart,
+which is the failure mode rule S3 and `RD-025` exist to avoid. Instead the coverage screen
+**detects names differing only by case or whitespace and says so**, listing them as the
+separate relationships they currently are and naming the fix (rename one in its document).
+Surface the collision; never pick a winner.
+
+### RD-033 — Coverage counts a link whose target the reader cannot see
+**accepted.** Spec `04` §4.1 defines `covered(r, d)` as the requirements having at least
+one dependency of that relationship and direction, and the acceptance check for this slice
+requires that two readers with different access get different but internally consistent
+numbers. That leaves one case undecided: a visible requirement whose dependency points at
+a requirement the reader may **not** see.
+
+Ours: it counts as covered. Rule X2 (`07` §2.2) already says the existence of a link is not
+secret — only its target's content is — and the dependency matrix renders exactly that case
+as `restricted`. The denominator is the population the reader can see, which the mandatory
+visibility predicate produces for free, so `covered ⊆ population` and
+`covered + uncovered = population` hold for every reader. The alternative — hiding the edge
+— would make a requirement look uncovered to one reader and covered to another *with no
+way to act on it*, since the reader cannot see or fix the thing they are being told is
+missing.

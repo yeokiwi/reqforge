@@ -151,6 +151,13 @@ Child `RequirementValidation` rows cache results: `requirementId`, `typeId`,
 `status ∈ {TRUE, FALSE, WARNING}`, `messages`, `computedAt` — this is what RYQL's
 `ruleStatus` reads.
 
+### CoverageTarget
+
+`spaceId`, `relationship`, `direction ∈ {to, from}`, `targetPercent` — unique on the
+three. A per-space target coverage percentage; a coverage row below its target is flagged
+(`04-traceability-and-coverage.md` §4.2). Setting one needs `ADMIN`, because it is space
+configuration. No Requirement Yogi equivalent.
+
 ### SavedMatrix
 
 `spaceId`, `name`, `kind ∈ {TRACEABILITY, DEPENDENCY}`, `query`, `columns` (JSON),

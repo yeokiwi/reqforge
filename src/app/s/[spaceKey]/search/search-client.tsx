@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { runSearchAction, selectAllMatchingAction, type SearchResponse } from './actions';
 import { QueryUnderline } from './query-underline';
 
@@ -35,6 +35,15 @@ export function SearchClient({
     },
     [crossSpace, spaceKey],
   );
+
+  // Arriving from a saved search, or from a coverage figure, means the query is already
+  // chosen: run it rather than making the reader press Search again (spec 04 §4.1).
+  const ranInitial = useRef(false);
+  useEffect(() => {
+    if (ranInitial.current || initialQuery.trim().length === 0) return;
+    ranInitial.current = true;
+    run(initialQuery, 0);
+  }, [initialQuery, run]);
 
   const toggle = (key: string) => {
     setSelectionNote(null);

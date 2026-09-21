@@ -83,6 +83,7 @@ model Space {
   types        RequirementType[]
   matrices     SavedMatrix[]
   searches     SavedSearch[]
+  coverageTargets CoverageTarget[]
   memberships  Membership[]
   createdAt    DateTime          @default(now())
 }
@@ -488,6 +489,23 @@ model SavedMatrix {
   createdAt  DateTime   @default(now())
 
   @@unique([spaceId, name])
+}
+
+/// A per-space target coverage percentage for one relationship and direction.
+/// spec: 04-traceability-and-coverage.md §4.2 — "A target coverage threshold per
+/// relationship can be set per space; below it the row is flagged." No RY equivalent.
+model CoverageTarget {
+  id            String   @id @default(cuid())
+  spaceId       String
+  space         Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  relationship  String
+  direction     String // 'to' | 'from'
+  targetPercent Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([spaceId, relationship, direction])
+  @@index([spaceId])
 }
 
 /// A named RQL query. Saved searches are per space and owned by a user; visibility

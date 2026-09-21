@@ -5,6 +5,87 @@ import type { SearchRow } from './search';
 
 export type CellsByRow = Map<string, Record<string, MatrixCell>>;
 
+export type PopulationEdge = { fromKey: string; toKey: string; relationship: string };
+
+/**
+ * Dependencies from one set of requirements to another, in one query.
+ * The export pages over rows but keeps the full axis as columns, so the two sets differ:
+ * an edge from this page to a requirement on another page still belongs in the grid.
+ * spec: 04-traceability-and-coverage.md §3
+ */
+export async function fetchEdgesBetween(
+  fromIds: readonly string[],
+  toIds: readonly string[],
+): Promise<PopulationEdge[]> {
+  if (fromIds.length === 0 || toIds.length === 0) return [];
+
+  const statement = sql`
+    SELECT child.key AS "fromKey", parent.key AS "toKey", d.relationship AS relationship
+    FROM "Dependency" d
+    JOIN "Requirement" child ON child.id = d."childId"
+    JOIN "Requirement" parent ON parent.id = d."parentId"
+    WHERE d."childId" = ANY(${param(fromIds)}) AND d."parentId" = ANY(${param(toIds)})
+    ORDER BY child."upperKey" ASC, parent."upperKey" ASC
+  `;
+
+  const { text, params } = render(statement);
+  return prisma.$queryRawUnsafe<PopulationEdge[]>(text, ...params);
+}
+
+/** Every dependency **within** a population, which is what the on-screen grid shows. */
+export async function fetchEdgesWithin(ids: readonly string[]): Promise<PopulationEdge[]> {
+  return fetchEdgesBetween(ids, ids);
+}
+
+export type CoverageCountRow = { relationship: string; direction: 'to' | 'from'; covered: number };
+
+/**
+ * Coverage counts, computed in SQL rather than by pulling every edge into memory — the
+ * spec 07 §5 budget is 5,000 requirements in under two seconds.
+ *
+ * An edge whose far end the reader cannot see still counts as coverage: rule X2 says the
+ * existence of a link is not secret, only its target's content (RD-033). The population,
+ * which is the denominator, is already filtered by the visibility predicate.
+ * spec: 04-traceability-and-coverage.md §4.1
+ */
+export async function fetchCoverageCounts(ids: readonly string[]): Promise<{
+  perRelationship: CoverageCountRow[];
+  anyTo: number;
+  anyFrom: number;
+}> {
+  if (ids.length === 0) return { perRelationship: [], anyTo: 0, anyFrom: 0 };
+
+  const statement = sql`
+    SELECT d.relationship AS relationship, 'to' AS direction,
+           COUNT(DISTINCT d."childId")::int AS covered
+    FROM "Dependency" d
+    WHERE d."childId" = ANY(${param(ids)})
+    GROUP BY d.relationship
+    UNION ALL
+    SELECT d.relationship AS relationship, 'from' AS direction,
+           COUNT(DISTINCT d."parentId")::int AS covered
+    FROM "Dependency" d
+    WHERE d."parentId" = ANY(${param(ids)})
+    GROUP BY d.relationship
+  `;
+
+  const totals = sql`
+    SELECT
+      (SELECT COUNT(DISTINCT d."childId")::int FROM "Dependency" d WHERE d."childId" = ANY(${param(ids)})) AS "anyTo",
+      (SELECT COUNT(DISTINCT d."parentId")::int FROM "Dependency" d WHERE d."parentId" = ANY(${param(ids)})) AS "anyFrom"
+  `;
+
+  const perQuery = render(statement);
+  const totalQuery = render(totals);
+
+  const [perRelationship, [totalRow]] = await Promise.all([
+    prisma.$queryRawUnsafe<CoverageCountRow[]>(perQuery.text, ...perQuery.params),
+    prisma.$queryRawUnsafe<Array<{ anyTo: number; anyFrom: number }>>(totalQuery.text, ...totalQuery.params),
+  ]);
+
+  return { perRelationship, anyTo: totalRow?.anyTo ?? 0, anyFrom: totalRow?.anyFrom ?? 0 };
+}
+
 export type DocumentOfRow = { documentId: string | null; documentTitle: string | null };
 
 type DependencyHit = { src: string; key: string; title: string; visible: boolean };
