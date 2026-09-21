@@ -9,6 +9,7 @@ import { listMatricesUseCase } from '@/server/usecases/matrix';
 import { suggestKeyAction } from '../../admin/keys/actions';
 import { findRequirementsAction } from '../link-actions';
 import { renderEmbeddedMatrixAction } from '../matrix-actions';
+import { renderReportAction } from '../report-actions';
 import { RequirementPopup } from '../../r/requirement-popup';
 import { deleteDocumentAction, renameDocumentAction, saveDocumentAction } from '../actions';
 
@@ -77,6 +78,7 @@ export default async function DocumentPage({
           findRequirements={findRequirementsAction.bind(null, spaceKey)}
           matrices={matrices.map((matrix) => ({ id: matrix.id, name: matrix.name }))}
           renderMatrix={renderEmbeddedMatrixAction.bind(null, spaceKey, docId)}
+          renderReport={renderReportAction.bind(null, spaceKey, docId)}
         />
       </RequirementPopup>
     </main>

@@ -70,16 +70,20 @@ export const RequirementLink = Node.create({
     return {
       insertRequirementLink:
         (attributes) =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            attrs: {
-              key: attributes.key,
-              spaceKey: attributes.spaceKey ?? null,
-              baselineNumber: attributes.baselineNumber ?? null,
-              displayProperty: attributes.displayProperty ?? null,
-            },
-          }),
+        ({ chain, state }) =>
+          // At the end of the selection, never over it — see the note on insertRequirement.
+          chain()
+            .focus()
+            .insertContentAt(state.selection.to, {
+              type: this.name,
+              attrs: {
+                key: attributes.key,
+                spaceKey: attributes.spaceKey ?? null,
+                baselineNumber: attributes.baselineNumber ?? null,
+                displayProperty: attributes.displayProperty ?? null,
+              },
+            })
+            .run(),
     };
   },
 });

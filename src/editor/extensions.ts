@@ -8,6 +8,8 @@ import StarterKit from '@tiptap/starter-kit';
 import type { Extensions } from '@tiptap/react';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import { PropertyConfig } from './nodes/property-config';
+import { ReportNode } from './nodes/report';
+import { ReportView, type ReportRenderer } from './report-view';
 import { Requirement } from './nodes/requirement';
 import { RequirementLink } from './nodes/requirement-link';
 import { SavedMatrixNode } from './nodes/saved-matrix';
@@ -21,7 +23,11 @@ import { SavedMatrixView, type MatrixRenderer } from './saved-matrix-view';
  * slices 2–4; `src/domain/doc` renders the same node names server-side.
  */
 export function baseExtensions(
-  options: { onRequestInsert?: (() => void) | null; renderMatrix?: MatrixRenderer | null } = {},
+  options: {
+    onRequestInsert?: (() => void) | null;
+    renderMatrix?: MatrixRenderer | null;
+    renderReport?: ReportRenderer | null;
+  } = {},
 ): Extensions {
   return [
     StarterKit.configure({
@@ -44,6 +50,15 @@ export function baseExtensions(
       },
       addNodeView() {
         return ReactNodeViewRenderer(SavedMatrixView);
+      },
+    }),
+    // A report renders live rows where it sits (spec 04 §5).
+    ReportNode.extend({
+      addOptions() {
+        return { render: options.renderReport ?? null };
+      },
+      addNodeView() {
+        return ReactNodeViewRenderer(ReportView);
       },
     }),
   ];

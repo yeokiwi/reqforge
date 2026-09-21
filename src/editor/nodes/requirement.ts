@@ -69,11 +69,17 @@ export const Requirement = Node.create<RequirementOptions>({
     return {
       insertRequirement:
         (attributes) =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            attrs: { key: attributes.key, uid: randomUid(), typeId: attributes.typeId ?? null },
-          }),
+        ({ chain, state }) =>
+          // Inserted at the end of the selection rather than over it: inserting a marker
+          // while a block node (a report, an embedded matrix) is selected would otherwise
+          // delete that node, and inserting one over selected text would delete the text.
+          chain()
+            .focus()
+            .insertContentAt(state.selection.to, {
+              type: this.name,
+              attrs: { key: attributes.key, uid: randomUid(), typeId: attributes.typeId ?? null },
+            })
+            .run(),
 
       insertRequirementPerRow:
         (keys) =>

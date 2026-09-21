@@ -57,5 +57,15 @@ export function plainText(node: PMNode, options: TextOptions = {}): string {
   return collapseWhitespace(textOf(node, options));
 }
 
-/** Title text: the marker lozenge itself is not part of the requirement's title. */
-export const WITHOUT_MARKERS: TextOptions = { skip: new Set(['requirement']) };
+/**
+ * Text extraction that ignores the nodes which are *about* requirements rather than part
+ * of them: the marker lozenge, and the two embeds.
+ *
+ * Skipping `report` and `savedMatrix` here is the recursion guard of spec 04 §5 — a
+ * report inside a requirement's scope must not be indexed as part of that requirement's
+ * text. Every extraction path (title, inline property values, `bodySearch`) goes through
+ * this one option, so the guard cannot be forgotten in one of them.
+ */
+export const WITHOUT_MARKERS: TextOptions = {
+  skip: new Set(['requirement', 'report', 'savedMatrix']),
+};

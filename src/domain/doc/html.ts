@@ -110,6 +110,13 @@ export function renderHtml(node: PMNode): string {
         space ? ` data-space="${escapeHtml(space)}"` : ''
       }>${label}${suffix}</span>`;
     }
+    case 'report': {
+      // spec 04 §5 — a report renders live rows at view time, which a pure renderer
+      // cannot do. The read-only view shows what is embedded, not stale rows.
+      const query = attr(node, 'query') ?? '';
+      const label = attr(node, 'useLastRequirement') === 'true' ? 'the last requirement' : query;
+      return `<div class="rf-embed" data-report="${escapeHtml(attr(node, 'id') ?? '')}">Report: ${escapeHtml(label)}</div>`;
+    }
     case 'savedMatrix': {
       // spec 04 §2.3 — an embed renders live data at view time, which a pure renderer
       // cannot do. The read-only view shows what is embedded rather than stale rows.

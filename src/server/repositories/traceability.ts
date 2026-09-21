@@ -263,6 +263,96 @@ async function fetchDependencyColumn(
   return prisma.$queryRawUnsafe<DependencyHit[]>(text, ...params);
 }
 
+export type ReportData = {
+  properties: Array<{ name: string; value: string }>;
+  documents: Array<{ id: string; title: string }>;
+  dependencies: Array<{ direction: 'to' | 'from'; relationship: string; key: string; title: string }>;
+};
+
+/**
+ * Everything a report row needs, in one query per field kind — the same two-phase shape
+ * the matrix uses (spec 04 §2.5), because a report is a matrix with a different syntax.
+ * spec: 04-traceability-and-coverage.md §5
+ */
+export async function fetchReportData(
+  ids: readonly string[],
+  visibility: SqlFragment,
+): Promise<Map<string, ReportData>> {
+  const data = new Map<string, ReportData>(
+    ids.map((id) => [id, { properties: [], documents: [], dependencies: [] }]),
+  );
+  if (ids.length === 0) return data;
+
+  const [properties, links, edges] = await Promise.all([
+    prisma.property.findMany({
+      where: { requirementId: { in: [...ids] }, kind: 'INLINE' },
+      select: { requirementId: true, name: true, value: true },
+      orderBy: [{ valueOrdinal: 'asc' }, { valueIndex: 'asc' }],
+    }),
+    // `links` is every document where the requirement is defined *or* cited (spec 02 §4).
+    prisma.documentLink.findMany({
+      where: { requirementId: { in: [...ids] } },
+      select: { requirementId: true, version: { select: { document: { select: { id: true, title: true } } } } },
+    }),
+    fetchReportEdges(ids, visibility),
+  ]);
+
+  for (const property of properties) {
+    data.get(property.requirementId)?.properties.push({ name: property.name, value: property.value });
+  }
+
+  for (const link of links) {
+    const entry = data.get(link.requirementId);
+    if (!entry) continue;
+    if (!entry.documents.some((document) => document.id === link.version.document.id)) {
+      entry.documents.push(link.version.document);
+    }
+  }
+
+  for (const edge of edges) {
+    data.get(edge.src)?.dependencies.push({
+      direction: edge.direction,
+      relationship: edge.relationship,
+      key: edge.key,
+      // Rule X2: the link's existence is not secret, its target's content is.
+      title: edge.visible ? edge.title : 'restricted',
+    });
+  }
+
+  return data;
+}
+
+type ReportEdge = {
+  src: string;
+  direction: 'to' | 'from';
+  relationship: string;
+  key: string;
+  title: string;
+  visible: boolean;
+};
+
+async function fetchReportEdges(ids: readonly string[], visibility: SqlFragment): Promise<ReportEdge[]> {
+  const visibleThere = substituteAlias(visibility, 'other');
+
+  const statement = sql`
+    SELECT d."childId" AS src, 'to' AS direction, d.relationship AS relationship,
+           other.key AS key, other.title AS title, (${visibleThere}) AS visible
+    FROM "Dependency" d
+    JOIN "Requirement" other ON other.id = d."parentId"
+    WHERE d."childId" = ANY(${param(ids)})
+    UNION ALL
+    SELECT d."parentId" AS src, 'from' AS direction, d.relationship AS relationship,
+           other.key AS key, other.title AS title, (${visibleThere}) AS visible
+    FROM "Dependency" d
+    JOIN "Requirement" other ON other.id = d."childId"
+    WHERE d."parentId" = ANY(${param(ids)})
+    ORDER BY relationship ASC, key ASC
+  `;
+
+  const { text, params } = render(statement);
+  return prisma.$queryRawUnsafe<ReportEdge[]>(text, ...params);
+}
+
 /** The defining document of each row — the tree view and the `document` column. */
 export async function fetchDefiningDocuments(ids: readonly string[]): Promise<Map<string, DocumentOfRow>> {
   if (ids.length === 0) return new Map();

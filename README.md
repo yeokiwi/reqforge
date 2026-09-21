@@ -14,11 +14,12 @@ traceability, coverage, baselines, diff) is rebuilt against Reqforge's own store
 
 ## Status
 
-**Slices 0–9 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
+**Slices 0–10 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
 documents in a rich-text editor, mark requirements inside them, link them to each other,
 let the indexer project them into queryable rows with inline properties and dependencies,
 search them in RQL, build, save, embed and export a traceability matrix over them, and
-read the dependency grid and coverage numbers for any query.
+read the dependency grid and coverage numbers for any query, and embed live reports in
+the documents themselves.
 
 | Slice | What works |
 |---|---|
@@ -32,9 +33,11 @@ read the dependency grid and coverage numbers for any query.
 | 7 | `requirementLink`, dependencies named by column header, broken links, `to`/`from` |
 | 8 | Traceability matrix, saved matrices, embedding, the job queue and xlsx export |
 | 9 | Dependency grid with the 40,000-cell cap, coverage with targets, two-sheet export |
+| 10 | Embedded reports: the columns mini-syntax, count-only, "last requirement", guards |
 
-Not built yet: embedded reports (slice 10), external properties and requirement types
-(11–12), baselines, diff and renaming (13–15), and the hardening slices (16–18).
+Not built yet: external properties and requirement types (slices 11–12), baselines, diff
+and renaming (13–15), and the hardening slices (16–18). That completes the traceability
+half of v1; what remains is the compliance half.
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 `baseline was` and `isModified()` parse but report `NOT_IMPLEMENTED` from the compiler

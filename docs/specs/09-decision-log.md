@@ -273,3 +273,36 @@ visibility predicate produces for free, so `covered ⊆ population` and
 — would make a requirement look uncovered to one reader and covered to another *with no
 way to act on it*, since the reader cannot see or fix the thing they are being told is
 missing.
+
+### RD-034 — The report columns mini-syntax, spelled out
+**accepted.** Spec `04` §5 gives the syntax and the field list but leaves two things
+undefined, and research §4.5 only calls the options "query-string style".
+
+1. **`original` is `description` resolved against the defining occurrence.** In Reqforge
+   the two coincide: a requirement's text *is* the projection of the document version that
+   defines it (overview, decision 2), so there is no "original versus current" distinction
+   outside a baseline. The field is kept rather than refused so a column spec pasted from
+   Requirement Yogi renders instead of erroring, and the two are documented as equal.
+2. **Option semantics.** `format=short` renders keys alone and `format=page` renders the
+   document title (the readable end of the same reference); `li=true` renders a list,
+   `li=false` a comma-separated run, `li=last` only the final value; `duplicates=false`
+   removes repeats within the field.
+
+`jira` and `tests` are refused with an explanatory message rather than dropped, exactly as
+`RD-022` handles Atlassian-specific RQL fields. An unknown field or an unusable option is
+reported to the author and the rest of the spec still renders — a report with a typo in
+one column should not be a blank box.
+
+### RD-035 — "Use the last requirement definition" skips the enclosing definition
+**accepted.** Spec `04` §5 says the switch "overrides the other and renders the *previous*
+definition's description to avoid recursion", which admits two readings. Ours: it resolves
+to the nearest preceding `requirement` marker **whose scope does not contain the report**.
+A report written in a cell of FN-002's row therefore renders FN-001.
+
+*Why:* it is the only reading under which both halves of that sentence are true at once —
+"the previous definition" (not the current one) and "to avoid recursion" (a report cannot
+render the requirement it is part of). The plain `useLastRequirement` switch keeps the
+simpler rule: the nearest preceding marker or link, whatever it is. Either switch ignores
+the query entirely (research §4.5), and resolution keys off a stable `id` on the report
+node rather than a document position, so the same function serves the editor and any
+server-side render.

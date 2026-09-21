@@ -46,11 +46,15 @@ export const SavedMatrixNode = Node.create({
     return {
       insertSavedMatrix:
         (attributes) =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            attrs: { id: attributes.id, name: attributes.name ?? null },
-          }),
+        ({ chain, state }) =>
+          // At the end of the selection, never over it — see the note on insertRequirement.
+          chain()
+            .focus()
+            .insertContentAt(state.selection.to, [
+              { type: this.name, attrs: { id: attributes.id, name: attributes.name ?? null } },
+              { type: 'paragraph' },
+            ])
+            .run(),
     };
   },
 });

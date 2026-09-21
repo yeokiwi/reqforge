@@ -9,6 +9,7 @@ import { RequirementInsert, type KeySuggester } from './requirement-insert';
 import { RequirementLinkInsert, type RequirementFinder } from './requirement-link-insert';
 import { SavedMatrixInsert, type EmbeddableMatrix } from './saved-matrix-insert';
 import type { MatrixRenderer } from './saved-matrix-view';
+import type { ReportRenderer } from './report-view';
 import { EditorToolbar } from './toolbar';
 
 export type SaveResult =
@@ -26,6 +27,7 @@ export function DocumentEditor({
   findRequirements,
   matrices,
   renderMatrix,
+  renderReport,
 }: {
   documentId: string;
   initialContent: PMNode;
@@ -40,22 +42,34 @@ export function DocumentEditor({
   /** Saved matrices that can be embedded, and how to render an embed (spec 04 §2.3). */
   matrices?: EmbeddableMatrix[];
   renderMatrix?: MatrixRenderer;
+  renderReport?: ReportRenderer;
 }) {
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [focusSignal, setFocusSignal] = useState(0);
+  const [reportCount, setReportCount] = useState(0);
 
   const editor = useEditor({
     extensions: baseExtensions({
       onRequestInsert: () => setFocusSignal((value) => value + 1),
       renderMatrix: renderMatrix ?? null,
+      renderReport: renderReport ?? null,
     }),
     content: initialContent,
     editable: canEdit,
     immediatelyRender: false,
-    onUpdate: () => setDirty(true),
+    onUpdate: ({ editor: current }) => {
+      setDirty(true);
+      // spec 04 §5 — RY's docs name more than five reports on a page as a common cause
+      // of slow pages, so the editor says so before the document gets there.
+      let reports = 0;
+      current.state.doc.descendants((node) => {
+        if (node.type.name === 'report') reports += 1;
+      });
+      setReportCount(reports);
+    },
     editorProps: { attributes: { class: 'rf-prose min-h-[24rem] px-4 py-3 outline-none' } },
   });
 
@@ -97,6 +111,16 @@ export function DocumentEditor({
                 <RequirementInsert editor={editor} focusSignal={focusSignal} suggestKey={suggestKey} />
                 {findRequirements ? <RequirementLinkInsert editor={editor} find={findRequirements} /> : null}
                 {matrices && matrices.length > 0 ? <SavedMatrixInsert editor={editor} matrices={matrices} /> : null}
+                {renderReport ? (
+                  <button
+                    type="button"
+                    onClick={() => editor.chain().focus().insertReport().run()}
+                    title="Insert a report that renders live requirements here"
+                    className="rounded bg-[var(--rf-bg)] px-2 py-1 text-xs"
+                  >
+                    + Report
+                  </button>
+                ) : null}
                 <span data-testid="editor-status" className="text-xs text-[var(--rf-muted)]">
                   {dirty ? 'Unsaved changes' : status}
                 </span>
@@ -114,6 +138,16 @@ export function DocumentEditor({
         ) : null}
         <EditorContent editor={editor} />
       </div>
+
+      {reportCount > 5 ? (
+        <p
+          data-testid="report-warning"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+        >
+          This document has {reportCount} reports. More than five is a common cause of slow documents — consider
+          narrowing their queries or splitting the document.
+        </p>
+      ) : null}
 
       {diagnostics.length > 0 ? (
         // spec 03 §6 — "Validation appears as a byline warning".

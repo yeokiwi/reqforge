@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import type { PMNode } from '@/domain/doc';
 import { indexDocumentVersion } from '..';
 import { doc, horizontalTable, marker, para, paragraphLayout, row, table, td, text, th, verticalTable } from './fixtures';
 
@@ -190,5 +191,49 @@ describe('key locking and type inference (spec 03 §4.3, 06 §1)', () => {
       space: { key: 'SJ', types: types.map((type) => ({ ...type, locked: false })) },
     });
     expect(result.diagnostics).toHaveLength(0);
+  });
+});
+
+describe('the recursion guard (spec 04 §5)', () => {
+  const embed = (id: string): PMNode => ({ type: 'report', attrs: { id, query: "key ~ 'FN-%'" } });
+  const matrixEmbed = (id: string): PMNode => ({ type: 'savedMatrix', attrs: { id, name: 'Review' } });
+
+  it('a report inside a requirement scope is not part of its text', () => {
+    const result = index(
+      doc(para(marker('FN-001'), text(' The system shall be documented. '), embed('r1'))),
+    );
+
+    expect(result.requirements).toHaveLength(1);
+    const requirement = result.requirements[0]!;
+    expect(requirement.title).toBe('The system shall be documented.');
+    expect(requirement.bodySearch).toBe('The system shall be documented.');
+    // The excerpt still shows that something is embedded there.
+    expect(requirement.bodyHtml).toContain('Report:');
+  });
+
+  it('an embedded matrix is skipped the same way', () => {
+    const result = index(doc(para(marker('FN-002'), text(' Log access. '), matrixEmbed('m1'))));
+    expect(result.requirements[0]!.bodySearch).toBe('Log access.');
+  });
+
+  it('a report in a table cell does not become a property value', () => {
+    const result = index(
+      doc(
+        table(
+          row(th(para(text('Title'))), th(para(text('Notes'))), th(para(text('Key')))),
+          row(td(para(text('Log access'))), td(para(embed('r2'))), td(para(marker('FN-003')))),
+        ),
+      ),
+    );
+
+    expect(result.requirements[0]!.title).toBe('Log access');
+    // The Notes cell holds only an embed, so it contributes no property.
+    expect(result.properties).toEqual([]);
+  });
+
+  it('indexes the requirement normally otherwise', () => {
+    const result = index(doc(para(marker('FN-004'), text(' Still a requirement. '), embed('r3'))));
+    expect(result.requirements[0]).toMatchObject({ key: 'FN-004', layout: 'PARAGRAPH' });
+    expect(result.diagnostics).toEqual([]);
   });
 });
