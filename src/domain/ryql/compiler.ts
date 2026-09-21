@@ -1,3 +1,4 @@
+import type { DataType, ExternalTypeMap } from '@/domain/properties/external';
 import type { ComparisonOperator, Expr, FieldRef, Value } from './ast';
 import { rqlError, RqlSyntaxError } from './errors';
 import { findField } from './fields';
@@ -15,6 +16,11 @@ export type CompileContext = {
   /** Ordering and paging for the outer query. */
   limit?: number;
   offset?: number;
+  /**
+   * The declared data type of each external property, by lookup name. With one, `ext@`
+   * compares in that type rather than guessing from the shape of the literal (RD-037).
+   */
+  externalTypes?: ExternalTypeMap;
 };
 
 export type CompiledQuery = RenderedSql & { countText: string; countParams: unknown[] };
@@ -143,7 +149,7 @@ function compileComparison(
     case 'property':
       return existsProperty(alias, 'INLINE', field.qualifier, operator, value);
     case 'ext':
-      return existsProperty(alias, 'EXTERNAL', field.qualifier, operator, value);
+      return existsProperty(alias, 'EXTERNAL', field.qualifier, operator, value, declaredType(field, context));
     case 'to':
     case 'parent':
       return existsDependency(alias, 'parent', field.qualifier, operator, value);
@@ -317,12 +323,19 @@ function existsDocument(
   )`;
 }
 
+/** The declared type of `ext@Name`, when the caller supplied one (RD-037). */
+function declaredType(field: FieldRef, context: CompileContext): DataType | null {
+  const name = (field.qualifier ?? '').trim().toLowerCase();
+  return context.externalTypes?.[name]?.dataType ?? null;
+}
+
 function existsProperty(
   alias: string,
   kind: 'INLINE' | 'EXTERNAL',
   qualifier: string | null,
   operator: ComparisonOperator,
   value: Value,
+  dataType: DataType | null = null,
 ): SqlFragment {
   const name = (qualifier ?? '').trim().toLowerCase();
 
@@ -330,9 +343,10 @@ function existsProperty(
   const comparison =
     operator === '~'
       ? sql`(p.value ILIKE ${literal(value, { like: true })} ESCAPE '\\')`
-      : operator === '='
-        ? sql`(p.value = ${literal(value)})`
-        : numericAwareCompare(raw('p.value'), operator, value);
+      : typedCompare(operator, value, dataType) ??
+        (operator === '='
+          ? sql`(p.value = ${literal(value)})`
+          : numericAwareCompare(raw('p.value'), operator, value));
 
   return sql`EXISTS (
     SELECT 1 FROM "Property" p
@@ -341,6 +355,33 @@ function existsProperty(
       AND p."searchName" = ${param(name)}
       AND ${comparison}
   )`;
+}
+
+/**
+ * A comparison in the property's declared type (RD-037), or null when there is no
+ * declaration to go on and the shape of the literal has to decide instead.
+ *
+ * Each cast is guarded by a shape test, so a value written before the type was declared
+ * makes the row not match rather than making the whole query fail.
+ */
+function typedCompare(operator: ComparisonOperator, value: Value, dataType: DataType | null): SqlFragment | null {
+  const text = literal(value);
+
+  switch (dataType) {
+    case 'NUMBER': {
+      const numeric = value.kind === 'number' ? value.value : Number(valueText(value));
+      if (!Number.isFinite(numeric)) return null;
+      return sql`(p.value ~ '^-?[0-9]+(\\.[0-9]+)?$' AND (p.value)::numeric ${raw(operator)} ${param(numeric)})`;
+    }
+    case 'DATE':
+      return sql`(p.value ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND (p.value)::date ${raw(operator)} ${text}::date)`;
+    case 'BOOLEAN': {
+      if (operator !== '=') return null;
+      return sql`(p.value IN ('true', 'false') AND (p.value)::boolean = ${text}::boolean)`;
+    }
+    default:
+      return null;
+  }
 }
 
 /**

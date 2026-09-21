@@ -306,3 +306,53 @@ simpler rule: the nearest preceding marker or link, whatever it is. Either switc
 the query entirely (research §4.5), and resolution keys off a stable `id` on the report
 node rather than a document position, so the same function serves the editor and any
 server-side render.
+
+### RD-036 — External property definitions belong to the instance, not to a space
+**accepted.** `ExternalPropertyDefinition` is instance-global (spec `01`, research §2.6),
+but every permission Reqforge has is space-scoped, and spec `07` §2.1's list of what space
+`ADMIN` grants — requirement types, key locking, baselines, history settings, permissions —
+never mentions them. So they are gated on the instance-wide `User.isAdmin` flag and
+managed at `/admin/properties`, outside any space.
+
+*Why:* a space administrator renaming or deleting a definition would be reaching into every
+other space that files values against it. Setting a *value* stays space work and stays on
+`EDIT`, exactly as `07` §2.1 says.
+
+### RD-037 — The declared data type reaches the query engine through the context
+**accepted.** Spec `02` §4 says `ext@<name>` is a "typed comparison, per Cloud", but the
+analyser and the compiler are pure and cannot read a definition from the database. The
+usecase loads the definitions and passes a name → data type map into `AnalyserContext` and
+`CompileContext`, the same way the mandatory visibility predicate is passed today.
+
+With a declared type, the analyser refuses a literal the type cannot hold
+(`TYPE_MISMATCH`: `ext@RiskScore > 'high'`, a non-member of an enum, a date that is not
+ISO, an ordered comparison on a yes-or-no property) and the compiler casts rather than
+guessing from the shape of the literal: `::numeric`, `::date`, `::boolean`, each guarded by
+a shape test so a value written before the type was declared makes the row not match
+instead of failing the query. Under `~` the value is a pattern, not a value, so it is left
+alone. An **undeclared** external property keeps the old shape heuristic — a definition may
+simply not exist yet, and an unknown name is already an empty result rather than an error.
+
+Changing a definition's data type is refused while values exist, for the same reason: the
+promise the compiler relies on would otherwise be broken by rows it cannot reinterpret.
+
+### RD-038 — An external value is single-valued per requirement
+**accepted.** Inline properties are list-valued — one row per member, so `=` is set
+membership (`RD-027`). External values are not: one row per `(requirement, definition)`,
+enforced by a partial unique index (**invariant E2**), so setting a value replaces it.
+
+*Why:* the five aggregations of spec `04` §2.1 (`sum`, `min`, `max`, `avg`, `count`) are
+defined over one value per row, and "set value in bulk" is a set rather than a merge. Two
+further invariants come with it: **E1**, an `EXTERNAL` row always carries its
+`definitionId`, which is what makes `RD-037` sound; and **E3**, two definitions may not
+differ only in case, because a value is looked up by its lowercased name.
+
+### RD-039 — Setting a value in bulk needs `EDIT` and `EXPORT`
+**accepted.** Spec `07` §2.1 grants "edit external property values" to `EDIT` and "bulk
+operations" to `EXPORT`. Setting a value across a whole result set is both, so it requires
+both; editing one cell needs `EDIT` alone.
+
+*Why:* a reader deliberately denied the expensive, whole-result-set screens should not be
+able to change a whole result set through a different door. The population is resolved with
+the same visibility predicate a search uses (rule X3), so a bulk set can only reach rows the
+caller could have listed for themselves.

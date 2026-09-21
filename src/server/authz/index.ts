@@ -44,3 +44,16 @@ export async function requireSpace(spaceKey: string, permission: SpacePermission
     can: (p: SpacePermission) => permissions.includes(p),
   };
 }
+
+/**
+ * External property definitions are instance-global (spec 01, research §2.6), so they are
+ * not a space administrator's to change — a space admin would otherwise be editing a list
+ * every other space depends on. `RD-036`.
+ */
+export async function requireInstanceAdmin(): Promise<User> {
+  const user = await requireUser();
+  if (!user.isAdmin) {
+    throw new ForbiddenError('Only an instance administrator can manage external property definitions.');
+  }
+  return user;
+}

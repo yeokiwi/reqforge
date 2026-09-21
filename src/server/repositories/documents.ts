@@ -2,6 +2,7 @@ import type { Document, DocumentVersion, Prisma } from '@prisma/client';
 import { emptyDocument, type PMNode } from '@/domain/doc';
 import { ConflictError, NotFoundError } from '@/domain/errors';
 import { prisma } from './client';
+import { markRequirementsOfDocumentsDeleted } from './requirements';
 
 export type DocumentWithVersion = Document & { currentVersion: DocumentVersion | null };
 
@@ -175,7 +176,15 @@ export async function moveDocument(spaceId: string, documentId: string, parentId
  * Soft delete: versions survive, because a frozen baseline may pin one
  * (invariant D1, spec 05 §3.2 step 6).
  */
-export async function softDeleteDocument(spaceId: string, documentId: string): Promise<string[]> {
+/**
+ * Soft-deletes a document and its descendants, and marks the requirements they defined
+ * `DELETED` in the same transaction (contract I3 — `03` §3). Returns the document ids.
+ */
+export async function softDeleteDocument(
+  spaceId: string,
+  documentId: string,
+  actorId: string | null = null,
+): Promise<string[]> {
   const all = await prisma.document.findMany({
     where: { spaceId, deletedAt: null },
     select: { id: true, parentId: true },
@@ -193,9 +202,15 @@ export async function softDeleteDocument(spaceId: string, documentId: string): P
     }
   }
 
-  await prisma.document.updateMany({
-    where: { id: { in: [...descendants] }, spaceId },
-    data: { deletedAt: new Date() },
+  const documentIds = [...descendants];
+  await prisma.$transaction(async (tx) => {
+    await tx.document.updateMany({
+      where: { id: { in: documentIds }, spaceId },
+      data: { deletedAt: new Date() },
+    });
+    // The markers are gone as surely as if they had been deleted from the body, so the
+    // requirements follow contract I3 rather than staying ACTIVE with no document.
+    await markRequirementsOfDocumentsDeleted(tx, { spaceId, documentIds, actorId });
   });
-  return [...descendants];
+  return documentIds;
 }

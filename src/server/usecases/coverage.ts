@@ -16,6 +16,7 @@ import {
   setCoverageTarget,
 } from '@/server/repositories/coverage-targets';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
+import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { fetchCoverageCounts } from '@/server/repositories/traceability';
 
 export type CoverageSuccess = {
@@ -44,17 +45,19 @@ export async function runCoverageUseCase(input: {
 
   if (query.length === 0) return { ok: false, refusal: emptyQueryRefusal() };
 
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(query, {
     spaceKey: space.key,
     isolated: space.isolated,
     defaultBaseline: null,
+    externalTypes,
   });
   if (!analysed.ok) return { ok: false, errors: analysed.errors };
 
   const visibility = visibilityPredicate(user.id, await groupIdsOf(user.id));
 
   // The denominator is what this reader can see — the predicate does that (rule X2).
-  const ids = await runSearchIds(analysed.query.expr, { visibility });
+  const ids = await runSearchIds(analysed.query.expr, { visibility, externalTypes });
   const [{ perRelationship, anyTo, anyFrom }, targets] = await Promise.all([
     fetchCoverageCounts(ids),
     listCoverageTargets(space.id),

@@ -34,12 +34,15 @@ export default async function SpaceLayout({
     { href: `/s/${spaceKey}/admin/keys`, label: 'Keys' },
   ];
 
+  // Instance-wide, so it is not part of the space nav proper (RD-036).
+  const instanceNav = context.user.isAdmin ? [{ href: '/admin/properties', label: 'External properties' }] : [];
+
   return (
     <>
       <TopBar userName={context.user.name}>
         <nav className="flex items-center gap-4 text-sm">
           <span className="rounded bg-[var(--rf-bg)] px-2 py-0.5 font-mono text-xs">{context.space.key}</span>
-          {nav.map((item) => (
+          {[...nav, ...instanceNav].map((item) => (
             <Link key={item.href} href={item.href} className="text-[var(--rf-muted)] hover:text-[var(--rf-ink)]">
               {item.label}
             </Link>

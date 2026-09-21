@@ -113,7 +113,7 @@ query languages.
 | `documentHistory` | id | all versions of that document | replaces `pageHistory` |
 | `links` | id | any `DocumentLink` | |
 | `@<name>` | string \| number | `Property` kind `INLINE` | |
-| `ext@<name>` | typed | `Property` kind `EXTERNAL` | typed comparison, per Cloud |
+| `ext@<name>` | typed | `Property` kind `EXTERNAL` | typed comparison against the declared data type, `RD-037` |
 | `to@<rel>`, `parent@<rel>` | key | `Dependency` child→parent | bare `to`/`parent` = any relationship |
 | `from@<rel>`, `child@<rel>` | key | `Dependency` parent→child | |
 | `ruleStatus`, `ruleStatus@<type>` | `true`\|`false`\|`warning` | `RequirementValidation` | qualifier accepts **id or name** |

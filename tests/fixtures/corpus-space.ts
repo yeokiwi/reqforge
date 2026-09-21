@@ -23,6 +23,9 @@ export type FixtureHandles = {
   restrictedDocumentId: string;
   baselineId: string;
   baselineNumber: number;
+  /** Instance-global, so it is shared with every other fixture rather than owned here. */
+  approvalDefinitionId: string;
+  riskDefinitionId: string;
 };
 
 export function keyOf(index: number): string {
@@ -70,6 +73,27 @@ export function documentOf(index: number): 0 | 1 | 2 {
  */
 function uniqueTag(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+}
+
+/**
+ * External property definitions are instance-global (spec 01), so the fixture shares them
+ * rather than owning them: several test files build a corpus at once, and a definition
+ * that one of them deleted would pull the value rows out from under the others.
+ */
+async function sharedDefinition(
+  prisma: PrismaClient,
+  input: { name: string; dataType: 'STRING' | 'NUMBER' | 'ENUM'; enumValues: string[] },
+): Promise<string> {
+  const existing = await prisma.externalPropertyDefinition.findUnique({ where: { name: input.name } });
+  if (existing) return existing.id;
+  try {
+    const created = await prisma.externalPropertyDefinition.create({ data: input });
+    return created.id;
+  } catch {
+    // Another fixture won the race; its row is the one to use.
+    const other = await prisma.externalPropertyDefinition.findUniqueOrThrow({ where: { name: input.name } });
+    return other.id;
+  }
 }
 
 export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag()): Promise<FixtureHandles> {
@@ -146,6 +170,17 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
   });
   const idByKey = new Map(created.map((row) => [row.upperKey, row.id]));
 
+  const approvalDefinitionId = await sharedDefinition(prisma, {
+    name: 'Approval',
+    dataType: 'ENUM',
+    enumValues: ['Pending', 'Signed off'],
+  });
+  const riskDefinitionId = await sharedDefinition(prisma, {
+    name: 'RiskScore',
+    dataType: 'NUMBER',
+    enumValues: [],
+  });
+
   const properties: Prisma.PropertyCreateManyInput[] = [];
   const labels: Prisma.RequirementLabelCreateManyInput[] = [];
   for (let index = 0; index < TOTAL; index += 1) {
@@ -187,6 +222,7 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
       );
     }
     if (index % 50 === 0) {
+      // Invariant E1 — an EXTERNAL value always carries its definition, so it is typed.
       properties.push({
         requirementId,
         kind: 'EXTERNAL',
@@ -195,6 +231,17 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
         value: 'Signed off',
         valueOrdinal: 4,
         valueIndex: 0,
+        definitionId: approvalDefinitionId,
+      });
+      properties.push({
+        requirementId,
+        kind: 'EXTERNAL',
+        name: 'RiskScore',
+        searchName: 'riskscore',
+        value: String((index % 7) + 1),
+        valueOrdinal: 5,
+        valueIndex: 0,
+        definitionId: riskDefinitionId,
       });
       labels.push({ requirementId, label: 'critical' });
     }
@@ -253,6 +300,8 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
     restrictedDocumentId: documents[2]!,
     baselineId: baseline.id,
     baselineNumber: baseline.number,
+    approvalDefinitionId,
+    riskDefinitionId,
   };
 }
 

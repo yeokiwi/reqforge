@@ -1,4 +1,13 @@
-import { and, mentionsField, SYNTHETIC, type Expr, type FieldRef, type Value } from './ast';
+import { coerceValue, type ExternalTypeMap } from '@/domain/properties/external';
+import {
+  and,
+  mentionsField,
+  SYNTHETIC,
+  type ComparisonOperator,
+  type Expr,
+  type FieldRef,
+  type Value,
+} from './ast';
 import { nearestName, rqlError, rqlWarning, type RqlDiagnostic } from './errors';
 import {
   findField,
@@ -19,6 +28,11 @@ export type AnalyserContext = {
   crossSpace?: boolean;
   /** The UI's baseline dropdown; an explicit `baseline` in the query overrides it. */
   defaultBaseline?: number | string | null;
+  /**
+   * The declared data type of each external property, by lookup name (RD-037). Absent
+   * means "not declared yet", which is a plain string comparison rather than an error.
+   */
+  externalTypes?: ExternalTypeMap;
 };
 
 export type AnalysedQuery = {
@@ -37,7 +51,7 @@ export type AnalysedQuery = {
 export function analyse(expr: Expr, context: AnalyserContext): AnalysedQuery {
   const diagnostics: RqlDiagnostic[] = [];
 
-  checkExpr(expr, diagnostics, 0);
+  checkExpr(expr, diagnostics, 0, context);
   warnOnMixedPrecedence(expr, diagnostics);
 
   const { scoped, injected } = applyDefaultScope(expr, context, diagnostics);
@@ -45,17 +59,17 @@ export function analyse(expr: Expr, context: AnalyserContext): AnalysedQuery {
   return { expr: scoped, userExpr: expr, diagnostics, injected };
 }
 
-function checkExpr(expr: Expr, diagnostics: RqlDiagnostic[], traversalDepth: number): void {
+function checkExpr(expr: Expr, diagnostics: RqlDiagnostic[], traversalDepth: number, context: AnalyserContext): void {
   switch (expr.kind) {
     case 'and':
     case 'or':
-      checkExpr(expr.left, diagnostics, traversalDepth);
-      checkExpr(expr.right, diagnostics, traversalDepth);
+      checkExpr(expr.left, diagnostics, traversalDepth, context);
+      checkExpr(expr.right, diagnostics, traversalDepth, context);
       return;
 
     case 'not':
     case 'group':
-      checkExpr(expr.expr, diagnostics, traversalDepth);
+      checkExpr(expr.expr, diagnostics, traversalDepth, context);
       return;
 
     case 'traversal': {
@@ -84,7 +98,7 @@ function checkExpr(expr: Expr, diagnostics: RqlDiagnostic[], traversalDepth: num
         );
         return;
       }
-      checkExpr(expr.expr, diagnostics, depth);
+      checkExpr(expr.expr, diagnostics, depth, context);
       return;
     }
 
@@ -103,6 +117,7 @@ function checkExpr(expr: Expr, diagnostics: RqlDiagnostic[], traversalDepth: num
         );
       }
       checkValue(field, expr.value, diagnostics);
+      checkExternalValue(expr.field, expr.operator, expr.value, diagnostics, context);
       return;
     }
 
@@ -114,7 +129,10 @@ function checkExpr(expr: Expr, diagnostics: RqlDiagnostic[], traversalDepth: num
           rqlError('BAD_OPERATOR_FOR_FIELD', `${describe(expr.field)} does not support IN.`, expr.offset, expr.length),
         );
       }
-      for (const value of expr.values) checkValue(field, value, diagnostics);
+      for (const value of expr.values) {
+        checkValue(field, value, diagnostics);
+        checkExternalValue(expr.field, '=', value, diagnostics, context);
+      }
       return;
     }
 
@@ -403,6 +421,57 @@ function collectSpacePredicates(expr: Expr): Array<Extract<Expr, { kind: 'compar
   };
   visit(expr);
   return found;
+}
+
+/**
+ * `ext@Name` compares against a value of the property's **declared** type (spec 02 §4,
+ * RD-037). The rules are `coerceValue`'s, so what a query may look for and what a value
+ * may be are the same rule stated once.
+ *
+ * An undeclared external property is left alone: a definition may simply not exist yet,
+ * and an unknown name is already an empty result rather than an error.
+ */
+function checkExternalValue(
+  ref: FieldRef,
+  operator: ComparisonOperator,
+  value: Value,
+  diagnostics: RqlDiagnostic[],
+  context: AnalyserContext,
+): void {
+  if (ref.name !== 'ext' || !ref.qualifier) return;
+  // Under `~` the value is a pattern, not a value: `ext@Released ~ '2026-%'` is legitimate.
+  if (operator === '~' || operator === 'NOT LIKE') return;
+  if (value.kind === 'variable' || value.kind === 'call') return;
+
+  const declared = context.externalTypes?.[ref.qualifier.trim().toLowerCase()];
+  if (!declared) return;
+
+  const ordered = operator === '<' || operator === '<=' || operator === '>' || operator === '>=';
+  if (ordered && declared.dataType === 'BOOLEAN') {
+    diagnostics.push(
+      rqlError(
+        'TYPE_MISMATCH',
+        `${describe(ref)} is a yes-or-no property; ${operator} has no meaning on it.`,
+        ref.offset,
+        ref.length,
+        `Use = instead.`,
+      ),
+    );
+    return;
+  }
+
+  const text = value.kind === 'string' ? value.value : String(value.value);
+  const coerced = coerceValue(declared, text);
+  if (!coerced.ok) {
+    diagnostics.push(
+      rqlError(
+        'TYPE_MISMATCH',
+        `${describe(ref)} is a ${declared.dataType.toLowerCase()} property: ${coerced.message}`,
+        value.offset,
+        value.length,
+      ),
+    );
+  }
 }
 
 function describe(ref: FieldRef): string {

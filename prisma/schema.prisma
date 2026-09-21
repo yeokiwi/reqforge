@@ -270,6 +270,8 @@ model Property {
 
   @@index([requirementId, kind])
   @@index([searchName, value])
+  /// "is this definition still in use?" — deletion is refused while values exist.
+  @@index([definitionId])
 }
 
 /// Instance-global, not space-scoped — research §2.6.
@@ -281,6 +283,7 @@ model ExternalPropertyDefinition {
   description String?
   values      Property[]
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 enum DataType {

@@ -34,16 +34,16 @@ the documents themselves.
 | 8 | Traceability matrix, saved matrices, embedding, the job queue and xlsx export |
 | 9 | Dependency grid with the 40,000-cell cap, coverage with targets, two-sheet export |
 | 10 | Embedded reports: the columns mini-syntax, count-only, "last requirement", guards |
+| 11 | External properties: instance-global definitions, typed `ext@`, in-place and bulk editing |
 
-Not built yet: external properties and requirement types (slices 11–12), baselines, diff
-and renaming (13–15), and the hardening slices (16–18). That completes the traceability
-half of v1; what remains is the compliance half.
+Not built yet: requirement types (slice 12), baselines, diff and renaming (13–15), and
+the hardening slices (16–18). That completes the traceability half of v1; what remains is
+the compliance half.
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 `baseline was` and `isModified()` parse but report `NOT_IMPLEMENTED` from the compiler
-until diff lands (slice 14); a matrix's `external` columns render values but are not
-editable, and there is no bulk set, until external properties land (slice 11); a
-`ruleStatus` column renders empty until requirement types validate anything (slice 12);
+until diff lands (slice 14); a `ruleStatus` column renders empty until requirement types
+validate anything (slice 12);
 computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
 refused until token auth (`RD-030`, slice 17); a link's `displayProperty` is stored but
 not yet rendered live.

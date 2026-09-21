@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`corpus — ext@ compiles in its declared type > pins the SQL of one query per data type 1`] = `
+[
+  "ext@RiskScore > 3
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value ~ '^-?[0-9]+(\\.[0-9]+)?$' AND (p.value)::numeric > $3) )
+  params: ["EXTERNAL","riskscore",3]",
+  "ext@Released <= '2026-06-30'
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND (p.value)::date <= $3::date) )
+  params: ["EXTERNAL","released","2026-06-30"]",
+  "ext@Waived = 'true'
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value IN ('true', 'false') AND (p.value)::boolean = $3::boolean) )
+  params: ["EXTERNAL","waived","true"]",
+  "ext@Approval = 'Pending'
+  EXISTS ( SELECT 1 FROM "Property" p WHERE p."requirementId" = r.id AND p.kind = $1::"PropertyKind" AND p."searchName" = $2 AND (p.value = $3) )
+  params: ["EXTERNAL","approval","Pending"]",
+]
+`;

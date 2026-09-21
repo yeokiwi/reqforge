@@ -102,10 +102,21 @@ describe('applyIndexResult — contracts I2 and I3, rule S3', () => {
     await saveAndIndex(document.id, doc(para(marker('FN-200'), text(' With properties.'))));
     const requirement = await prisma.requirement.findFirstOrThrow({ where: { spaceId, upperKey: 'FN-200' } });
 
+    // Invariant E1: an EXTERNAL value always carries its definition, so it is always typed.
+    const definition = await prisma.externalPropertyDefinition.create({
+      data: { name: `Approval ${requirement.id.slice(-6)}`, dataType: 'STRING', enumValues: [] },
+    });
     await prisma.property.createMany({
       data: [
         { requirementId: requirement.id, kind: 'INLINE', name: 'Category', searchName: 'category', value: 'Security' },
-        { requirementId: requirement.id, kind: 'EXTERNAL', name: 'Approval', searchName: 'approval', value: 'Signed off' },
+        {
+          requirementId: requirement.id,
+          kind: 'EXTERNAL',
+          name: 'Approval',
+          searchName: 'approval',
+          value: 'Signed off',
+          definitionId: definition.id,
+        },
       ],
     });
 

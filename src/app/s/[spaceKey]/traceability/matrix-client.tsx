@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useState, useTransition } from 'react';
+import { aggregateValues, type ExternalDefinition } from '@/domain/properties/external';
 import {
   columnId,
   columnLabel,
@@ -9,12 +10,15 @@ import {
   type MatrixColumn,
   type MatrixConfig,
   type MatrixPage,
+  type MatrixRow,
 } from '@/domain/traceability/matrix';
 import { QueryUnderline } from '../search/query-underline';
 import {
   exportMatrixAction,
   jobStatusAction,
   runMatrixAction,
+  setExternalValueAction,
+  setExternalValueInBulkAction,
   type JobView,
   type MatrixResponse,
 } from './actions';
@@ -45,12 +49,21 @@ export function MatrixClient({
   const [job, setJob] = useState<JobView | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // spec 04 §2.2 — a toggle at the top switches the matrix into edit mode.
+  const [editing, setEditing] = useState(false);
+  /**
+   * Values edited since the page was fetched, keyed by row and definition. The cells the
+   * server sent stay as they are, so the aggregate recomputes live without a re-run.
+   */
+  const [edited, setEdited] = useState<Record<string, string>>({});
 
   const run = useCallback(
     (next: MatrixConfig, offset: number) => {
       setSubmitted(next.query);
       startTransition(async () => {
-        setResponse(await runMatrixAction(spaceKey, next, offset));
+        const fetched = await runMatrixAction(spaceKey, next, offset);
+        setEdited({});
+        setResponse(fetched);
       });
     },
     [spaceKey],
@@ -89,6 +102,23 @@ export function MatrixClient({
   };
 
   const page: MatrixPage | null = response?.ok ? response.page : null;
+  const definitions: ExternalDefinition[] = response?.ok ? response.definitions : [];
+  const definitionFor = (name: string) =>
+    definitions.find((definition) => definition.searchName === name.trim().toLowerCase()) ?? null;
+
+  const table = (rows: MatrixRow[]) => (
+    <MatrixTable
+      spaceKey={spaceKey}
+      columns={page!.config.columns}
+      rows={rows}
+      definitions={definitions}
+      edited={edited}
+      editing={editing && canEdit}
+      onEdited={(rowId, definitionId, value) =>
+        setEdited((current) => ({ ...current, [`${rowId}:${definitionId}`]: value }))
+      }
+    />
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -139,6 +169,17 @@ export function MatrixClient({
               className="w-20 rounded border border-[var(--rf-line)] px-2 py-1"
             />
           </label>
+          {canEdit ? (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={editing}
+                onChange={(event) => setEditing(event.target.checked)}
+                aria-label="Edit values"
+              />
+              Edit values — external columns marked editable become inputs
+            </label>
+          ) : null}
           {canExport ? (
             <button type="button" onClick={startExport} className="rounded bg-[var(--rf-bg)] px-2 py-1">
               Export to xlsx
@@ -180,17 +221,28 @@ export function MatrixClient({
           <p className="text-xs text-[var(--rf-muted)]" data-testid="matrix-count">
             {page.total} {page.total === 1 ? 'requirement' : 'requirements'}
           </p>
+
+          {editing && canEdit && canExport ? (
+            <BulkSetPanel
+              spaceKey={spaceKey}
+              query={page.config.query}
+              total={page.total}
+              columns={page.config.columns}
+              definitionFor={definitionFor}
+              onDone={() => run(config, page.offset)}
+            />
+          ) : null}
           {config.treeView ? (
             groupRowsByDocument(page.rows).map((group) => (
               <section key={group.documentId ?? 'none'} className="flex flex-col gap-1">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--rf-muted)]">
                   {group.documentTitle}
                 </h2>
-                <MatrixTable spaceKey={spaceKey} columns={page.config.columns} rows={group.rows} />
+                {table(group.rows)}
               </section>
             ))
           ) : (
-            <MatrixTable spaceKey={spaceKey} columns={page.config.columns} rows={page.rows} />
+            table(page.rows)
           )}
 
           {page.total > page.config.pageSize ? (
@@ -238,15 +290,46 @@ export function MatrixClient({
   );
 }
 
+type EditedValues = Record<string, string>;
+
 function MatrixTable({
   spaceKey,
   columns,
   rows,
+  definitions,
+  edited,
+  editing,
+  onEdited,
 }: {
   spaceKey: string;
   columns: MatrixColumn[];
   rows: MatrixPage['rows'];
+  definitions: ExternalDefinition[];
+  edited: EditedValues;
+  editing: boolean;
+  onEdited: (rowId: string, definitionId: string, value: string) => void;
 }) {
+  const definitionFor = (name: string) =>
+    definitions.find((definition) => definition.searchName === name.trim().toLowerCase()) ?? null;
+
+  /** What a cell currently shows: the edited value if there is one, else the fetched one. */
+  const valueOf = (row: MatrixPage['rows'][number], column: MatrixColumn): string => {
+    if (column.kind !== 'external') return row.cells[columnId(column)]?.text ?? '';
+    const definition = definitionFor(column.name);
+    const local = definition ? edited[`${row.id}:${definition.id}`] : undefined;
+    return local ?? row.cells[columnId(column)]?.text ?? '';
+  };
+
+  const aggregates = columns.map((column) => {
+    if (column.kind !== 'external' || !column.aggregate) return null;
+    const definition = definitionFor(column.name);
+    if (!definition) return null;
+    // spec 04 §2.1 — "recomputed live as values are edited", so it reads the cells on
+    // screen rather than asking the server again.
+    const outcome = aggregateValues(column.aggregate, definition.dataType, rows.map((row) => valueOf(row, column)));
+    return { label: column.aggregate, ...outcome };
+  });
+
   return (
     <table className="w-full text-sm" data-testid="matrix-table">
       <thead>
@@ -262,15 +345,24 @@ function MatrixTable({
         {rows.map((row) => (
           <tr key={row.id} className="border-t border-[var(--rf-line)] align-top">
             {columns.map((column, index) => {
-              const cell = row.cells[columnId(column)];
+              const definition = column.kind === 'external' ? definitionFor(column.name) : null;
               return (
                 <td key={`${column.kind}-${index}`} className="py-1.5">
                   {column.kind === 'key' ? (
                     <Link href={`/s/${spaceKey}/r/${encodeURIComponent(row.key)}`} className="rf-req">
                       {row.key}
                     </Link>
+                  ) : editing && column.kind === 'external' && column.editable && definition ? (
+                    <ValueInput
+                      spaceKey={spaceKey}
+                      requirementId={row.id}
+                      requirementKey={row.key}
+                      definition={definition}
+                      value={valueOf(row, column)}
+                      onSaved={(next) => onEdited(row.id, definition.id, next)}
+                    />
                   ) : (
-                    (cell?.text ?? '')
+                    valueOf(row, column)
                   )}
                 </td>
               );
@@ -285,6 +377,220 @@ function MatrixTable({
           </tr>
         ) : null}
       </tbody>
+      {aggregates.some((aggregate) => aggregate !== null) ? (
+        <tfoot>
+          <tr className="border-t border-[var(--rf-line)] text-xs text-[var(--rf-muted)]" data-testid="matrix-totals">
+            {columns.map((column, index) => {
+              const aggregate = aggregates[index];
+              return (
+                <td key={`total-${index}`} className="py-1.5">
+                  {aggregate ? (
+                    aggregate.ok ? (
+                      <span data-testid={`total-${columnId(column)}`}>
+                        {aggregate.label} {aggregate.text}
+                      </span>
+                    ) : (
+                      <span className="text-red-600">{aggregate.message}</span>
+                    )
+                  ) : null}
+                </td>
+              );
+            })}
+          </tr>
+        </tfoot>
+      ) : null}
     </table>
+  );
+}
+
+/**
+ * One editable external value. It saves on blur and rolls back to the stored value if the
+ * server refuses the coercion, so a refusal never leaves a lie on screen.
+ */
+function ValueInput({
+  spaceKey,
+  requirementId,
+  requirementKey,
+  definition,
+  value,
+  onSaved,
+}: {
+  spaceKey: string;
+  requirementId: string;
+  requirementKey: string;
+  definition: ExternalDefinition;
+  value: string;
+  onSaved: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, startSaving] = useTransition();
+
+  const save = (next: string) => {
+    if (next === value) return;
+    startSaving(async () => {
+      const outcome = await setExternalValueAction(spaceKey, requirementId, definition.id, next);
+      if (outcome.error) {
+        setError(outcome.error);
+        setDraft(value);
+        return;
+      }
+      setError(null);
+      onSaved(outcome.value ?? '');
+    });
+  };
+
+  const label = `${definition.name} of ${requirementKey}`;
+  const shared = 'w-full rounded border border-[var(--rf-line)] px-1 py-0.5 text-sm';
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {definition.dataType === 'ENUM' || definition.dataType === 'BOOLEAN' ? (
+        <select
+          aria-label={label}
+          value={draft}
+          disabled={saving}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            save(event.target.value);
+          }}
+          className={shared}
+        >
+          <option value="">—</option>
+          {(definition.dataType === 'BOOLEAN' ? ['true', 'false'] : definition.enumValues).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label={label}
+          value={draft}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={(event) => save(event.target.value)}
+          className={shared}
+        />
+      )}
+      {error ? (
+        <span role="alert" className="text-xs text-red-600">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "Set value in bulk" across the whole result set, not just the visible page
+ * (spec 04 §2.2). Shown only with EDIT and EXPORT (RD-039), and it names the row count
+ * before it runs, because this is the one control here that changes rows you cannot see.
+ */
+function BulkSetPanel({
+  spaceKey,
+  query,
+  total,
+  columns,
+  definitionFor,
+  onDone,
+}: {
+  spaceKey: string;
+  query: string;
+  total: number;
+  columns: MatrixColumn[];
+  definitionFor: (name: string) => ExternalDefinition | null;
+  onDone: () => void;
+}) {
+  const available = columns.flatMap((column) => {
+    if (column.kind !== 'external') return [];
+    const definition = definitionFor(column.name);
+    return definition ? [definition] : [];
+  });
+
+  const [definitionId, setDefinitionId] = useState(available[0]?.id ?? '');
+  const [value, setValue] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [state, setState] = useState<{ message: string | null; error: string | null }>({ message: null, error: null });
+  const [running, startRunning] = useTransition();
+
+  if (available.length === 0) return null;
+  const chosen = available.find((definition) => definition.id === definitionId) ?? available[0]!;
+
+  const run = () => {
+    setConfirming(false);
+    startRunning(async () => {
+      const outcome = await setExternalValueInBulkAction(spaceKey, query, chosen.id, value);
+      setState(outcome);
+      if (outcome.message) onDone();
+    });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded border border-[var(--rf-line)] p-2 text-xs" data-testid="bulk-set">
+      <span className="font-semibold uppercase tracking-wide text-[var(--rf-muted)]">Set value in bulk</span>
+      <select
+        aria-label="Bulk property"
+        value={chosen.id}
+        onChange={(event) => setDefinitionId(event.target.value)}
+        className="rounded border border-[var(--rf-line)] px-2 py-1"
+      >
+        {available.map((definition) => (
+          <option key={definition.id} value={definition.id}>
+            {definition.name}
+          </option>
+        ))}
+      </select>
+
+      {chosen.dataType === 'ENUM' || chosen.dataType === 'BOOLEAN' ? (
+        <select
+          aria-label="Bulk value"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          className="rounded border border-[var(--rf-line)] px-2 py-1"
+        >
+          <option value="">clear the value</option>
+          {(chosen.dataType === 'BOOLEAN' ? ['true', 'false'] : chosen.enumValues).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label="Bulk value"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="leave blank to clear"
+          className="rounded border border-[var(--rf-line)] px-2 py-1"
+        />
+      )}
+
+      {confirming ? (
+        <>
+          <span data-testid="bulk-confirm">
+            {value.trim().length === 0 ? 'Clear' : `Set ${chosen.name} to "${value}" on`} all {total} matching
+            requirement{total === 1 ? '' : 's'}?
+          </span>
+          <button type="button" onClick={run} disabled={running} className="rounded bg-[var(--rf-accent)] px-2 py-1 text-white">
+            {running ? 'Working…' : 'Yes, set them'}
+          </button>
+          <button type="button" onClick={() => setConfirming(false)} className="rounded bg-[var(--rf-bg)] px-2 py-1">
+            Cancel
+          </button>
+        </>
+      ) : (
+        <button type="button" onClick={() => setConfirming(true)} className="rounded bg-[var(--rf-bg)] px-2 py-1">
+          Set for all {total}
+        </button>
+      )}
+
+      {state.message ? <span className="text-emerald-700">{state.message}</span> : null}
+      {state.error ? (
+        <span role="alert" className="text-red-600">
+          {state.error}
+        </span>
+      ) : null}
+    </div>
   );
 }

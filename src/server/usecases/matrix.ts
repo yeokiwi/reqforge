@@ -1,4 +1,5 @@
 import { ValidationError } from '@/domain/errors';
+import type { ExternalDefinition } from '@/domain/properties/external';
 import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
 import { RqlSyntaxError } from '@/domain/ryql/errors';
 import {
@@ -17,9 +18,19 @@ import {
   saveMatrix,
 } from '@/server/repositories/matrices';
 import { groupIdsOf, runSearch, visibilityPredicate } from '@/server/repositories/search';
+import { listDefinitions, loadExternalTypes } from '@/server/repositories/external-properties';
 import { fetchDefiningDocuments, fetchMatrixCells } from '@/server/repositories/traceability';
 
-export type MatrixSuccess = { ok: true; page: MatrixPage; warnings: RqlDiagnostic[] };
+export type MatrixSuccess = {
+  ok: true;
+  page: MatrixPage;
+  warnings: RqlDiagnostic[];
+  /**
+   * The definitions behind the `external` columns of this config, so the screen can offer
+   * the right input and compute the column's aggregate (spec 04 §2.1–2.2).
+   */
+  definitions: ExternalDefinition[];
+};
 export type MatrixFailure = { ok: false; errors: RqlDiagnostic[] };
 
 export type RunMatrixInput = {
@@ -69,11 +80,13 @@ export async function runMatrixForUser(input: {
     };
   }
 
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(config.query, {
     spaceKey: space.key,
     isolated: space.isolated,
     crossSpace: input.crossSpace ?? false,
     defaultBaseline: null,
+    externalTypes,
   });
   if (!analysed.ok) return { ok: false, errors: analysed.errors };
 
@@ -84,6 +97,7 @@ export async function runMatrixForUser(input: {
     // Phase one: the page of rows.
     const { rows, total } = await runSearch(analysed.query.expr, {
       visibility,
+      externalTypes,
       // `$currentBaseline` resolves to the baseline this document reports on, and to the
       // live set when it reports on none (RD-031).
       currentBaselineId: baseline?.id ?? null,
@@ -116,10 +130,18 @@ export async function runMatrixForUser(input: {
       };
     });
 
+    const wanted = new Set(
+      config.columns.flatMap((column) => (column.kind === 'external' ? [column.name.trim().toLowerCase()] : [])),
+    );
+    const definitions = wanted.size
+      ? (await listDefinitions()).filter((definition) => wanted.has(definition.searchName))
+      : [];
+
     return {
       ok: true,
       page: { config, rows: matrixRows, total, offset: Math.max(input.offset ?? 0, 0) },
       warnings: analysed.warnings,
+      definitions,
     };
   } catch (error) {
     if (error instanceof RqlSyntaxError) return { ok: false, errors: [error.diagnostic] };
@@ -158,7 +180,11 @@ export async function saveMatrixUseCase(input: {
   if (name.length === 0) throw new ValidationError('A saved matrix needs a name.');
   if (config.query.trim().length === 0) throw new ValidationError('A saved matrix needs a query.');
 
-  const analysed = parseAndAnalyse(config.query, { spaceKey: space.key, isolated: space.isolated });
+  const analysed = parseAndAnalyse(config.query, {
+    spaceKey: space.key,
+    isolated: space.isolated,
+    externalTypes: await loadExternalTypes(),
+  });
   if (!analysed.ok) {
     throw new ValidationError(`That query does not parse: ${analysed.errors[0]?.message ?? 'unknown error'}`);
   }

@@ -4,6 +4,7 @@ import { isAppError } from '@/domain/errors';
 import { groupDependencies } from '@/domain/traceability/dependencies';
 import { requireSpace } from '@/server/authz';
 import { findRequirementDetail } from '@/server/repositories/requirements';
+import { setValueUseCase } from '@/server/usecases/external-properties';
 import { edgesOf } from './edges';
 
 export type RequirementSummary = {
@@ -54,6 +55,24 @@ export async function requirementSummaryAction(
     };
   } catch (error) {
     if (isAppError(error)) return { error: error.message };
+    throw error;
+  }
+}
+
+export type RequirementValueState = { value: string | null; error: string | null };
+
+/** spec 07 §2.1 — editing an external property value needs EDIT on the space. */
+export async function setRequirementValueAction(
+  spaceKey: string,
+  requirementId: string,
+  definitionId: string,
+  value: string,
+): Promise<RequirementValueState> {
+  try {
+    const outcome = await setValueUseCase({ spaceKey, requirementId, definitionId, value });
+    return { value: outcome.value, error: null };
+  } catch (error) {
+    if (isAppError(error)) return { value: null, error: error.message };
     throw error;
   }
 }

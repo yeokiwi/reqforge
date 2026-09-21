@@ -140,8 +140,8 @@ export async function moveDocumentUseCase(
 }
 
 export async function deleteDocumentUseCase(spaceKey: string, documentId: string): Promise<void> {
-  const { space } = await requireSpace(spaceKey, 'EDIT');
-  await softDeleteDocument(space.id, documentId);
+  const { space, user } = await requireSpace(spaceKey, 'EDIT');
+  await softDeleteDocument(space.id, documentId, user.id);
 }
 
 export async function documentHistory(spaceKey: string, documentId: string) {

@@ -11,6 +11,7 @@ import {
   type MatrixSuccess,
 } from '@/server/usecases/matrix';
 import { cancelJobUseCase, exportMatrixUseCase, jobStatusUseCase } from '@/server/usecases/jobs';
+import { setValueInBulkUseCase, setValueUseCase } from '@/server/usecases/external-properties';
 
 export type MatrixResponse = MatrixSuccess | MatrixFailure;
 
@@ -96,4 +97,49 @@ export async function jobStatusAction(spaceKey: string, jobId: string): Promise<
 
 export async function cancelJobAction(spaceKey: string, jobId: string): Promise<void> {
   await cancelJobUseCase(spaceKey, jobId);
+}
+
+export type ValueState = { value: string | null; error: string | null };
+
+/** spec 04 §2.2 — editing an external value in place, one cell at a time. */
+export async function setExternalValueAction(
+  spaceKey: string,
+  requirementId: string,
+  definitionId: string,
+  value: string,
+): Promise<ValueState> {
+  try {
+    const outcome = await setValueUseCase({ spaceKey, requirementId, definitionId, value });
+    return { value: outcome.value, error: null };
+  } catch (error) {
+    if (isAppError(error)) return { value: null, error: error.message };
+    throw error;
+  }
+}
+
+export type BulkState = { message: string | null; error: string | null };
+
+/**
+ * "Set value in bulk" across the whole result set, not the visible page (spec 04 §2.2).
+ * The permission check lives in the usecase (RD-039).
+ */
+export async function setExternalValueInBulkAction(
+  spaceKey: string,
+  query: string,
+  definitionId: string,
+  value: string,
+): Promise<BulkState> {
+  try {
+    const outcome = await setValueInBulkUseCase({ spaceKey, query, definitionId, value });
+    const what = outcome.value === null ? 'Cleared' : `Set to "${outcome.value}" on`;
+    return {
+      message: `${what} ${outcome.written} of ${outcome.population} matching requirement${
+        outcome.population === 1 ? '' : 's'
+      }.`,
+      error: null,
+    };
+  } catch (error) {
+    if (isAppError(error)) return { message: null, error: error.message };
+    throw error;
+  }
 }

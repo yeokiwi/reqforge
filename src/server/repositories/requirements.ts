@@ -504,3 +504,38 @@ export async function listDocumentDiagnostics(documentId: string) {
     orderBy: [{ severity: 'asc' }, { path: 'asc' }],
   });
 }
+
+/**
+ * Deleting a document is the same event as its markers disappearing, so it takes the same
+ * path: contract I3 — the requirements it defined become `DELETED` and keep their rows,
+ * their **external** properties and their inbound dependencies. Without this a deleted
+ * document left its requirements ACTIVE and searchable with no defining document, which
+ * contradicts `03-authoring-and-indexing.md` §3.
+ *
+ * Baselined rows are untouched (invariant R2): a frozen snapshot does not follow the
+ * live document.
+ */
+export async function markRequirementsOfDocumentsDeleted(
+  tx: Prisma.TransactionClient,
+  input: { spaceId: string; documentIds: readonly string[]; actorId: string | null },
+): Promise<string[]> {
+  if (input.documentIds.length === 0) return [];
+
+  const affected = await tx.requirement.findMany({
+    where: {
+      spaceId: input.spaceId,
+      baselineId: null,
+      status: { not: 'DELETED' },
+      originVersion: { documentId: { in: [...input.documentIds] } },
+    },
+    select: { id: true },
+  });
+  if (affected.length === 0) return [];
+
+  const ids = affected.map((row) => row.id);
+  await tx.requirement.updateMany({
+    where: { id: { in: ids }, baselineId: null },
+    data: { status: 'DELETED', updatedById: input.actorId },
+  });
+  return ids;
+}

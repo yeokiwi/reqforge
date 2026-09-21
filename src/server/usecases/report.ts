@@ -14,6 +14,7 @@ import {
 import { requireSpace } from '@/server/authz';
 import { findDocument } from '@/server/repositories/documents';
 import { groupIdsOf, runSearch, visibilityPredicate } from '@/server/repositories/search';
+import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { fetchReportData } from '@/server/repositories/traceability';
 
 export type ReportSuccess = {
@@ -92,16 +93,19 @@ export async function renderReportUseCase(input: {
     };
   }
 
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(query, {
     spaceKey: space.key,
     isolated: space.isolated,
     defaultBaseline: null,
+    externalTypes,
   });
   if (!analysed.ok) return { ok: false, errors: analysed.errors, problems };
 
   const visibility = visibilityPredicate(user.id, await groupIdsOf(user.id));
   const { rows, total } = await runSearch(analysed.query.expr, {
     visibility,
+    externalTypes,
     // `countOnly` needs the total, which runSearch reports regardless of the page size.
     limit: input.config.countOnly ? 1 : REPORT_ROW_LIMIT,
     offset: 0,

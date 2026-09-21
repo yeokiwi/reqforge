@@ -89,11 +89,29 @@ One row per (requirement, name, value). `kind ∈ {INLINE, EXTERNAL}`.
 - `valueOrdinal` preserves column order for display; `valueIndex` distinguishes members
   of a list-valued property.
 
+**Invariant E1.** An `EXTERNAL` row always carries its `definitionId`, so its declared data
+type is never unknown. Enforced by a check constraint. This is what makes typed `ext@`
+comparison sound (`RD-037`); `INLINE` rows come out of the document and have no definition.
+
+**Invariant E2.** An external value is **single-valued**: at most one row per
+`(requirementId, definitionId)`, enforced by a partial unique index. Setting a value
+replaces it. `INLINE` properties stay list-valued (`RD-027`) — see `RD-038` for why the
+two differ.
+
 ### ExternalPropertyDefinition
 
 Instance-global (research §2.6), not space-scoped: `name`, `dataType ∈ {STRING, NUMBER,
 BOOLEAN, DATE, ENUM, TEXT}`, `enumValues`, `description`. Deletion is refused while
-values exist.
+values exist, and so is a change of `dataType` — the values already stored could not be
+reinterpreted (`RD-037`).
+
+**Invariant E3.** Two definitions may not differ only in case: a value is looked up by its
+lowercased name, so `Approval` and `approval` would be the same property. Enforced by a
+unique index on `lower(name)`.
+
+Definitions are managed by an **instance** administrator rather than a space administrator
+(`RD-036`); setting a *value* needs `EDIT` on the space, and setting one in bulk across a
+result set needs `EDIT` and `EXPORT` (`RD-039`).
 
 ### Dependency
 

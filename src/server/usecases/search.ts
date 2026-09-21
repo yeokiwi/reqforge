@@ -3,6 +3,7 @@ import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
 import { RqlSyntaxError } from '@/domain/ryql/errors';
 import { printExpr } from '@/domain/ryql/print';
 import { requireSpace } from '@/server/authz';
+import { loadExternalTypes } from '@/server/repositories/external-properties';
 import {
   deleteSavedSearch,
   groupIdsOf,
@@ -37,11 +38,13 @@ export type SearchFailure = { ok: false; errors: RqlDiagnostic[] };
 export async function searchUseCase(options: SearchOptions): Promise<SearchSuccess | SearchFailure> {
   const { space, user } = await requireSpace(options.spaceKey);
 
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(options.query, {
     spaceKey: space.key,
     isolated: space.isolated,
     crossSpace: options.crossSpace ?? false,
     defaultBaseline: options.baseline ?? null,
+    externalTypes,
   });
 
   if (!analysed.ok) return { ok: false, errors: analysed.errors };
@@ -51,6 +54,7 @@ export async function searchUseCase(options: SearchOptions): Promise<SearchSucce
   try {
     const { rows, total } = await runSearch(analysed.query.expr, {
       visibility,
+      externalTypes,
       limit: options.limit ?? 100,
       offset: options.offset ?? 0,
     });
@@ -89,7 +93,11 @@ export async function saveSearchUseCase(input: {
   if (query.length === 0) throw new ValidationError('A saved search needs a query.');
 
   // Never store a query that does not parse.
-  const analysed = parseAndAnalyse(query, { spaceKey: space.key, isolated: space.isolated });
+  const analysed = parseAndAnalyse(query, {
+    spaceKey: space.key,
+    isolated: space.isolated,
+    externalTypes: await loadExternalTypes(),
+  });
   if (!analysed.ok) {
     throw new ValidationError(`That query does not parse: ${analysed.errors[0]?.message ?? 'unknown error'}`);
   }

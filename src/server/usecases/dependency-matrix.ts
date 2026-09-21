@@ -10,6 +10,7 @@ import {
 } from '@/domain/traceability/dependency-matrix';
 import { requireSpace } from '@/server/authz';
 import { groupIdsOf, runSearch, visibilityPredicate } from '@/server/repositories/search';
+import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { fetchDefiningDocuments, fetchEdgesWithin } from '@/server/repositories/traceability';
 
 export type GridSuccess = {
@@ -41,10 +42,12 @@ export async function runDependencyMatrixUseCase(input: {
 
   if (query.length === 0) return { ok: false, refusal: emptyQueryRefusal() };
 
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(query, {
     spaceKey: space.key,
     isolated: space.isolated,
     defaultBaseline: null,
+    externalTypes,
   });
   if (!analysed.ok) return { ok: false, errors: analysed.errors };
 
@@ -52,7 +55,12 @@ export async function runDependencyMatrixUseCase(input: {
 
   // One page at the cap is enough to know whether we are over it: runSearch reports the
   // full total regardless of the limit.
-  const { rows, total } = await runSearch(analysed.query.expr, { visibility, limit: AXIS_CAP, offset: 0 });
+  const { rows, total } = await runSearch(analysed.query.expr, {
+    visibility,
+    externalTypes,
+    limit: AXIS_CAP,
+    offset: 0,
+  });
 
   const refusal = capRefusalFor(total);
   if (refusal) return { ok: false, refusal };
@@ -83,16 +91,19 @@ export async function dependencyMatrixForUser(input: {
   offset: number;
   limit: number;
 }): Promise<{ rows: Array<{ id: string; key: string; title: string }>; total: number }> {
+  const externalTypes = await loadExternalTypes();
   const analysed = parseAndAnalyse(input.query, {
     spaceKey: input.space.key,
     isolated: input.space.isolated,
     defaultBaseline: null,
+    externalTypes,
   });
   if (!analysed.ok) throw new NotFoundError(analysed.errors[0]?.message ?? 'That query is not valid.');
 
   const visibility = visibilityPredicate(input.userId, await groupIdsOf(input.userId));
   const { rows, total } = await runSearch(analysed.query.expr, {
     visibility,
+    externalTypes,
     limit: input.limit,
     offset: input.offset,
   });

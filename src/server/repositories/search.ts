@@ -124,3 +124,25 @@ export async function saveSearch(input: {
 export async function deleteSavedSearch(spaceId: string, id: string): Promise<void> {
   await prisma.savedSearch.deleteMany({ where: { id, spaceId } });
 }
+
+/**
+ * The subset of `ids` the reader may actually see, under the same mandatory predicate
+ * every read uses (rule X3). Write paths filter through this before touching a row, so a
+ * requirement id guessed from outside cannot be written to any more than it can be read.
+ */
+export async function visibleRequirementIds(
+  ids: readonly string[],
+  userId: string,
+  groupIds: readonly string[],
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+
+  const statement = sql`
+    SELECT r.id AS id
+    FROM "Requirement" r
+    WHERE r.id = ANY(${param([...ids])}) AND (${substituteAlias(visibilityPredicate(userId, groupIds), 'r')})
+  `;
+  const { text, params } = render(statement);
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(text, ...params);
+  return rows.map((row) => row.id);
+}

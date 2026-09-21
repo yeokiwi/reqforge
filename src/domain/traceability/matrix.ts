@@ -94,7 +94,7 @@ export function parseMatrixColumn(value: unknown): MatrixColumn | null {
       return {
         kind: 'external',
         name,
-        // Editing external values is slice 11; until then the flag is stored, not obeyed.
+        // spec 04 §2.2 — an editable column becomes an input in the matrix's edit mode.
         editable: record.editable === true,
         ...(aggregate && AGGREGATES.has(aggregate) ? { aggregate } : {}),
       };

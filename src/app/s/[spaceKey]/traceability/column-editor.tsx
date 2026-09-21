@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { columnLabel, type MatrixColumn } from '@/domain/traceability/matrix';
+import { columnLabel, type Aggregate, type MatrixColumn } from '@/domain/traceability/matrix';
 
 /** The cog menu of research §4.2: a property, a dependency selector, or a plain field. */
 export function ColumnEditor({
@@ -17,13 +17,20 @@ export function ColumnEditor({
   const [relationship, setRelationship] = useState('');
   const [depth, setDepth] = useState<1 | 2 | 3 | 4>(1);
   const [render, setRender] = useState<'key' | 'key+title' | 'count'>('key');
+  // spec 04 §2.1–2.2 — an external column may be edited in place and may carry one of
+  // the five aggregations. Both are properties of the column, set where it is added.
+  const [editable, setEditable] = useState(true);
+  const [aggregate, setAggregate] = useState<Aggregate | ''>('');
 
   const add = () => {
     let column: MatrixColumn | null = null;
 
     if (kind === 'property' || kind === 'external') {
       if (name.trim().length === 0) return;
-      column = kind === 'property' ? { kind, name: name.trim() } : { kind, name: name.trim(), editable: false };
+      column =
+        kind === 'property'
+          ? { kind, name: name.trim() }
+          : { kind, name: name.trim(), editable, ...(aggregate ? { aggregate } : {}) };
     } else if (kind === 'dependency') {
       column = {
         kind,
@@ -101,6 +108,28 @@ export function ColumnEditor({
             placeholder="Category"
             className="w-36 rounded border border-[var(--rf-line)] px-2 py-1"
           />
+        ) : null}
+
+        {kind === 'external' ? (
+          <>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={editable} onChange={(event) => setEditable(event.target.checked)} />
+              editable
+            </label>
+            <select
+              aria-label="Aggregate"
+              value={aggregate}
+              onChange={(event) => setAggregate(event.target.value as Aggregate | '')}
+              className="rounded border border-[var(--rf-line)] px-2 py-1"
+            >
+              <option value="">no total</option>
+              {(['sum', 'avg', 'min', 'max', 'count'] as const).map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </>
         ) : null}
 
         {kind === 'dependency' ? (
