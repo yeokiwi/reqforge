@@ -1,7 +1,7 @@
 import type { Job, JobState, Prisma } from '@prisma/client';
 import { prisma } from './client';
 
-export type JobKind = 'export-matrix' | 'export-dependency-matrix';
+export type JobKind = 'export-matrix' | 'export-dependency-matrix' | 'revalidate-type';
 
 export async function enqueueJob(input: {
   kind: JobKind;

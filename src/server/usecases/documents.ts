@@ -1,8 +1,14 @@
 import { isPMNode, type PMNode } from '@/domain/doc';
 import { NotFoundError, ValidationError } from '@/domain/errors';
 import { indexDocumentVersion, type Diagnostic } from '@/domain/indexer';
+import { templateDocument } from '@/domain/validation';
 import { applyIndexResult } from '@/server/repositories/requirements';
-import { listRequirementTypes } from '@/server/repositories/requirement-types';
+import {
+  findTypeWithRules,
+  listTypesWithRules,
+  rulesOf,
+  templateColumnsOf,
+} from '@/server/repositories/requirement-types';
 import { requireSpace } from '@/server/authz';
 import {
   createDocument,
@@ -43,13 +49,20 @@ export async function createDocumentUseCase(input: {
   spaceKey: string;
   title: unknown;
   parentId?: string | null;
+  /** spec 06 §3 — "a document skeleton with one correctly-shaped table". */
+  typeId?: string | null;
 }): Promise<DocumentWithVersion> {
   const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
+
+  const type = input.typeId ? await findTypeWithRules(space.id, input.typeId) : null;
+  const columns = type ? templateColumnsOf(type) : [];
+
   return createDocument({
     spaceId: space.id,
     title: cleanTitle(input.title),
     parentId: input.parentId ?? null,
     authorId: user.id,
+    ...(columns.length > 0 ? { content: templateDocument(columns) } : {}),
   });
 }
 
@@ -80,7 +93,9 @@ export async function saveDocumentUseCase(input: {
   if (!document) throw new NotFoundError('That document no longer exists.');
 
   const content = input.content as PMNode;
-  const types = await listRequirementTypes(space.id);
+  // With their rules: validation runs on every save (spec 06 §2.2 trigger 1) from data
+  // already in hand, so it costs no query per requirement.
+  const types = await listTypesWithRules(space.id);
   const indexed = indexDocumentVersion({
     content,
     space: {
@@ -110,6 +125,7 @@ export async function saveDocumentUseCase(input: {
         versionId: created.id,
         actorId: user.id,
         result: indexed,
+        types: types.map((type) => ({ id: type.id, rules: rulesOf(type) })),
       });
     },
   });

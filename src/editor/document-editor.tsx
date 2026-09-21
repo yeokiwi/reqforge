@@ -4,8 +4,10 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { useCallback, useState } from 'react';
 import type { PMNode } from '@/domain/doc';
 import type { Diagnostic } from '@/domain/indexer';
+import { DiagnosticFixButton, DiagnosticPill } from './diagnostic-fix';
 import { baseExtensions } from './extensions';
-import { RequirementInsert, type KeySuggester } from './requirement-insert';
+import { focusDiagnostic } from './quick-fixes';
+import { RequirementInsert, type EditorType, type KeySuggester } from './requirement-insert';
 import { RequirementLinkInsert, type RequirementFinder } from './requirement-link-insert';
 import { SavedMatrixInsert, type EmbeddableMatrix } from './saved-matrix-insert';
 import type { MatrixRenderer } from './saved-matrix-view';
@@ -28,6 +30,7 @@ export function DocumentEditor({
   matrices,
   renderMatrix,
   renderReport,
+  types,
 }: {
   documentId: string;
   initialContent: PMNode;
@@ -43,6 +46,8 @@ export function DocumentEditor({
   matrices?: EmbeddableMatrix[];
   renderMatrix?: MatrixRenderer;
   renderReport?: ReportRenderer;
+  /** The space's types, for template scaffolding (spec 03 §6, 06 §3). */
+  types?: EditorType[];
 }) {
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
@@ -50,6 +55,8 @@ export function DocumentEditor({
   const [saving, setSaving] = useState(false);
   const [focusSignal, setFocusSignal] = useState(0);
   const [reportCount, setReportCount] = useState(0);
+  /** Bumped by a MISSING_REQUIRED_DEPENDENCY fix, which opens the link picker. */
+  const [linkRequest, setLinkRequest] = useState<{ relationship: string; at: number } | null>(null);
 
   const editor = useEditor({
     extensions: baseExtensions({
@@ -108,8 +115,15 @@ export function DocumentEditor({
             editor={editor}
             extra={
               <div className="ml-auto flex items-center gap-3">
-                <RequirementInsert editor={editor} focusSignal={focusSignal} suggestKey={suggestKey} />
-                {findRequirements ? <RequirementLinkInsert editor={editor} find={findRequirements} /> : null}
+                <RequirementInsert
+                  editor={editor}
+                  focusSignal={focusSignal}
+                  suggestKey={suggestKey}
+                  types={types}
+                />
+                {findRequirements ? (
+                  <RequirementLinkInsert editor={editor} find={findRequirements} request={linkRequest} />
+                ) : null}
                 {matrices && matrices.length > 0 ? <SavedMatrixInsert editor={editor} matrices={matrices} /> : null}
                 {renderReport ? (
                   <button
@@ -160,11 +174,28 @@ export function DocumentEditor({
             {diagnostics.map((diagnostic, position) => (
               <li
                 key={`${diagnostic.code}-${diagnostic.path}-${position}`}
-                className={`text-sm ${diagnostic.severity === 'error' ? 'text-red-600' : 'text-amber-700'}`}
+                className={`flex flex-wrap items-center gap-2 text-sm ${
+                  diagnostic.severity === 'error' ? 'text-red-600' : 'text-amber-700'
+                }`}
               >
+                {/* spec 03 §6 — clicking a message reveals the requirement it is about. */}
+                <button
+                  type="button"
+                  onClick={() => focusDiagnostic(editor, diagnostic.path)}
+                  title="Show this requirement in the document"
+                >
+                  <DiagnosticPill diagnostic={diagnostic} />
+                </button>
                 <span className="font-mono text-xs">{diagnostic.code}</span>
-                {diagnostic.key ? <span className="font-mono text-xs"> [{diagnostic.key}]</span> : null}{' '}
-                {diagnostic.message}
+                <span className="flex-1">{diagnostic.message}</span>
+                {canEdit && diagnostic.fix ? (
+                  <DiagnosticFixButton
+                    editor={editor}
+                    fix={diagnostic.fix}
+                    suggestKey={suggestKey}
+                    onLinkRequested={(relationship) => setLinkRequest({ relationship, at: Date.now() })}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

@@ -9,6 +9,14 @@ import {
   type ExportDependencyMatrixPayload,
 } from './handlers/export-dependency-matrix';
 import { exportMatrixHandler, type ExportMatrixPayload } from './handlers/export-matrix';
+import {
+  revalidateTypeHandler,
+  setRevalidateWriter,
+  type RevalidatePage,
+  type RevalidateTypePayload,
+} from './handlers/revalidate-type';
+import { findTypeWithRules, requirementsOfType, countRequirementsOfType, rulesOf } from '@/server/repositories/requirement-types';
+import { fetchValidationSubjects, writeValidationsOutsideTransaction } from '@/server/repositories/validations';
 import { registerJobHandler, type JobPage, type PageSource } from './runner';
 
 /**
@@ -94,6 +102,33 @@ const dependencyMatrixPageSource: PageSource<DependencyExportPage> = async (
   };
 };
 
+/**
+ * A page of a revalidation run: the type's rules plus one window of its requirements with
+ * their properties and edges, loaded in batched queries (spec 06 §2.3). The permission is
+ * re-checked at run time, exactly as the export sources re-check EXPORT.
+ */
+const revalidatePageSource: PageSource<RevalidatePage> = async (job, offset): Promise<RevalidatePage> => {
+  const payload = job.payload as RevalidateTypePayload;
+  const space = await findSpaceByKey(payload.spaceKey);
+  if (!space) throw new Error(`Space ${payload.spaceKey} no longer exists.`);
+
+  const permissions = await effectivePermissions(job.actorId, space.id);
+  if (!permissions.includes('EDIT')) {
+    throw new Error(`The person who queued this run no longer has EDIT in ${payload.spaceKey}.`);
+  }
+
+  const type = await findTypeWithRules(space.id, payload.typeId);
+  if (!type) throw new Error('That requirement type no longer exists.');
+
+  const [rows, total] = await Promise.all([
+    requirementsOfType(payload.typeId, offset, payload.pageSize),
+    countRequirementsOfType(payload.typeId),
+  ]);
+
+  const subjects = await fetchValidationSubjects(rows);
+  return { rules: rulesOf(type), total, subjects };
+};
+
 let registered = false;
 
 /** Idempotent: both the web process and `pnpm worker` call this before running anything. */
@@ -104,6 +139,14 @@ export function registerJobHandlers(): void {
     'export-dependency-matrix',
     exportDependencyMatrixHandler,
     dependencyMatrixPageSource,
+  );
+  // The handler stays free of database imports; the writer is injected here, where the
+  // repository layer already lives.
+  setRevalidateWriter(writeValidationsOutsideTransaction);
+  registerJobHandler<RevalidateTypePayload, RevalidatePage>(
+    'revalidate-type',
+    revalidateTypeHandler,
+    revalidatePageSource,
   );
   registered = true;
 }

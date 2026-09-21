@@ -5,6 +5,7 @@ import type { Diagnostic } from '@/domain/indexer';
 import { requireSpace } from '@/server/authz';
 import { listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { openDocument } from '@/server/usecases/documents';
+import { typesForEditor } from '@/server/usecases/requirement-types';
 import { listMatricesUseCase } from '@/server/usecases/matrix';
 import { suggestKeyAction } from '../../admin/keys/actions';
 import { findRequirementsAction } from '../link-actions';
@@ -29,7 +30,10 @@ export default async function DocumentPage({
     message: row.message,
     path: row.path,
     ...(row.key ? { key: row.key } : {}),
+    // Stored as JSON, so a reopened document keeps its Fix buttons (RD-042).
+    ...(row.fix ? { fix: row.fix as unknown as Diagnostic['fix'] } : {}),
   }));
+  const types = await typesForEditor(spaceKey);
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8">
@@ -79,6 +83,7 @@ export default async function DocumentPage({
           matrices={matrices.map((matrix) => ({ id: matrix.id, name: matrix.name }))}
           renderMatrix={renderEmbeddedMatrixAction.bind(null, spaceKey, docId)}
           renderReport={renderReportAction.bind(null, spaceKey, docId)}
+          types={types}
         />
       </RequirementPopup>
     </main>

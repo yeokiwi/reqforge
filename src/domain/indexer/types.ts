@@ -1,4 +1,5 @@
 import type { AnchorPath, PMNode } from '@/domain/doc';
+import type { DiagnosticFix, Placement } from '@/domain/validation/fixes';
 
 /** spec: 03-authoring-and-indexing.md §7 — the diagnostics catalogue. */
 export type DiagnosticCode =
@@ -12,7 +13,11 @@ export type DiagnosticCode =
   | 'TABLE_HAS_NO_HEADER'
   | 'UNRESOLVED_LINK'
   | 'PROPERTY_NAME_NOT_SEARCHABLE'
-  | 'IMAGE_IN_REQUIREMENT';
+  | 'IMAGE_IN_REQUIREMENT'
+  // RD-041 — spec 06 §4's fix table names PROPERTY_NOT_IN_VALUES, and a failing
+  // PROPERTY_MATCHES rule had no code at all. Both are errors (spec 06 §2.1).
+  | 'PROPERTY_NOT_IN_VALUES'
+  | 'PROPERTY_DOES_NOT_MATCH';
 
 export type DiagnosticSeverity = 'error' | 'warning';
 
@@ -23,6 +28,12 @@ export type Diagnostic = {
   /** Node position, so the editor can point at it. */
   path: AnchorPath;
   key?: string;
+  /**
+   * The repair, described as data, when one can be made mechanically (spec 06 §4).
+   * `RD-042` — the editor turns it into a ProseMirror transaction; deciding *what* the
+   * repair is stays in a pure function, so every fix is unit-tested.
+   */
+  fix?: DiagnosticFix;
 };
 
 /** spec: 03-authoring-and-indexing.md §2 — the three layouts. */
@@ -38,6 +49,12 @@ export type IndexedRequirement = {
   bodySearch: string;
   anchorPath: AnchorPath;
   layout: RequirementLayout;
+  /**
+   * Where the requirement sits in the document, which is what a quick fix needs to know
+   * (spec 06 §4). The indexer has already resolved the scope, so nothing re-parses the
+   * document later.
+   */
+  placement: Placement;
 };
 
 export type IndexedProperty = {

@@ -180,6 +180,8 @@ model IndexDiagnostic {
   message           String
   path              String
   key               String?
+  /// The quick fix, as data (spec 06 §4, RD-042), so a reload keeps its Fix button.
+  fix               Json?
   relatedDocumentId String?
   relatedDocument   Document? @relation("DiagnosticRelated", fields: [relatedDocumentId], references: [id], onDelete: Cascade)
   createdAt         DateTime @default(now())

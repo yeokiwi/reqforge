@@ -80,13 +80,18 @@ so the relevant limits are different and stated here:
 - Validation of one requirement must issue **zero** additional queries — everything it
   needs is in the `IndexResult` or loaded in the job's batch. This is a hard rule, tested
   with a query counter.
+- A `REQUIRED_DEPENDENCY` rule with `direction: 'from'` reads an edge declared in *another*
+  document, so it is neither. One batched query per document (on save) or per page (in the
+  job) loads the inbound edges before validation runs — see `RD-040`, which states the
+  per-requirement reading the query counter measures.
 
 ## 3. Templates
 
 Inserting a key of a type into an **empty** table scaffolds the type's required and
-optional columns, in `ordinal` order, with the required ones first. It does nothing once
-the table has content — RY's documented behaviour (research §2.4), kept because
-rewriting a table the user has already filled is hostile.
+optional columns, in `ordinal` order, with the required ones first. "Empty" means every
+cell is blank and the table holds no marker, link, report or embedded matrix. It does
+nothing once the table has content — RY's documented behaviour (research §2.4), kept
+because rewriting a table the user has already filled is hostile.
 
 `templateColumns` also seeds a "new document from type" flow: a document skeleton with
 one correctly-shaped table.
@@ -99,12 +104,17 @@ Every `FALSE` and `WARNING` diagnostic that can be repaired mechanically carries
 |---|---|
 | `MISSING_REQUIRED_PROPERTY` | add the column to the table (and to this row only, in vertical layout) |
 | `MISSING_OPTIONAL_PROPERTY` | same |
-| `MISSING_REQUIRED_DEPENDENCY` | open the link picker scoped to that relationship |
+| `MISSING_REQUIRED_DEPENDENCY` (`to`) | put the cursor in that relationship's column and open the link picker |
+| `MISSING_REQUIRED_DEPENDENCY` (`from`) | **none** — the edge must be declared in the document at the other end |
 | `TABLE_HAS_NO_HEADER` | promote the first row to a header row |
 | `KEY_NOT_ALLOWED` | offer the nearest matching type's next key |
 | `PROPERTY_NOT_IN_VALUES` | replace with a valid value (dropdown) |
+| `PROPERTY_DOES_NOT_MATCH` | **none** — no value can be invented that satisfies an arbitrary pattern |
 
-Fixes are ProseMirror transactions and must be individually undoable.
+Fixes are ProseMirror transactions and must be individually undoable. *What* the repair is
+is decided in a pure function and travels with the diagnostic as data (`RD-042`); the
+editor holds only the mechanics. A validation run with no document in hand — the
+revalidation job — decides the status and offers no fix.
 
 ## 5. Permissions
 

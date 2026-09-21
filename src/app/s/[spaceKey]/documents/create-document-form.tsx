@@ -5,7 +5,18 @@ import { createDocumentAction, type ActionState } from './actions';
 
 const initialState: ActionState = { error: null };
 
-export function CreateDocumentForm({ spaceKey, parentId }: { spaceKey: string; parentId?: string }) {
+export type DocumentTemplate = { id: string; label: string };
+
+export function CreateDocumentForm({
+  spaceKey,
+  parentId,
+  templates = [],
+}: {
+  spaceKey: string;
+  parentId?: string;
+  /** Types with template columns — "new document from type" (spec 06 §3). */
+  templates?: DocumentTemplate[];
+}) {
   const action = createDocumentAction.bind(null, spaceKey);
   const [state, formAction, pending] = useActionState(action, initialState);
 
@@ -18,6 +29,16 @@ export function CreateDocumentForm({ spaceKey, parentId }: { spaceKey: string; p
         required
         className="flex-1 rounded border border-[var(--rf-line)] px-3 py-1.5 text-sm"
       />
+      {templates.length > 0 ? (
+        <select name="typeId" aria-label="Start from a type" defaultValue="" className="rounded border border-[var(--rf-line)] px-2 py-1.5 text-sm">
+          <option value="">Empty document</option>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <button
         type="submit"
         disabled={pending}

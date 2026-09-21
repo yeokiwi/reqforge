@@ -205,3 +205,8 @@ Mirrors RY's behaviour (research §2.8) with one improvement.
 | `UNRESOLVED_LINK` | warning | target does not exist |
 | `PROPERTY_NAME_NOT_SEARCHABLE` | warning | name contains a space (research §2.5) |
 | `IMAGE_IN_REQUIREMENT` | warning | research §5.3 leak 2 — images do not baseline well |
+| `PROPERTY_NOT_IN_VALUES` | error | `PROPERTY_IN` rule (`06` §1), `RD-041` |
+| `PROPERTY_DOES_NOT_MATCH` | error | `PROPERTY_MATCHES` rule (`06` §1), `RD-041` |
+
+A diagnostic that can be repaired mechanically carries its fix as data (`RD-042`); the
+editor turns it into one undoable transaction (`06` §4).

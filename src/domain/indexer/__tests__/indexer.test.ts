@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { PMNode } from '@/domain/doc';
-import { indexDocumentVersion } from '..';
+import { indexDocumentVersion, type IndexedRequirement } from '..';
 import { doc, horizontalTable, marker, para, paragraphLayout, row, table, td, text, th, verticalTable } from './fixtures';
 
 const space = { key: 'SJ' };
@@ -148,7 +148,13 @@ describe('contract I1 — determinism', () => {
     const early = index(doc(fragment, para(text('tail'))));
     const late = index(doc(para(text('head')), fragment));
 
-    const strip = (requirement: { anchorPath: string }) => ({ ...requirement, anchorPath: '' });
+    // `anchorPath` and `placement` are positional by definition — where the requirement
+    // sits is exactly what they record. Everything else must be identical.
+    const strip = (requirement: IndexedRequirement) => ({
+      ...requirement,
+      anchorPath: '',
+      placement: { ...requirement.placement, anchorPath: '', table: null },
+    });
     expect(early.requirements.map(strip)).toEqual(late.requirements.map(strip));
   });
 });

@@ -356,3 +356,60 @@ both; editing one cell needs `EDIT` alone.
 able to change a whole result set through a different door. The population is resolved with
 the same visibility predicate a search uses (rule X3), so a bulk set can only reach rows the
 caller could have listed for themselves.
+
+### RD-040 — "Zero extra queries" is per requirement, not per save
+**accepted.** Spec `06` §2.3 says "validation of one requirement must issue **zero**
+additional queries — everything it needs is in the `IndexResult` or loaded in the job's
+batch". A `REQUIRED_DEPENDENCY` rule with `direction: 'from'` asks whether anything depends
+on this requirement, and that edge is declared in **another document**, so it can be in
+neither place.
+
+Our reading: the rule is about the *per-requirement* cost, and "loaded in the job's batch"
+is the pattern to follow on the save path too. One batched query loads inbound edges for
+the whole document before validation runs; validating each requirement then touches
+nothing. The revalidation job does the same, three queries per page — properties, outbound
+edges, inbound edges — however large the page is.
+
+*Why not restrict `from` rules away:* "every requirement must be verified by something" is
+the more common compliance rule of the two, and the schema already models both directions.
+A rule kind that is half unusable is worse than one batched query per save.
+
+This is what the acceptance test measures: the difference between saving with rules and
+saving without is the same at 10 requirements and at 100.
+
+### RD-041 — Two diagnostic codes the catalogue was missing
+**accepted.** Spec `06` §4's quick-fix table names `PROPERTY_NOT_IN_VALUES`, which spec
+`03` §7's catalogue does not list, and a failing `PROPERTY_MATCHES` rule had no code at
+all. Both are now in the catalogue, both errors:
+
+- `PROPERTY_NOT_IN_VALUES` — a `PROPERTY_IN` rule's value is not a member. Carries a
+  dropdown fix over the allowed values.
+- `PROPERTY_DOES_NOT_MATCH` — a `PROPERTY_MATCHES` rule's pattern does not match. Carries
+  **no** fix: no value can be invented that satisfies an arbitrary regular expression, and
+  offering one that does not work is worse than offering none.
+
+Neither rule fires on an **absent** property: a value rule does not make a property
+required, which is what `REQUIRED_PROPERTY` is for. A pattern that does not compile is
+refused at the type editor, and — should one reach the validator anyway — is treated as a
+rule that never matches rather than as a crash.
+
+### RD-042 — A diagnostic carries its quick fix, as data
+**accepted.** Spec `06` §4 says "fixes are ProseMirror transactions and must be
+individually undoable", but does not say where the decision *which* transaction lives.
+
+Ours: `Diagnostic` carries an optional typed `fix` — add this column to the table at this
+path, promote this table's first row, set this cell to one of these values, link this
+relationship in this cell, put an allowed key on this marker. The indexer already resolves
+each requirement's scope, so it emits a `placement` the fix is derived from; the editor
+turns the fix into exactly one transaction.
+
+*Why:* the alternative is the editor re-deriving the repair from the diagnostic's code and
+message, which puts spec knowledge in two places and makes every fix untestable without a
+browser. As data, each fix is decided in a pure function and unit-tested, and the editor
+holds only the mechanics.
+
+Two consequences worth stating. A validation run with **no document in hand** — the
+revalidation job — has no placement, so it decides the status and offers no fix; that is
+correct, because there is nothing on screen to repair. And because diagnostics are
+persisted and re-read when a document is opened, the fix is persisted with them
+(`IndexDiagnostic.fix`), or the Fix button would only ever appear immediately after a save.

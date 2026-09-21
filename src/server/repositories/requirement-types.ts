@@ -1,5 +1,6 @@
-import type { Prisma, RequirementType } from '@prisma/client';
+import type { Prisma, RequirementType, RequirementTypeRule, TemplateColumn as TemplateColumnRow } from '@prisma/client';
 import { numberOf, parsePattern } from '@/domain/keys/pattern';
+import { parseRules, parseTemplateColumns, type Rule, type TemplateColumn } from '@/domain/validation';
 import { prisma } from './client';
 
 export async function listRequirementTypes(spaceId: string): Promise<RequirementType[]> {
@@ -75,4 +76,153 @@ export async function keysUsedInDocument(spaceId: string, documentId: string): P
     take: 20,
   });
   return rows.map((row) => row.upperKey);
+}
+
+// ------------------------------------------------------------------ slice 12: rules
+
+export type TypeWithRules = RequirementType & {
+  rules: RequirementTypeRule[];
+  templateColumns: TemplateColumnRow[];
+};
+
+/** A type and everything validation and templating need, in one query. */
+export async function listTypesWithRules(spaceId: string): Promise<TypeWithRules[]> {
+  return prisma.requirementType.findMany({
+    where: { spaceId },
+    orderBy: { keyPattern: 'asc' },
+    include: {
+      rules: { orderBy: { ordinal: 'asc' } },
+      templateColumns: { orderBy: { ordinal: 'asc' } },
+    },
+  });
+}
+
+export async function findTypeWithRules(spaceId: string, typeId: string): Promise<TypeWithRules | null> {
+  return prisma.requirementType.findFirst({
+    where: { id: typeId, spaceId },
+    include: {
+      rules: { orderBy: { ordinal: 'asc' } },
+      templateColumns: { orderBy: { ordinal: 'asc' } },
+    },
+  });
+}
+
+/** The domain's view of a stored type: its id and its rules, narrowed (`parseRules`). */
+export function rulesOf(type: TypeWithRules): Rule[] {
+  return parseRules(type.rules);
+}
+
+export function templateColumnsOf(type: TypeWithRules): TemplateColumn[] {
+  return parseTemplateColumns(type.templateColumns);
+}
+
+export type TypeInput = {
+  name: string | null;
+  keyPattern: string;
+  colour: string;
+  locked: boolean;
+  preventReusingDeletedKeys: boolean;
+  rules: readonly Rule[];
+  templateColumns: readonly TemplateColumn[];
+};
+
+function ruleRows(typeId: string, rules: readonly Rule[]): Prisma.RequirementTypeRuleCreateManyInput[] {
+  return rules.map((rule, ordinal) => ({
+    typeId,
+    ordinal,
+    kind: rule.kind,
+    name: 'name' in rule ? rule.name : null,
+    relationship: rule.kind === 'REQUIRED_DEPENDENCY' ? rule.relationship : null,
+    direction: rule.kind === 'REQUIRED_DEPENDENCY' ? rule.direction : null,
+    pattern: rule.kind === 'PROPERTY_MATCHES' ? rule.pattern : null,
+    values: rule.kind === 'PROPERTY_IN' ? rule.values : [],
+  }));
+}
+
+function templateRows(typeId: string, columns: readonly TemplateColumn[]): Prisma.TemplateColumnCreateManyInput[] {
+  return columns.map((column, ordinal) => ({
+    typeId,
+    name: column.name,
+    required: column.required,
+    ordinal: column.ordinal ?? ordinal,
+  }));
+}
+
+export async function createType(spaceId: string, input: TypeInput): Promise<TypeWithRules> {
+  return prisma.$transaction(async (tx) => {
+    const type = await tx.requirementType.create({
+      data: {
+        spaceId,
+        name: input.name,
+        keyPattern: input.keyPattern,
+        colour: input.colour,
+        locked: input.locked,
+        preventReusingDeletedKeys: input.preventReusingDeletedKeys,
+      },
+    });
+    await tx.requirementTypeRule.createMany({ data: ruleRows(type.id, input.rules) });
+    await tx.templateColumn.createMany({ data: templateRows(type.id, input.templateColumns) });
+    return tx.requirementType.findFirstOrThrow({
+      where: { id: type.id },
+      include: { rules: { orderBy: { ordinal: 'asc' } }, templateColumns: { orderBy: { ordinal: 'asc' } } },
+    });
+  });
+}
+
+/**
+ * Rules and template columns are rewritten as a **set**: editing a type is editing the
+ * whole list, so a rule the author removed is gone rather than orphaned.
+ */
+export async function updateType(spaceId: string, typeId: string, input: TypeInput): Promise<TypeWithRules> {
+  return prisma.$transaction(async (tx) => {
+    await tx.requirementType.update({
+      where: { id: typeId },
+      data: {
+        name: input.name,
+        keyPattern: input.keyPattern,
+        colour: input.colour,
+        locked: input.locked,
+        preventReusingDeletedKeys: input.preventReusingDeletedKeys,
+      },
+    });
+    await tx.requirementTypeRule.deleteMany({ where: { typeId } });
+    await tx.templateColumn.deleteMany({ where: { typeId } });
+    await tx.requirementTypeRule.createMany({ data: ruleRows(typeId, input.rules) });
+    await tx.templateColumn.createMany({ data: templateRows(typeId, input.templateColumns) });
+
+    return tx.requirementType.findFirstOrThrow({
+      where: { id: typeId, spaceId },
+      include: { rules: { orderBy: { ordinal: 'asc' } }, templateColumns: { orderBy: { ordinal: 'asc' } } },
+    });
+  });
+}
+
+/**
+ * Deleting a type releases its requirements rather than deleting them: `Requirement.typeId`
+ * is nullable, and a requirement is a projection of a document, not of a type.
+ */
+export async function deleteType(spaceId: string, typeId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.requirement.updateMany({ where: { spaceId, typeId, baselineId: null }, data: { typeId: null } });
+    await tx.requirementType.deleteMany({ where: { id: typeId, spaceId } });
+  });
+}
+
+/** One page of a type's live requirements, for the revalidation job. */
+export async function requirementsOfType(
+  typeId: string,
+  offset: number,
+  limit: number,
+): Promise<Array<{ id: string; key: string; anchorPath: string }>> {
+  return prisma.requirement.findMany({
+    where: { typeId, baselineId: null, status: { not: 'DELETED' } },
+    orderBy: { upperKey: 'asc' },
+    skip: offset,
+    take: limit,
+    select: { id: true, key: true, anchorPath: true },
+  });
+}
+
+export async function countRequirementsOfType(typeId: string): Promise<number> {
+  return prisma.requirement.count({ where: { typeId, baselineId: null, status: { not: 'DELETED' } } });
 }

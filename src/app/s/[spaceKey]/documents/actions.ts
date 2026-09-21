@@ -26,10 +26,12 @@ export async function createDocumentAction(
   let documentId: string;
   try {
     const parentRaw = formData.get('parentId');
+    const typeRaw = formData.get('typeId');
     const document = await createDocumentUseCase({
       spaceKey,
       title: formData.get('title'),
       parentId: typeof parentRaw === 'string' && parentRaw.length > 0 ? parentRaw : null,
+      typeId: typeof typeRaw === 'string' && typeRaw.length > 0 ? typeRaw : null,
     });
     documentId = document.id;
   } catch (error) {

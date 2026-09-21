@@ -2,8 +2,9 @@ import { attr, numericAttr, renderHtml, walk, type PMNode } from '@/domain/doc';
 import { matchesAnyPattern, parsePattern, matchesPattern } from '@/domain/keys/pattern';
 import { checkKey } from '@/domain/keys/validate';
 import { classifyLink } from './dependencies';
-import { normaliseSearchText, normaliseSearchValue } from './normalise';
-import { extractProperties } from './properties';
+import { promoteHeaderFix, replaceKeyFix, type Placement } from '@/domain/validation/fixes';
+import { normaliseSearchText, normaliseSearchValue, searchNameOf } from './normalise';
+import { extractProperties, readFieldConfig } from './properties';
 import { findNodes, resolveScope, type Marker, type Scope } from './scope';
 import type {
   Diagnostic,
@@ -73,6 +74,8 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
         message: `${checked.key} matches none of this space's key patterns (${configuredPatterns.join(', ')}).`,
         path: marker.path,
         key: checked.key,
+        // spec 06 §4 — the fix offers a key one of the patterns allows.
+        fix: replaceKeyFix(marker.path, checked.key),
       });
     }
 
@@ -105,6 +108,7 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
 
     if (scope.headerless) {
       // Rule S4 — a table with neither a header row nor a header column.
+      const placement = placementOf(marker, scope);
       diagnostics.push({
         code: 'TABLE_HAS_NO_HEADER',
         severity: 'warning',
@@ -112,6 +116,8 @@ export function indexDocumentVersion(input: IndexInput): IndexResult {
           'This table has neither a header row nor a header column, so its columns cannot name properties.',
         path: marker.path,
         key: checked.key,
+        // spec 06 §4 — promote the first row to a header row.
+        ...(promoteHeaderFix(placement) ? { fix: promoteHeaderFix(placement)! } : {}),
       });
     }
 
@@ -194,6 +200,39 @@ function buildRequirement(
         : normaliseSearchValue(extracted.contentText),
     anchorPath: marker.path,
     layout: scope.layout,
+    placement: placementOf(marker, scope),
+  };
+}
+
+/**
+ * Where the requirement sits, for the quick fixes of spec 06 §4 (`RD-042`). The scope is
+ * already resolved here, so no later pass re-parses the document to find the table a
+ * missing column belongs in.
+ */
+function placementOf(marker: Marker, scope: Scope): Placement {
+  const cells = scope.headerless
+    ? []
+    : scope.fields.map((field) => {
+        const config = readFieldConfig(field.header?.node);
+        return {
+          name: config.name,
+          searchName: searchNameOf(config.name),
+          valuePath: field.value?.path ?? null,
+        };
+      });
+
+  return {
+    layout: scope.layout,
+    anchorPath: marker.path,
+    table: scope.table
+      ? {
+          path: scope.table.path,
+          row: scope.table.row,
+          column: scope.table.column,
+          hasHeader: !scope.headerless,
+        }
+      : null,
+    cells,
   };
 }
 

@@ -61,6 +61,8 @@ export async function createDocument(input: {
   title: string;
   parentId: string | null;
   authorId: string;
+  /** A skeleton to start from, e.g. a requirement type's template (spec 06 §3). */
+  content?: PMNode;
 }): Promise<DocumentWithVersion> {
   return prisma.$transaction(async (tx) => {
     const siblings = await tx.document.aggregate({
@@ -81,7 +83,7 @@ export async function createDocument(input: {
       data: {
         documentId: document.id,
         number: 1,
-        content: emptyDocument() as unknown as Prisma.InputJsonValue,
+        content: (input.content ?? emptyDocument()) as unknown as Prisma.InputJsonValue,
         authorId: input.authorId,
         message: 'Created',
       },

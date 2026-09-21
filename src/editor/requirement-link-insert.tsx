@@ -12,7 +12,18 @@ export type RequirementFinder = (term: string) => Promise<RequirementCandidate[]
  * spec: 03-authoring-and-indexing.md §6 — cross-space results only when the space is not
  * isolated, which the server action decides, not this component.
  */
-export function RequirementLinkInsert({ editor, find }: { editor: Editor; find: RequirementFinder }) {
+/** A MISSING_REQUIRED_DEPENDENCY fix asks for the picker, scoped to one relationship. */
+export type LinkRequest = { relationship: string; at: number } | null;
+
+export function RequirementLinkInsert({
+  editor,
+  find,
+  request,
+}: {
+  editor: Editor;
+  find: RequirementFinder;
+  request?: LinkRequest;
+}) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [candidates, setCandidates] = useState<RequirementCandidate[]>([]);
@@ -23,6 +34,12 @@ export function RequirementLinkInsert({ editor, find }: { editor: Editor; find: 
     if (!open) return;
     input.current?.focus();
   }, [open]);
+
+  // spec 06 §4 — the quick fix opens the picker; the cursor has already been put in the
+  // cell the link belongs in, so inserting there names the relationship.
+  useEffect(() => {
+    if (request) setOpen(true);
+  }, [request]);
 
   useEffect(() => {
     if (!open || term.trim().length === 0) {
@@ -75,6 +92,12 @@ export function RequirementLinkInsert({ editor, find }: { editor: Editor; find: 
 
       {open ? (
         <div className="absolute right-0 top-8 z-40 w-72 rounded-lg border border-[var(--rf-line)] bg-[var(--rf-panel)] p-3 shadow-lg">
+          {request ? (
+            <p data-testid="link-relationship-hint" className="mb-2 text-xs text-[var(--rf-muted)]">
+              Linking a <span className="font-medium">{request.relationship}</span>. The link goes where the
+              cursor is, and the column header names the relationship (spec 03 §1.2).
+            </p>
+          ) : null}
           <input
             ref={input}
             value={term}

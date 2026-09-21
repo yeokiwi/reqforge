@@ -4,6 +4,7 @@ import { requireSpace } from '@/server/authz';
 import { getDocumentTree } from '@/server/usecases/documents';
 import type { DocumentTreeNode } from '@/server/repositories/documents';
 import { CreateDocumentForm } from './create-document-form';
+import { typesForEditor } from '@/server/usecases/requirement-types';
 
 function Branch({ nodes, spaceKey, depth = 0 }: { nodes: DocumentTreeNode[]; spaceKey: string; depth?: number }) {
   return (
@@ -29,13 +30,17 @@ export default async function DocumentsPage({ params }: { params: Promise<{ spac
   const { spaceKey } = await params;
   const { can } = await requireSpace(spaceKey);
   const tree = await getDocumentTree(spaceKey);
+  // spec 06 §3 — only types that actually scaffold something are worth offering.
+  const templates = (await typesForEditor(spaceKey))
+    .filter((type) => type.templateColumns.length > 0)
+    .map((type) => ({ id: type.id, label: `${type.name ?? type.keyPattern} template` }));
 
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-4 px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Documents</h1>
       {can('EDIT') ? (
         <Panel>
-          <CreateDocumentForm spaceKey={spaceKey} />
+          <CreateDocumentForm spaceKey={spaceKey} templates={templates} />
         </Panel>
       ) : null}
       <Panel>

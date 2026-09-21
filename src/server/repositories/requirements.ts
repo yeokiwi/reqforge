@@ -1,6 +1,8 @@
-import type { Prisma, Requirement } from '@prisma/client';
+import { Prisma, type Requirement } from '@prisma/client';
 import type { Diagnostic, IndexResult } from '@/domain/indexer';
+import { validateRequirement, type Rule, type Subject } from '@/domain/validation';
 import { advanceSequencesForKeys } from './requirement-types';
+import { writeValidations, type ValidationRow } from './validations';
 import { prisma } from './client';
 
 export type ApplyIndexInput = {
@@ -12,6 +14,11 @@ export type ApplyIndexInput = {
   versionId: string;
   actorId: string;
   result: IndexResult;
+  /**
+   * The space's types with their rules, so validation runs on every save (spec 06 §2.2
+   * trigger 1) from data already in hand.
+   */
+  types?: readonly { id: string; rules: readonly Rule[] }[];
 };
 
 export type ApplyIndexOutcome = {
@@ -123,6 +130,9 @@ export async function applyIndexResult(
   await rewriteDerivedRows(tx, input, definedHere, diagnostics);
   await writeDependencies(tx, input, definedHere, diagnostics);
   await promoteResolvedDependencies(tx, input, definedHere);
+  // Validation runs after the edges are written, so a `from` rule sees this save's work,
+  // and before the diagnostics are persisted, so its findings are part of them.
+  diagnostics.push(...(await validateDocumentRequirements(tx, input, definedHere)));
   await rewriteDiagnostics(tx, input, diagnostics, conflicts);
 
   return { created, updated, deleted: removed.map((row) => row.id), diagnostics };
@@ -382,6 +392,8 @@ async function rewriteDiagnostics(
     message: diagnostic.message,
     path: diagnostic.path,
     key: diagnostic.key ?? null,
+    // RD-042 — the fix is data, so it survives a reload with its diagnostic.
+    fix: diagnostic.fix ? (diagnostic.fix as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
     relatedDocumentId:
       diagnostic.code === 'KEY_CONFLICT'
         ? (conflicts.find((conflict) => conflict.key === diagnostic.key)?.otherDocumentId ?? null)
@@ -538,4 +550,91 @@ export async function markRequirementsOfDocumentsDeleted(
     data: { status: 'DELETED', updatedById: input.actorId },
   });
   return ids;
+}
+
+/**
+ * Validation on index — spec 06 §2.2's first trigger.
+ *
+ * Spec 06 §2.3: "Validation of one requirement must issue zero additional queries." It
+ * issues **one** for the whole document, loading the inbound edges a `from` rule needs
+ * (`RD-040`): those edges are declared in other documents, so they cannot come from the
+ * `IndexResult`, and the per-requirement cost is what the rule is about. Everything else
+ * — properties, outbound edges, placement — is already in memory.
+ */
+export async function validateDocumentRequirements(
+  tx: Prisma.TransactionClient,
+  input: ApplyIndexInput,
+  definedHere: Map<string, string>,
+): Promise<Diagnostic[]> {
+  const ids = [...definedHere.values()];
+  if (ids.length === 0) return [];
+
+  const rulesByType = new Map((input.types ?? []).map((type) => [type.id, type.rules]));
+
+  // The one query (RD-040): who depends on the requirements this document defines.
+  const inboundEdges =
+    rulesByType.size > 0
+      ? await tx.dependency.findMany({
+          where: { parentId: { in: ids } },
+          select: { parentId: true, relationship: true },
+        })
+      : [];
+
+  const inboundByRequirement = new Map<string, string[]>();
+  for (const edge of inboundEdges) {
+    inboundByRequirement.set(edge.parentId, [...(inboundByRequirement.get(edge.parentId) ?? []), edge.relationship]);
+  }
+
+  // Properties and outbound edges, grouped from the IndexResult — no query.
+  const propertiesByKey = new Map<string, Subject['properties'][number][]>();
+  for (const property of input.result.properties) {
+    propertiesByKey.set(property.key, [
+      ...(propertiesByKey.get(property.key) ?? []),
+      { name: property.name, searchName: property.searchName, value: property.value },
+    ]);
+  }
+
+  const outboundByKey = new Map<string, string[]>();
+  for (const dependency of input.result.dependencies) {
+    outboundByKey.set(dependency.childKey, [
+      ...(outboundByKey.get(dependency.childKey) ?? []),
+      dependency.relationship,
+    ]);
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  const rows: ValidationRow[] = [];
+
+  for (const requirement of input.result.requirements) {
+    const requirementId = definedHere.get(requirement.upperKey);
+    // A requirement lost to a rule S3 conflict has no row, so there is nothing to validate.
+    if (!requirementId) continue;
+    if (!requirement.typeId) continue;
+
+    const rules = rulesByType.get(requirement.typeId);
+    if (!rules || rules.length === 0) continue;
+
+    const outcome = validateRequirement(
+      {
+        key: requirement.key,
+        anchorPath: requirement.anchorPath,
+        properties: propertiesByKey.get(requirement.key) ?? [],
+        outbound: outboundByKey.get(requirement.key) ?? [],
+        inbound: inboundByRequirement.get(requirementId) ?? [],
+        // The headerless warning is already raised by the indexer (rule S4); validation
+        // must not raise it twice.
+        headerlessTable: false,
+        placement: requirement.placement,
+      },
+      rules,
+    );
+
+    diagnostics.push(...outcome.diagnostics);
+    rows.push({ requirementId, typeId: requirement.typeId, status: outcome.status, diagnostics: outcome.diagnostics });
+  }
+
+  // Written over every requirement of this document, so a row left by a type that no
+  // longer applies goes with it.
+  await writeValidations(tx, ids, rows);
+  return diagnostics;
 }
