@@ -76,3 +76,15 @@ body {
   font-size: 0.7rem;
   font-weight: 500;
 }
+
+/* Embedded saved matrix — spec 04 §2.3. */
+.rf-embed {
+  border: 1px dashed var(--rf-line);
+  border-radius: 0.375rem;
+  background: var(--rf-bg);
+  padding: 0.5rem 0.75rem;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+  color: var(--rf-muted);
+}
+.rf-embed table { font-size: 0.8rem; }

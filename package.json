@@ -17,7 +17,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && pnpm db:seed",
     "setup": "pnpm install && prisma generate && prisma migrate deploy && pnpm db:seed",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && prisma validate"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && prisma validate",
+    "worker": "tsx scripts/worker.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -34,6 +35,7 @@
     "@tiptap/pm": "^2.11.2",
     "@tiptap/react": "^2.11.2",
     "@tiptap/starter-kit": "^2.11.2",
+    "exceljs": "^4.4.0",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

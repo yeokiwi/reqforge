@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAndAnalyse } from '@/domain/ryql';
 import { prisma } from '@/server/repositories/client';
 import { runSearch, visibilityPredicate } from '@/server/repositories/search';
+import { runMatrixForUser } from '@/server/usecases/matrix';
 import { createCorpusSpace, dropCorpusSpace, type FixtureHandles } from './fixtures/corpus-space';
 
 /**
@@ -51,6 +52,38 @@ async function p95(query: string, runs = 20, warmups = 3): Promise<number> {
   return timings[Math.max(Math.ceil(runs * 0.95) - 1, 0)]!;
 }
 
+/** The eight columns of the spec 07 §5 line "matrix page, 100 rows, 8 columns". */
+const MATRIX_COLUMNS = [
+  { kind: 'key' },
+  { kind: 'title' },
+  { kind: 'status' },
+  { kind: 'document' },
+  { kind: 'property', name: 'Category' },
+  { kind: 'property', name: 'Priority' },
+  { kind: 'external', name: 'Approval' },
+  { kind: 'dependency', direction: 'to', relationship: 'refines', depth: 1, render: 'key' },
+];
+
+async function matrixP95(runs = 10, warmups = 2): Promise<number> {
+  const config = { query: "key ~ '%'", columns: MATRIX_COLUMNS, pageSize: 100, treeView: false };
+  const space = { id: fixture.spaceId, key: fixture.spaceKey, isolated: false };
+
+  for (let run = 0; run < warmups; run += 1) {
+    await runMatrixForUser({ space, userId: fixture.userId, config });
+  }
+
+  const timings: number[] = [];
+  for (let run = 0; run < runs; run += 1) {
+    const started = performance.now();
+    const result = await runMatrixForUser({ space, userId: fixture.userId, config });
+    timings.push(performance.now() - started);
+    if (!result.ok) throw new Error('the matrix query failed');
+  }
+
+  timings.sort((a, b) => a - b);
+  return timings[Math.max(Math.ceil(runs * 0.95) - 1, 0)]!;
+}
+
 describe.skipIf(process.env.SKIP_PERF === '1')('performance budget (spec 07 §5)', () => {
   it.each(budgets)('$name stays under $budgetMs ms at p95', async ({ query, budgetMs }) => {
     const measured = await p95(query);
@@ -58,4 +91,10 @@ describe.skipIf(process.env.SKIP_PERF === '1')('performance budget (spec 07 §5)
     console.log(`  p95 ${measured.toFixed(1)}ms of ${budgetMs}ms — ${query}`);
     expect(measured).toBeLessThan(budgetMs);
   }, 120_000);
+
+  it('traceability matrix page, 100 rows, 8 columns stays under 600 ms at p95', async () => {
+    const measured = await matrixP95();
+    console.log(`  p95 ${measured.toFixed(1)}ms of 600ms — matrix, 100 rows, 8 columns`);
+    expect(measured).toBeLessThan(600);
+  }, 180_000);
 });

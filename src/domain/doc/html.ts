@@ -110,6 +110,12 @@ export function renderHtml(node: PMNode): string {
         space ? ` data-space="${escapeHtml(space)}"` : ''
       }>${label}${suffix}</span>`;
     }
+    case 'savedMatrix': {
+      // spec 04 §2.3 — an embed renders live data at view time, which a pure renderer
+      // cannot do. The read-only view shows what is embedded rather than stale rows.
+      const name = attr(node, 'name') ?? attr(node, 'id') ?? '';
+      return `<div class="rf-embed" data-saved-matrix="${escapeHtml(attr(node, 'id') ?? '')}">Traceability matrix: ${escapeHtml(name)}</div>`;
+    }
     case 'propertyConfig': {
       // spec: 03-authoring-and-indexing.md §1.3 — configuration, not content. The column
       // header's own text renders; the configuration itself is invisible in the excerpt.

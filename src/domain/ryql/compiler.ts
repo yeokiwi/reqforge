@@ -1,7 +1,7 @@
 import type { ComparisonOperator, Expr, FieldRef, Value } from './ast';
 import { rqlError, RqlSyntaxError } from './errors';
 import { findField } from './fields';
-import { join, param, raw, render, sql, type RenderedSql, type SqlFragment } from './sql';
+import { join, param, raw, render, sql, substituteAlias, type RenderedSql, type SqlFragment } from './sql';
 
 export type CompileContext = {
   /**
@@ -57,12 +57,6 @@ export function compile(expr: Expr, context: CompileContext): CompiledQuery {
 /** The WHERE fragment alone, for callers that build their own projection (matrix, export). */
 export function compilePredicate(expr: Expr, alias: string, context: CompileContext): SqlFragment {
   return compileExpr(expr, alias, context);
-}
-
-function substituteAlias(fragment: SqlFragment, alias: string): SqlFragment {
-  return {
-    parts: fragment.parts.map((part) => (typeof part === 'string' ? part.replaceAll('$alias', alias) : part)),
-  };
 }
 
 function compileExpr(expr: Expr, alias: string, context: CompileContext): SqlFragment {

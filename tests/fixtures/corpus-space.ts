@@ -63,18 +63,31 @@ export function documentOf(index: number): 0 | 1 | 2 {
   return index < COUNTS.functional ? 0 : 1;
 }
 
-export async function createCorpusSpace(prisma: PrismaClient, stamp = Date.now()): Promise<FixtureHandles> {
+/**
+ * A unique tag per fixture. Test files run in parallel against one database, so a
+ * timestamp is not unique enough: two files starting in the same millisecond would
+ * collide on the user's email and the space key.
+ */
+function uniqueTag(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+}
+
+export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag()): Promise<FixtureHandles> {
+  const suffix = tag.replace(/[^A-Z0-9]/g, '').slice(-12);
+
   const user = await prisma.user.create({
-    data: { email: `corpus-${stamp}@test`, name: 'Corpus', passwordHash: 'scrypt$x$y' },
+    data: { email: `corpus-${suffix}@test`, name: 'Corpus', passwordHash: 'scrypt$x$y' },
   });
   const stranger = await prisma.user.create({
-    data: { email: `stranger-${stamp}@test`, name: 'Stranger', passwordHash: 'scrypt$x$y' },
+    data: { email: `stranger-${suffix}@test`, name: 'Stranger', passwordHash: 'scrypt$x$y' },
   });
 
-  const space = await prisma.space.create({ data: { key: `CQ${stamp % 100000}`, name: 'Corpus' } });
-  const other = await prisma.space.create({ data: { key: `CO${stamp % 100000}`, name: 'Other' } });
+  const space = await prisma.space.create({ data: { key: `CQ${suffix}`, name: 'Corpus' } });
+  const other = await prisma.space.create({ data: { key: `CO${suffix}`, name: 'Other' } });
 
-  await prisma.membership.create({ data: { spaceId: space.id, userId: user.id, permissions: ['VIEW', 'EDIT'] } });
+  await prisma.membership.create({
+    data: { spaceId: space.id, userId: user.id, permissions: ['VIEW', 'EDIT', 'EXPORT'] },
+  });
   await prisma.membership.create({ data: { spaceId: other.id, userId: user.id, permissions: ['VIEW'] } });
   await prisma.membership.create({ data: { spaceId: space.id, userId: stranger.id, permissions: ['VIEW'] } });
 

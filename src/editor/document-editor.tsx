@@ -7,6 +7,8 @@ import type { Diagnostic } from '@/domain/indexer';
 import { baseExtensions } from './extensions';
 import { RequirementInsert, type KeySuggester } from './requirement-insert';
 import { RequirementLinkInsert, type RequirementFinder } from './requirement-link-insert';
+import { SavedMatrixInsert, type EmbeddableMatrix } from './saved-matrix-insert';
+import type { MatrixRenderer } from './saved-matrix-view';
 import { EditorToolbar } from './toolbar';
 
 export type SaveResult =
@@ -22,6 +24,8 @@ export function DocumentEditor({
   onSave,
   suggestKey,
   findRequirements,
+  matrices,
+  renderMatrix,
 }: {
   documentId: string;
   initialContent: PMNode;
@@ -33,6 +37,9 @@ export function DocumentEditor({
   onSave: (documentId: string, contentJson: string) => Promise<SaveResult>;
   suggestKey?: KeySuggester;
   findRequirements?: RequirementFinder;
+  /** Saved matrices that can be embedded, and how to render an embed (spec 04 §2.3). */
+  matrices?: EmbeddableMatrix[];
+  renderMatrix?: MatrixRenderer;
 }) {
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
@@ -41,7 +48,10 @@ export function DocumentEditor({
   const [focusSignal, setFocusSignal] = useState(0);
 
   const editor = useEditor({
-    extensions: baseExtensions({ onRequestInsert: () => setFocusSignal((value) => value + 1) }),
+    extensions: baseExtensions({
+      onRequestInsert: () => setFocusSignal((value) => value + 1),
+      renderMatrix: renderMatrix ?? null,
+    }),
     content: initialContent,
     editable: canEdit,
     immediatelyRender: false,
@@ -86,6 +96,7 @@ export function DocumentEditor({
               <div className="ml-auto flex items-center gap-3">
                 <RequirementInsert editor={editor} focusSignal={focusSignal} suggestKey={suggestKey} />
                 {findRequirements ? <RequirementLinkInsert editor={editor} find={findRequirements} /> : null}
+                {matrices && matrices.length > 0 ? <SavedMatrixInsert editor={editor} matrices={matrices} /> : null}
                 <span data-testid="editor-status" className="text-xs text-[var(--rf-muted)]">
                   {dirty ? 'Unsaved changes' : status}
                 </span>

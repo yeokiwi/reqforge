@@ -55,8 +55,13 @@ test('a duplicate marker in one scope is reported as an error', async ({ page })
   await page.keyboard.type('Two markers in one paragraph. ');
   await page.getByLabel('Requirement key').fill(`DUP-${stamp}`);
   await page.getByRole('button', { name: '+ Requirement' }).click();
+  // The field clears itself once the marker is in the document; filling it before that
+  // races with React and loses the second key.
+  await expect(page.getByLabel('Requirement key')).toHaveValue('');
+
   await page.getByLabel('Requirement key').fill(`DUP2-${stamp}`);
   await page.getByRole('button', { name: '+ Requirement' }).click();
+  await expect(page.getByLabel('Requirement key')).toHaveValue('');
 
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByTestId('diagnostics')).toContainText('DUPLICATE_MARKER_IN_SCOPE');

@@ -69,5 +69,16 @@ export function render(fragment: SqlFragment, startIndex = 1): RenderedSql {
   return { text: text.replace(/\s+/g, ' ').trim(), params };
 }
 
+/**
+ * Rebinds a fragment written against `$alias` to a concrete alias. The visibility
+ * predicate (spec 07 rule X3) is written once and applied to the outer query, to every
+ * traversal hop, and to the far side of a matrix dependency column.
+ */
+export function substituteAlias(fragment: SqlFragment, alias: string): SqlFragment {
+  return {
+    parts: fragment.parts.map((part) => (typeof part === 'string' ? part.replaceAll('$alias', alias) : part)),
+  };
+}
+
 export const TRUE: SqlFragment = raw('TRUE');
 export const FALSE: SqlFragment = raw('FALSE');

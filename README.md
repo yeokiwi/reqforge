@@ -14,10 +14,10 @@ traceability, coverage, baselines, diff) is rebuilt against Reqforge's own store
 
 ## Status
 
-**Slices 0–7 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
+**Slices 0–8 of [`PLAN.md`](PLAN.md) are built.** You can sign in, write specification
 documents in a rich-text editor, mark requirements inside them, link them to each other,
 let the indexer project them into queryable rows with inline properties and dependencies,
-and search them in RQL.
+search them in RQL, and build, save, embed and export a traceability matrix over them.
 
 | Slice | What works |
 |---|---|
@@ -29,12 +29,30 @@ and search them in RQL.
 | 5 | RQL lexer, parser and analyser, with the query corpus |
 | 6 | The SQL compiler, the search screen, saved searches, the performance budget |
 | 7 | `requirementLink`, dependencies named by column header, broken links, `to`/`from` |
+| 8 | Traceability matrix, saved matrices, embedding, the job queue and xlsx export |
 
-Not built yet: the traceability and dependency matrices, coverage and reports (slices
-8–10), external properties and requirement types (11–12), baselines, diff and renaming
-(13–15), and the hardening slices (16–18). `baseline was` and `isModified()` parse today
-and report `NOT_IMPLEMENTED` from the compiler until the diff engine lands in slice 14; a
-link's `displayProperty` is stored but rendered live only from slice 8.
+Not built yet: the dependency matrix, coverage and reports (slices 9–10), external
+properties and requirement types (11–12), baselines, diff and renaming (13–15), and the
+hardening slices (16–18).
+
+Known gaps inside what is built, each waiting on the slice that owns it:
+`baseline was` and `isModified()` parse but report `NOT_IMPLEMENTED` from the compiler
+until diff lands (slice 14); a matrix's `external` columns render values but are not
+editable, and there is no bulk set, until external properties land (slice 11); a
+`ruleStatus` column renders empty until requirement types validate anything (slice 12);
+computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
+refused until token auth (`RD-030`, slice 17); a link's `displayProperty` is stored but
+not yet rendered live.
+
+## Background jobs
+
+Exports run as jobs (spec `00`, decision 4). With `JOBS_INLINE=1` the web process runs
+them itself, which is the default for development and tests. In production run the worker
+alongside the app:
+
+```bash
+pnpm worker          # claims queued jobs; safe to run next to the web process
+```
 
 ## Running it
 

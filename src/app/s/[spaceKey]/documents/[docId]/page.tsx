@@ -5,8 +5,10 @@ import type { Diagnostic } from '@/domain/indexer';
 import { requireSpace } from '@/server/authz';
 import { listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { openDocument } from '@/server/usecases/documents';
+import { listMatricesUseCase } from '@/server/usecases/matrix';
 import { suggestKeyAction } from '../../admin/keys/actions';
 import { findRequirementsAction } from '../link-actions';
+import { renderEmbeddedMatrixAction } from '../matrix-actions';
 import { RequirementPopup } from '../../r/requirement-popup';
 import { deleteDocumentAction, renameDocumentAction, saveDocumentAction } from '../actions';
 
@@ -19,6 +21,7 @@ export default async function DocumentPage({
   const { can } = await requireSpace(spaceKey);
   const document = await openDocument(spaceKey, docId);
   const content = (document.currentVersion?.content as PMNode | undefined) ?? emptyDocument();
+  const matrices = await listMatricesUseCase(spaceKey);
   const diagnostics: Diagnostic[] = (await listDocumentDiagnostics(docId)).map((row) => ({
     code: row.code as Diagnostic['code'],
     severity: row.severity === 'error' ? 'error' : 'warning',
@@ -72,6 +75,8 @@ export default async function DocumentPage({
           onSave={saveDocumentAction.bind(null, spaceKey)}
           suggestKey={suggestKeyAction.bind(null, spaceKey, docId)}
           findRequirements={findRequirementsAction.bind(null, spaceKey)}
+          matrices={matrices.map((matrix) => ({ id: matrix.id, name: matrix.name }))}
+          renderMatrix={renderEmbeddedMatrixAction.bind(null, spaceKey, docId)}
         />
       </RequirementPopup>
     </main>
