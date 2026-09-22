@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Panel } from '@/app/_components/chrome';
 import { requireSpace } from '@/server/authz';
+import { baselinesContaining } from '@/server/repositories/baselines';
 import { findRequirementDetail } from '@/server/repositories/requirements';
 import { definitionsForSpace } from '@/server/usecases/external-properties';
 import { DependencyPanel } from '../dependency-panel';
@@ -30,6 +31,8 @@ export default async function RequirementPage({
 
   // Inline properties come out of the document; external ones get their own panel below,
   // because they are the only ones editable here (overview, decision 2).
+  // spec 05 §4 — which numbered snapshots hold this key, newest first.
+  const baselines = await baselinesContaining(space.id, requirement.upperKey);
   const inline = requirement.properties.filter((property) => property.kind === 'INLINE');
   const definitions = await definitionsForSpace(spaceKey);
   const externalRows: ValueRow[] = definitions.map((definition) => ({
@@ -54,6 +57,21 @@ export default async function RequirementPage({
           </span>
         ) : null}
       </div>
+
+      {baselines.length > 0 ? (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-[var(--rf-muted)]" data-testid="in-baselines">
+          Frozen in:
+          {baselines.map((baseline) => (
+            <Link
+              key={baseline.id}
+              href={`/s/${spaceKey}/baselines/${baseline.number}`}
+              className="rounded bg-sky-50 px-2 py-0.5 text-sky-700"
+            >
+              #{baseline.number} {baseline.name}
+            </Link>
+          ))}
+        </p>
+      ) : null}
 
       <Panel>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--rf-muted)]">Excerpt</h2>

@@ -10,6 +10,23 @@ import {
 } from './handlers/export-dependency-matrix';
 import { exportMatrixHandler, type ExportMatrixPayload } from './handlers/export-matrix';
 import {
+  freezeHandler,
+  setFreezeWriter,
+  type FreezePage,
+  type FreezePayload,
+} from './handlers/freeze';
+import { partitionDependencies } from '@/domain/baselines';
+import {
+  clearBaselineRows,
+  loadEdges,
+  loadMembers,
+  markFrozen,
+  writeDangling,
+  writeFrozenBatch,
+  writeInternalEdges,
+  findBaseline,
+} from '@/server/repositories/baselines';
+import {
   revalidateTypeHandler,
   setRevalidateWriter,
   type RevalidatePage,
@@ -129,6 +146,39 @@ const revalidatePageSource: PageSource<RevalidatePage> = async (job, offset): Pr
   return { rules: rulesOf(type), total, subjects };
 };
 
+/**
+ * One batch of a freeze: the live rows behind a window of the member set, and the edges
+ * those rows declare, partitioned against the whole member set.
+ * spec 05 §3.2 — the member set is fixed when Freeze is pressed, so it travels in the
+ * payload rather than being re-resolved per page: a query whose answer changed mid-run
+ * would otherwise freeze a set nobody chose.
+ */
+const freezePageSource: PageSource<FreezePage> = async (job, offset): Promise<FreezePage> => {
+  const payload = job.payload as FreezePayload;
+  const space = await findSpaceByKey(payload.spaceKey);
+  if (!space) throw new Error(`Space ${payload.spaceKey} no longer exists.`);
+
+  const permissions = await effectivePermissions(job.actorId, space.id);
+  if (!permissions.includes('ADMIN')) {
+    throw new Error(`The person who queued this freeze no longer has ADMIN in ${payload.spaceKey}.`);
+  }
+
+  const batchKeys = payload.memberKeys.slice(offset, offset + payload.batchSize);
+  if (batchKeys.length === 0) {
+    return { rows: [], internal: [], dangling: [], total: payload.memberKeys.length };
+  }
+
+  const [rows, edges] = await Promise.all([
+    loadMembers(space.id, batchKeys),
+    loadEdges(space.id, batchKeys),
+  ]);
+  // Partitioned against the *whole* member set, not this batch: a parent in a later
+  // batch is a member, and its edge is internal.
+  const { internal, dangling } = partitionDependencies(edges, payload.memberKeys);
+
+  return { rows, internal, dangling, total: payload.memberKeys.length };
+};
+
 let registered = false;
 
 /** Idempotent: both the web process and `pnpm worker` call this before running anything. */
@@ -148,5 +198,33 @@ export function registerJobHandlers(): void {
     revalidateTypeHandler,
     revalidatePageSource,
   );
+
+  // The freeze handler fetches images and shapes bodies; every database write it needs is
+  // injected here, where the repository layer already lives.
+  setFreezeWriter({
+    writeBatch: async (input) => {
+      const baseline = await baselineOrThrow(input.baselineId);
+      return writeFrozenBatch({
+        spaceId: baseline.spaceId,
+        baselineId: input.baselineId,
+        rows: input.rows,
+        includedExternal: input.includedExternal,
+      });
+    },
+    writeEdges: writeInternalEdges,
+    writeDangling,
+    markFrozen: async (baselineId, actorId) => {
+      await markFrozen(baselineId, actorId);
+    },
+    clear: clearBaselineRows,
+  });
+  registerJobHandler<FreezePayload, FreezePage>('freeze-baseline', freezeHandler, freezePageSource);
+
   registered = true;
+}
+
+async function baselineOrThrow(baselineId: string) {
+  const baseline = await findBaseline(baselineId);
+  if (!baseline) throw new Error('That baseline no longer exists.');
+  return baseline;
 }

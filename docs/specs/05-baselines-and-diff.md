@@ -89,7 +89,8 @@ visibly marked as revised; the revision history is not erasable.
 ## 4. Numbering and naming
 
 - `number` is sequential per space, assigned at creation, immutable, never reused
-  (invariant B2), including after deletion.
+  (invariant B2), including after deletion. It comes from a monotonic per-space counter,
+  not from `max(number)` over the baselines that remain — see `RD-046`.
 - `name` is free text and renameable; renaming does not affect the number.
 - Both are accepted wherever a baseline is referenced: `baseline = 3`,
   `baseline = 'Release 1.3c'`, `isModified('3')`, `isModified('Release 1.3c')`.
@@ -172,6 +173,13 @@ The features above exist to answer one question in an audit: *"prove this requir
 was agreed on this date and has not changed since."* Three things make that answer hold,
 and none of them may be weakened without a decision-log entry:
 
-1. Frozen rows are immutable at the database level, not just in application code.
-2. Document versions behind frozen rows are pinned and undeletable.
-3. Images are materialised, not referenced.
+1. Frozen rows are immutable at the database level, not just in application code — a
+   `BEFORE UPDATE` trigger rejects any update of a row carrying a baseline.
+2. Document versions behind frozen rows are pinned and undeletable — likewise a trigger,
+   `BEFORE DELETE` on `DocumentVersion` when `pinned`, so the guarantee does not depend on
+   the repository layer being asked politely.
+3. Images are materialised, not referenced — fetched behind the SSRF guard of `RD-043`,
+   stored by digest, and served through a permission-checked route.
+
+Deleting a baseline deletes its frozen rows and nothing else; it cannot orphan them into
+live rows, which would collide with the live rows of the same keys (invariant R1).

@@ -36,9 +36,9 @@ the documents themselves.
 | 10 | Embedded reports: the columns mini-syntax, count-only, "last requirement", guards |
 | 11 | External properties: instance-global definitions, typed `ext@`, in-place and bulk editing |
 | 12 | Requirement types: rules, validation on save and on type change, `ruleStatus`, quick fixes |
+| 13 | Baselines: drafts, the batched freeze job, pinning, materialised images, refreeze |
 
-Not built yet: baselines, diff and renaming (slices 13–15), and the hardening slices
-(16–18). That completes the traceability half of v1; what remains is the compliance half.
+Not built yet: diff and renaming (slices 14–15), and the hardening slices (16–18).
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 `baseline was` and `isModified()` parse but report `NOT_IMPLEMENTED` from the compiler

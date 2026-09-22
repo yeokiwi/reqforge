@@ -76,6 +76,10 @@ model Space {
   classification String? // e.g. "Official (Closed)" — spec 07 §2.3
   historyEnabled Boolean @default(false) // research §2.7 — off by default
   limits         Json? // per-space overrides of spec 07 §4
+  /// Monotonic. Invariant B2: a baseline number is never reused, including after
+  /// deletion, so it comes from a counter that only moves forward — never from
+  /// max(number) over the rows that happen to remain.
+  nextBaselineNumber Int @default(1)
 
   documents    Document[]
   requirements Requirement[]
@@ -210,7 +214,8 @@ model Requirement {
   key        String
   upperKey   String
   baselineId String?
-  baseline   Baseline? @relation(fields: [baselineId], references: [id])
+  /// Deleting a baseline deletes its frozen rows; nulling them would break invariant R1.
+  baseline   Baseline? @relation(fields: [baselineId], references: [id], onDelete: Cascade)
 
   status          RequirementStatus @default(ACTIVE)
   title           String
@@ -249,6 +254,8 @@ model Requirement {
   @@unique([spaceId, upperKey, baselineId])
   @@index([spaceId, baselineId, status])
   @@index([baselineId])
+  /// Every baseline read is scoped to one baseline; freeze looks members up by key.
+  @@index([baselineId, upperKey])
   @@index([originVersionId])
 }
 

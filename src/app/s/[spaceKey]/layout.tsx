@@ -31,6 +31,7 @@ export default async function SpaceLayout({
     { href: `/s/${spaceKey}/dependencies`, label: 'Dependencies' },
     { href: `/s/${spaceKey}/coverage`, label: 'Coverage' },
     { href: `/s/${spaceKey}/links`, label: 'Broken links' },
+    { href: `/s/${spaceKey}/baselines`, label: 'Baselines' },
     { href: `/s/${spaceKey}/admin/types`, label: 'Types' },
     { href: `/s/${spaceKey}/admin/keys`, label: 'Keys' },
   ];

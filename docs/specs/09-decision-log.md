@@ -413,3 +413,59 @@ revalidation job — has no placement, so it decides the status and offers no fi
 correct, because there is nothing on screen to repair. And because diagnostics are
 persisted and re-read when a document is opened, the fix is persisted with them
 (`IndexDiagnostic.fix`), or the Fix button would only ever appear immediately after a save.
+
+### RD-043 — Freeze fetches external images behind an SSRF guard
+**accepted.** `RD-012` requires freeze to materialise images, and the editor has
+`allowBase64: false` and no upload path, so every image in every document today is an
+external URL. Refusing to fetch would make any document containing an image permanently
+unfreezable; fetching user-supplied URLs from the server is textbook SSRF. So freeze
+fetches, through one guarded client, and the guard is a separate module with its own test
+table rather than a few lines inside the job.
+
+The guard: an `http`/`https` allow-list; **every** address the host resolves to checked
+against loopback, RFC1918, carrier-grade NAT, link-local (including the cloud metadata
+address), IPv6 unique-local and IPv4-mapped forms; a literal address in the URL checked
+the same way without consulting the resolver; redirects followed by hand, at most three,
+with the guard re-run on every hop, because a permitted host redirecting to `127.0.0.1` is
+the oldest bypass in this family; a 10-second timeout; a 10 MB cap enforced **while
+streaming**, since `Content-Length` may lie; and an `image/*` content type required.
+
+Anything refused fails the freeze with the image and the reason named, which is `RD-012`'s
+"loudly rather than silently producing a corruptible snapshot". Storage is content-addressed
+by SHA-256 and served through a route that re-checks the caller's `VIEW` on the space, so a
+frozen body's image is read behind a permission check like every other piece of requirement
+content (rule X3) — the digest is unguessable, but that is not the control.
+
+### RD-044 — Refreeze ships with freeze, not after it
+**accepted.** Spec `05` §3.4 is inside the §1–4 range slice 13 cites, and refreeze is the
+same transaction shape as freeze under the same invariant-R2 trigger: delete and re-insert,
+never update. Shipping it now means the **only** legal correction to a frozen baseline
+exists, is audited and is tested, rather than a frozen baseline having no path back short
+of delete-and-recreate — which would lose its number for ever (invariant B2).
+
+Every refreeze writes a `BaselineRevision` recording who, when, why and the before/after
+member counts, and the reason is mandatory. The history accumulates and is not erasable,
+and a revised baseline says so on its own page.
+
+### RD-045 — A baseline's report document is created with a live report in it
+**accepted.** Spec `05` §2 says a draft has "optionally a report document" and
+`Baseline.reportDocumentId` has always existed, but nothing created one — so `RD-031`'s
+`$currentBaseline` resolution, built in slice 8, had no path that exercised it.
+
+Creating a baseline with a report document now writes a real document titled for the
+baseline, holding a heading and an embedded `report` node over `baseline = N`. The report's
+query names the baseline explicitly so the document still reads correctly as plain text;
+`$currentBaseline` is what a matrix an author embeds there later resolves through, which is
+the mechanism that lets one saved matrix work inside every baseline report document.
+
+### RD-046 — A baseline number comes from a counter, not from the surviving rows
+**accepted.** Spec `05` §4 says the number is "sequential per space, assigned at creation,
+immutable, never reused (invariant B2), **including after deletion**". Deriving it from
+`max(number) + 1` over the baselines that remain cannot hold that: delete the highest and
+the next baseline reuses its number, so two different snapshots could each be cited as
+"baseline 5" in two different audits — precisely the ambiguity a baseline exists to remove.
+
+The number therefore comes from `Space.nextBaselineNumber`, read and incremented in the
+same transaction as the create. It only moves forward; deleting a baseline does not touch
+it. A gap in the sequence, from a create that failed after taking a number, is harmless —
+a reused number is not, so the counter is incremented first.
