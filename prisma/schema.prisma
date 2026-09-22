@@ -75,6 +75,9 @@ model Space {
   globalKeys     Boolean @default(false) // research §2.2
   classification String? // e.g. "Official (Closed)" — spec 07 §2.3
   historyEnabled Boolean @default(false) // research §2.7 — off by default
+  /// Null keeps history for ever. Pruning never removes a row dated at or before the
+  /// freeze of a baseline that contains the requirement — spec 05 §6, RD-049.
+  historyRetentionDays Int?
   limits         Json? // per-space overrides of spec 07 §4
   /// Monotonic. Invariant B2: a baseline number is never reused, including after
   /// deletion, so it comes from a counter that only moves forward — never from
@@ -567,6 +570,8 @@ model RequirementHistory {
   id            String      @id @default(cuid())
   requirementId String
   requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  /// Denormalised: this is the fastest-growing table, and pruning reads it by space.
+  spaceId       String?
   at            DateTime    @default(now())
   actorId       String
   changeKind    String
@@ -575,6 +580,8 @@ model RequirementHistory {
 
   @@index([requirementId, at])
   @@index([actorId, at])
+  @@index([requirementId, changeKind, at])
+  @@index([spaceId, at])
 }
 
 /// Append-only. Never pruned by history retention — spec 07 §6.

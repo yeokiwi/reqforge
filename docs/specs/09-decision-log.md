@@ -469,3 +469,59 @@ The number therefore comes from `Space.nextBaselineNumber`, read and incremented
 same transaction as the create. It only moves forward; deleting a baseline does not touch
 it. A gap in the sequence, from a create that failed after taking a number, is harmless —
 a reused number is not, so the counter is incremented first.
+
+### RD-047 — `isModified()` and the diff are defined over the same stored columns
+**accepted.** PLAN.md's acceptance for slice 14 is that the two "never disagree on the
+same pair". `isModified()` must be a SQL predicate — spec `02` §6 places it in a query,
+where it composes with `AND` and `OR` — while the diff classifier is TypeScript, so the
+risk is drift, not disagreement on any one day.
+
+Both are therefore defined over exactly three stored things: `title`, `bodySearch`, and
+the `INLINE` property set ordered canonically. The pleasing part is that this *is* spec
+`05` §5.2 step 3's default ignore set: `bodySearch` is markup-stripped, whitespace-
+collapsed and NFKC-normalised (spec `03` §3.1), so formatting is already gone, an image
+contributes no text, and a link's text survives while its href does not. Three ignore
+options, one column comparison.
+
+A digest column was considered and rejected: it would put the definition in a third place
+and need recomputing whenever the compare set moved. Instead a fast-check property test
+generates mutations and asserts the SQL and the TypeScript classify identically, so
+shrinking names the exact pair if they ever part.
+
+Turning an ignore *off* compares `bodyHtml` with images and hrefs tokenised — but
+`isModified()` is always the default set (`RD-013`), so the two cannot be asked to differ.
+
+### RD-048 — `baseline was N` asks whether a snapshot exists, and which change kinds this slice writes
+**accepted.** Two things the research leaves open.
+
+**`baseline was N`** is documented only as "matches a *previous* version's baseline"
+(research §3.1) with no further definition. Spec `05` §5.3 pins the reading by using it:
+a requirement absent from a baseline "is new, and is found with `NOT (baseline was N)`".
+So it compiles to "a row with this key exists in that baseline" — the only reading under
+which that sentence is true.
+
+**History's change kinds.** Spec `05` §6 lists ten. This slice writes the nine whose
+features exist — `CREATED`, `TITLE`, `BODY`, `PROPERTY`, `DEPENDENCY`, `TYPE`, `STATUS`,
+`EXTERNAL_PROPERTY` and `BASELINED` — each at the site that already performs that change,
+in its transaction, carrying the editing actor (`RD-014`). `KEY_RENAMED` is emitted by
+slice 15, which owns renaming.
+
+One consequence worth stating: in a horizontal table the title cell *is* the requirement's
+text (spec `03` §3.1), so retitling writes both a `TITLE` row and a `BODY` row. That is
+correct — two fields moved — and the tests pin it so it is not mistaken for a bug later.
+
+### RD-049 — Retention protects the rows up to each relevant freeze
+**accepted.** Spec `05` §6 says pruning "never removes rows that a frozen baseline depends
+on", but a history row is not referenced by a baseline, so what that protects was
+undefined.
+
+Ours: a row is never pruned when it is dated **at or before** the `frozenAt` of a frozen
+baseline that contains that requirement. Those rows are the story of how the frozen text
+came to be, which is what an auditor reads beside the snapshot; churn after the freeze
+ages out on the space's retention setting like anything else.
+
+*Why not protect every row of a baselined requirement:* in a space where most requirements
+end up baselined that makes retention a no-op, and spec `05` §6 calls this the largest
+table in the system. *Why not protect nothing:* the frozen rows are self-contained, but
+"prove it has not changed since" is answered by the snapshot **and** the trail, and
+discarding the trail discards half the answer.

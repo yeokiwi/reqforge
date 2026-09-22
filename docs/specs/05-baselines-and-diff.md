@@ -133,6 +133,10 @@ type DiffRequest = {
    - formatting → compare `bodySearch`, not `bodyHtml`;
    - images → replace image nodes with a placeholder token;
    - hyperlinks → compare link text, not href.
+
+   Under the **default** ignore set all three are satisfied by comparing `bodySearch`
+   alone, which is already markup-free (`03` §3.1). That is what lets `isModified()` be a
+   comparison of stored columns and still mean exactly what this does — see `RD-047`.
 4. Classify as `modified` if any enabled field differs, else `unchanged`.
 5. Field-level detail: word-level diff for title and body, set diff for properties and
    dependencies.
@@ -165,7 +169,10 @@ largest table in the system.
   the editor, every change carries the editing session's actor, and history rows are
   written in the same transaction as the index update. This is `RD-014`.
 - Retention is configurable per space; pruning never removes rows that a frozen baseline
-  depends on.
+  depends on — precisely, a row dated at or before the `frozenAt` of a frozen baseline
+  containing that requirement (`RD-049`).
+- This slice writes every kind whose feature exists; `KEY_RENAMED` is emitted by slice 15,
+  which owns renaming (`RD-048`).
 
 ## 7. Compliance posture
 

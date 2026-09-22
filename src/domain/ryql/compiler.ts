@@ -96,15 +96,7 @@ function compileExpr(expr: Expr, alias: string, context: CompileContext): SqlFra
     case 'call':
       return compileCall(expr, alias, context);
     case 'baselineWas':
-      throw new RqlSyntaxError(
-        rqlError(
-          'NOT_IMPLEMENTED',
-          '`baseline was` needs requirement history, which arrives with diff (spec 05 §5).',
-          expr.offset,
-          expr.length,
-          'Compare two baselines with the diff screen instead.',
-        ),
-      );
+      return compileBaselineWas(alias, expr.value);
   }
 }
 
@@ -505,21 +497,82 @@ function compileIsNull(field: FieldRef, alias: string, context: CompileContext):
 
 function compileCall(expr: Extract<Expr, { kind: 'call' }>, alias: string, context: CompileContext): SqlFragment {
   if (expr.name === 'ismodified') {
-    throw new RqlSyntaxError(
-      rqlError(
-        'NOT_IMPLEMENTED',
-        'isModified() compares a requirement against a baseline snapshot, which arrives with diff (spec 05 §5, RD-013).',
-        expr.offset,
-        expr.length,
-      ),
-    );
+    const argument = expr.args[0];
+    if (!argument) {
+      // The analyser checks arity, so this is only reachable from a hand-built AST.
+      throw new RqlSyntaxError(
+        rqlError('TYPE_MISMATCH', 'isModified() needs a baseline.', expr.offset, expr.length),
+      );
+    }
+    return compileIsModified(alias, argument);
   }
 
-  void alias;
   void context;
   throw new RqlSyntaxError(
     rqlError('NOT_IMPLEMENTED', `${expr.name}() is not implemented.`, expr.offset, expr.length),
   );
+}
+
+/**
+ * The snapshot of this requirement in a baseline, addressed by number or by name exactly
+ * as the `baseline` field is (spec 05 §4).
+ */
+function snapshotJoin(alias: string, value: Value): SqlFragment {
+  const numeric = value.kind === 'number' ? value.value : Number(value.kind === 'string' ? value.value : NaN);
+  const match = Number.isFinite(numeric)
+    ? sql`b.number = ${param(Math.trunc(numeric))}`
+    : sql`b.name = ${literal(value)}`;
+
+  return sql`
+    SELECT s.* FROM ${raw(REQUIREMENT_TABLE)} s
+    JOIN "Baseline" b ON b.id = s."baselineId"
+    WHERE s."spaceId" = ${raw(alias)}."spaceId"
+      AND s."upperKey" = ${raw(alias)}."upperKey"
+      AND ${match}
+  `;
+}
+
+/**
+ * `baseline was N` — this requirement has a snapshot in that baseline.
+ * spec 05 §5.3 makes the reading explicit: a requirement absent from a baseline "is new,
+ * and is found with `NOT (baseline was N)`". Research §3.1 calls it "a *previous*
+ * version's baseline" and says no more, so the decision is recorded as `RD-048`.
+ */
+function compileBaselineWas(alias: string, value: Value): SqlFragment {
+  return sql`EXISTS (${snapshotJoin(alias, value)})`;
+}
+
+/**
+ * `isModified(baseline)` — this requirement's **live** row differs from its snapshot in
+ * that baseline, over the default compare set with the default ignore set (`RD-013`).
+ *
+ * The comparison is of stored columns, and it is the same comparison
+ * `src/domain/diff/classify.ts` makes (`RD-047`):
+ *   - `title`;
+ *   - `bodySearch`, which is markup-free, so comparing it *is* the default ignore set —
+ *     formatting, images and hrefs are already gone (spec 03 §3.1);
+ *   - the INLINE property set, ordered canonically so column order is not a change.
+ *
+ * A requirement with no snapshot in that baseline is **not** modified (spec 05 §5.3):
+ * `EXISTS` over an empty join is false, which is also what two-valued absence-as-false
+ * gives (`RD-020`).
+ */
+function compileIsModified(alias: string, value: Value): SqlFragment {
+  // chr(31) is the list separator of invariant R3, written explicitly rather than as an
+  // escape: a raw control byte in the SQL text is unreadable and easy to lose in an edit.
+  const properties = (owner: string) => sql`(
+    SELECT COALESCE(string_agg(p."searchName" || '=' || p.value, chr(31)
+             ORDER BY p."searchName", p."valueIndex", p.value), '')
+      FROM "Property" p
+     WHERE p."requirementId" = ${raw(owner)}.id AND p.kind = 'INLINE'
+  )`;
+
+  return sql`EXISTS (
+    SELECT 1 FROM (${snapshotJoin(alias, value)}) snap
+    WHERE snap.title IS DISTINCT FROM ${raw(alias)}.title
+       OR snap."bodySearch" IS DISTINCT FROM ${raw(alias)}."bodySearch"
+       OR ${properties('snap')} IS DISTINCT FROM ${properties(alias)}
+  )`;
 }
 
 export { render } from './sql';

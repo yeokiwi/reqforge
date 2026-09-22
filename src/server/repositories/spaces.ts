@@ -61,3 +61,8 @@ export async function countRequirements(spaceId: string): Promise<number> {
 export async function countDocuments(spaceId: string): Promise<number> {
   return prisma.document.count({ where: { spaceId, deletedAt: null } });
 }
+
+/** By id, for the job runner, which carries an id rather than a key. */
+export async function findSpaceById(id: string): Promise<Space | null> {
+  return prisma.space.findUnique({ where: { id } });
+}

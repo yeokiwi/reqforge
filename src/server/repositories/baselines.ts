@@ -173,6 +173,8 @@ export async function writeFrozenBatch(input: {
   baselineId: string;
   rows: readonly FrozenRow[];
   includedExternal: boolean;
+  actorId: string;
+  historyEnabled: boolean;
 }): Promise<number> {
   if (input.rows.length === 0) return 0;
 
@@ -232,6 +234,18 @@ export async function writeFrozenBatch(input: {
           ];
         }),
       });
+    }
+
+    // spec 05 §6 — the live requirement records that it was captured (RD-048).
+    const historyRows = input.rows.map((row) => ({
+      requirementId: row.id,
+      spaceId: input.spaceId,
+      actorId: input.actorId,
+      changeKind: 'BASELINED',
+      after: { baselineId: input.baselineId, key: row.key } as Prisma.InputJsonValue,
+    }));
+    if (input.historyEnabled && historyRows.length > 0) {
+      await tx.requirementHistory.createMany({ data: historyRows });
     }
 
     // spec 05 §3.2 step 6 — pin the versions these rows were extracted from. A pinned

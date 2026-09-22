@@ -126,6 +126,7 @@ export async function saveDocumentUseCase(input: {
         actorId: user.id,
         result: indexed,
         types: types.map((type) => ({ id: type.id, rules: rulesOf(type) })),
+        historyEnabled: space.historyEnabled,
       });
     },
   });

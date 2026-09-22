@@ -140,8 +140,8 @@ describe('the full query', () => {
     expect(compiled.params).toContain(600);
   });
 
-  it('refuses what belongs to a later slice, with a code the UI can show', () => {
-    expect(() => compile(analysed('baseline was 3').expr, context)).toThrowError(/baseline was/);
-    expect(() => compile(analysed("isModified('3')").expr, context)).toThrowError(/isModified/);
+  it('still refuses what belongs to a later slice, with a code the UI can show', () => {
+    // `baseline was` and `isModified()` compile as of slice 14; the testing module does not.
+    expect(() => compile(analysed("hasTest('%ok%')").expr, context)).toThrowError();
   });
 });

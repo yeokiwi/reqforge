@@ -108,7 +108,7 @@ query languages.
 | `text` | string | `requirement.bodySearch` | **excludes properties** (research §3.2) |
 | `title` | string | `requirement.title` | **[decided]** addition; RY has no such field |
 | `baseline` | number \| name \| `$currentBaseline` | `requirement.baselineId` | |
-| `baseline was` | number \| name | previous version's baseline | |
+| `baseline was` | number \| name | this requirement has a snapshot in that baseline (`RD-048`) | |
 | `document` | id \| title | `DocumentLink` where `origin` | replaces RY's `page`; `page` is a **deprecated alias** |
 | `documentHistory` | id | all versions of that document | replaces `pageHistory` |
 | `links` | id | any `DocumentLink` | |

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { Panel } from '@/app/_components/chrome';
 import { requireSpace } from '@/server/authz';
 import { baselinesContaining } from '@/server/repositories/baselines';
+import { listHistory } from '@/server/repositories/history';
 import { findRequirementDetail } from '@/server/repositories/requirements';
 import { definitionsForSpace } from '@/server/usecases/external-properties';
 import { DependencyPanel } from '../dependency-panel';
@@ -33,6 +34,10 @@ export default async function RequirementPage({
   // because they are the only ones editable here (overview, decision 2).
   // spec 05 §4 — which numbered snapshots hold this key, newest first.
   const baselines = await baselinesContaining(space.id, requirement.upperKey);
+  // spec 05 §6 — off by default per space, so the panel appears only where it is on.
+  const history = space.historyEnabled
+    ? await listHistory({ spaceId: space.id, requirementId: requirement.id, limit: 50 })
+    : [];
   const inline = requirement.properties.filter((property) => property.kind === 'INLINE');
   const definitions = await definitionsForSpace(spaceKey);
   const externalRows: ValueRow[] = definitions.map((definition) => ({
@@ -138,6 +143,23 @@ export default async function RequirementPage({
           ))}
         </ul>
       </Panel>
+
+      {history.length > 0 ? (
+        <Panel>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--rf-muted)]">History</h2>
+          <table className="w-full text-sm" data-testid="requirement-history">
+            <tbody>
+              {history.map((entry) => (
+                <tr key={entry.id} className="border-t border-[var(--rf-line)] align-top">
+                  <td className="w-44 py-1.5 text-xs text-[var(--rf-muted)]">{entry.at.toISOString()}</td>
+                  <td className="w-40 py-1.5 text-xs">{entry.changeKind}</td>
+                  <td className="py-1.5 text-xs text-[var(--rf-muted)]">{entry.actorId}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      ) : null}
 
       <p className="text-xs text-[var(--rf-muted)]">
         Record id: {space.key}/{requirement.key}/current

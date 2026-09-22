@@ -37,12 +37,12 @@ the documents themselves.
 | 11 | External properties: instance-global definitions, typed `ext@`, in-place and bulk editing |
 | 12 | Requirement types: rules, validation on save and on type change, `ruleStatus`, quick fixes |
 | 13 | Baselines: drafts, the batched freeze job, pinning, materialised images, refreeze |
+| 14 | Diff over two queries, `isModified()`, `baseline was`, per-requirement history |
 
-Not built yet: diff and renaming (slices 14–15), and the hardening slices (16–18).
+Not built yet: renaming (slice 15) and the hardening slices (16–18).
 
 Known gaps inside what is built, each waiting on the slice that owns it:
-`baseline was` and `isModified()` parse but report `NOT_IMPLEMENTED` from the compiler
-until diff lands (slice 14); computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
+computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
 refused until token auth (`RD-030`, slice 17); a link's `displayProperty` is stored but
 not yet rendered live.
 

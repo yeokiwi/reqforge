@@ -1,6 +1,7 @@
 import type { Job } from '@prisma/client';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { parseMatrixConfig } from '@/domain/traceability/matrix';
+import { parseDiffRequest } from '@/domain/diff';
 import { requireSpace } from '@/server/authz';
 import { registerJobHandlers } from '@/server/jobs/register';
 import { jobsRunInline, runJobNow } from '@/server/jobs/runner';
@@ -95,4 +96,34 @@ export async function cancelJobUseCase(spaceKey: string, jobId: string): Promise
   if (!job || job.spaceId !== space.id) throw new NotFoundError('That job does not exist in this space.');
   if (job.actorId !== user.id) throw new ForbiddenError('Only the person who started a job can cancel it.');
   await requestCancel(jobId, space.id);
+}
+
+/** spec 05 §5.4 — "Diff export is `.xlsx` and runs as a job". */
+export async function exportDiffUseCase(input: { spaceKey: string; request: unknown }): Promise<Job> {
+  const { space, user } = await requireSpace(input.spaceKey, 'EXPORT');
+  const request = parseDiffRequest(input.request);
+  if (request.left.length === 0 || request.right.length === 0) {
+    throw new ValidationError('A diff needs a query on each side.');
+  }
+
+  registerJobHandlers();
+
+  const job = await enqueueJob({
+    kind: 'export-diff',
+    spaceId: space.id,
+    actorId: user.id,
+    payload: {
+      spaceKey: space.key,
+      spaceName: space.name,
+      classification: space.classification,
+      left: request.left,
+      right: request.right,
+      request: { ...request },
+    },
+  });
+
+  if (jobsRunInline()) await runJobNow(job.id);
+  else void runJobNow(job.id);
+
+  return (await findJob(job.id)) ?? job;
 }

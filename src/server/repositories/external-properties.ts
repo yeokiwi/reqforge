@@ -7,6 +7,7 @@ import {
   type ExternalTypeMap,
 } from '@/domain/properties/external';
 import { prisma } from './client';
+import { recordHistoryDirect } from './history';
 
 /**
  * External property definitions and the values filed against them.
@@ -142,9 +143,14 @@ export async function setValueForRequirements(input: {
   requirementIds: readonly string[];
   definition: Pick<ExternalDefinition, 'id' | 'name' | 'searchName'>;
   value: string | null;
+  /** spec 05 §6 — an approval value changing is one of the things an auditor asks about. */
+  actorId?: string;
+  historyEnabled?: boolean;
 }): Promise<number> {
   const ids = [...new Set(input.requirementIds)];
   if (ids.length === 0) return 0;
+
+  if (input.historyEnabled && input.actorId) await recordExternalChange(ids, input);
 
   if (input.value === null) {
     const cleared = await prisma.property.deleteMany({
@@ -170,4 +176,39 @@ export async function setValueForRequirements(input: {
                   "name" = EXCLUDED."name",
                   "searchName" = EXCLUDED."searchName"
   `;
+}
+
+/**
+ * History for an external value, written before the change so the `before` is the truth.
+ * spec: 05-baselines-and-diff.md §6 (`EXTERNAL_PROPERTY`), RD-048
+ */
+async function recordExternalChange(
+  ids: readonly string[],
+  input: {
+    definition: Pick<ExternalDefinition, 'id' | 'name'>;
+    value: string | null;
+    actorId?: string;
+  },
+): Promise<void> {
+  if (!input.actorId) return;
+
+  const rows = await prisma.requirement.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true,
+      spaceId: true,
+      properties: { where: { definitionId: input.definition.id, kind: 'EXTERNAL' }, select: { value: true } },
+    },
+  });
+
+  await recordHistoryDirect(
+    rows.map((row) => ({
+      requirementId: row.id,
+      spaceId: row.spaceId,
+      actorId: input.actorId!,
+      changeKind: 'EXTERNAL_PROPERTY' as const,
+      before: { name: input.definition.name, value: row.properties[0]?.value ?? null },
+      after: { name: input.definition.name, value: input.value },
+    })),
+  );
 }

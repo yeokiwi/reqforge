@@ -50,6 +50,16 @@ export default async function BaselinePage({
             revised {revisions.length}×
           </span>
         ) : null}
+        {baseline.state === 'FROZEN' ? (
+          // spec 05 §5.1 — "selecting two baselines merely pre-fills them".
+          <Link
+            href={`/s/${spaceKey}/diff?left=${encodeURIComponent(`baseline = ${baseline.number}`)}&right=${encodeURIComponent(baseline.sourceQuery)}`}
+            className="text-sm text-[var(--rf-accent)]"
+            data-testid="compare-link"
+          >
+            Compare with now
+          </Link>
+        ) : null}
         <Link href={`/s/${spaceKey}/baselines`} className="text-sm text-[var(--rf-accent)]">
           All baselines
         </Link>

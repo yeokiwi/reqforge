@@ -165,7 +165,7 @@ export async function setValueUseCase(input: {
   definitionId: unknown;
   value: unknown;
 }): Promise<SetValueOutcome> {
-  const { user } = await requireSpace(input.spaceKey, 'EDIT');
+  const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
   const definition = await resolveDefinition(input.definitionId);
 
   const coerced = coerceValue(definition, input.value);
@@ -179,6 +179,8 @@ export async function setValueUseCase(input: {
     requirementIds: visible,
     definition,
     value: coerced.value,
+    actorId: user.id,
+    historyEnabled: space.historyEnabled,
   });
   return { written, value: coerced.value };
 }
@@ -226,6 +228,12 @@ export async function setValueInBulkUseCase(input: {
     externalTypes,
   });
 
-  const written = await setValueForRequirements({ requirementIds: ids, definition, value: coerced.value });
+  const written = await setValueForRequirements({
+    requirementIds: ids,
+    definition,
+    value: coerced.value,
+    actorId: user.id,
+    historyEnabled: space.historyEnabled,
+  });
   return { written, population: ids.length, value: coerced.value };
 }

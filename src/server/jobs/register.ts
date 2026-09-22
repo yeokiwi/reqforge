@@ -1,5 +1,5 @@
 import type { Job } from '@prisma/client';
-import { effectivePermissions, findSpaceByKey } from '@/server/repositories/spaces';
+import { effectivePermissions, findSpaceById, findSpaceByKey } from '@/server/repositories/spaces';
 import { runMatrixForUser } from '@/server/usecases/matrix';
 import { fetchDefiningDocuments, fetchEdgesBetween } from '@/server/repositories/traceability';
 import { dependencyMatrixForUser } from '@/server/usecases/dependency-matrix';
@@ -9,6 +9,12 @@ import {
   type ExportDependencyMatrixPayload,
 } from './handlers/export-dependency-matrix';
 import { exportMatrixHandler, type ExportMatrixPayload } from './handlers/export-matrix';
+import {
+  exportDiffHandler,
+  type DiffExportPage,
+  type ExportDiffPayload,
+} from './handlers/export-diff';
+import { runDiffForUser } from '@/server/usecases/diff';
 import {
   freezeHandler,
   setFreezeWriter,
@@ -179,6 +185,33 @@ const freezePageSource: PageSource<FreezePage> = async (job, offset): Promise<Fr
   return { rows, internal, dangling, total: payload.memberKeys.length };
 };
 
+/**
+ * The diff export runs the same comparison the screen runs, as the person who queued it,
+ * so an export can never contain a row that person could not see (rule X3). The whole
+ * comparison happens once and the pages are windows onto its rows.
+ */
+const diffPageSource: PageSource<DiffExportPage> = async (job, offset): Promise<DiffExportPage> => {
+  const payload = job.payload as ExportDiffPayload;
+  const space = await findSpaceByKey(payload.spaceKey);
+  if (!space) throw new Error(`Space ${payload.spaceKey} no longer exists.`);
+
+  const permissions = await effectivePermissions(job.actorId, space.id);
+  if (!permissions.includes('EXPORT')) {
+    throw new Error(`The person who queued this export no longer has EXPORT in ${payload.spaceKey}.`);
+  }
+
+  const result = await runDiffForUser({
+    space: { id: space.id, key: space.key, isolated: space.isolated },
+    userId: job.actorId,
+    request: payload.request,
+    maxRows: 20_000,
+  });
+  if (!result.ok) throw new Error(result.errors[0]?.message ?? 'That comparison is no longer valid.');
+
+  const rows = result.outcome.rows.slice(offset, offset + 500);
+  return { rows, total: result.outcome.rows.length, summary: result.outcome.summary };
+};
+
 let registered = false;
 
 /** Idempotent: both the web process and `pnpm worker` call this before running anything. */
@@ -204,11 +237,14 @@ export function registerJobHandlers(): void {
   setFreezeWriter({
     writeBatch: async (input) => {
       const baseline = await baselineOrThrow(input.baselineId);
+      const space = await findSpaceById(baseline.spaceId);
       return writeFrozenBatch({
         spaceId: baseline.spaceId,
         baselineId: input.baselineId,
         rows: input.rows,
         includedExternal: input.includedExternal,
+        actorId: input.actorId,
+        historyEnabled: space?.historyEnabled ?? false,
       });
     },
     writeEdges: writeInternalEdges,
@@ -219,6 +255,7 @@ export function registerJobHandlers(): void {
     clear: clearBaselineRows,
   });
   registerJobHandler<FreezePayload, FreezePage>('freeze-baseline', freezeHandler, freezePageSource);
+  registerJobHandler<ExportDiffPayload, DiffExportPage>('export-diff', exportDiffHandler, diffPageSource);
 
   registered = true;
 }

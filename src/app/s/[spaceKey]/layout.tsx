@@ -32,8 +32,12 @@ export default async function SpaceLayout({
     { href: `/s/${spaceKey}/coverage`, label: 'Coverage' },
     { href: `/s/${spaceKey}/links`, label: 'Broken links' },
     { href: `/s/${spaceKey}/baselines`, label: 'Baselines' },
+    { href: `/s/${spaceKey}/diff`, label: 'Diff' },
     { href: `/s/${spaceKey}/admin/types`, label: 'Types' },
     { href: `/s/${spaceKey}/admin/keys`, label: 'Keys' },
+    // "Change log", not "History": a document has its own version history, and two links
+    // called History on one page is a genuine ambiguity, not just a test collision.
+    { href: `/s/${spaceKey}/admin/history`, label: 'Change log' },
   ];
 
   // Instance-wide, so it is not part of the space nav proper (RD-036).

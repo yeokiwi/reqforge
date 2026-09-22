@@ -39,6 +39,7 @@ export type FreezeWriter = {
     baselineId: string;
     rows: Array<FreezePage['rows'][number] & { frozenBodyHtml: string }>;
     includedExternal: boolean;
+    actorId: string;
   }) => Promise<number>;
   writeEdges: (baselineId: string, edges: readonly Edge[]) => Promise<number>;
   writeDangling: (baselineId: string, edges: readonly Edge[]) => Promise<void>;
@@ -107,7 +108,12 @@ export const freezeHandler: JobHandler<FreezePayload, FreezePage> = async (paylo
       rows.push({ ...row, frozenBodyHtml: await materialise(row.bodyHtml, payload.spaceKey, materialised) });
     }
 
-    await write.writeBatch({ baselineId: payload.baselineId, rows, includedExternal: payload.includedExternal });
+    await write.writeBatch({
+      baselineId: payload.baselineId,
+      rows,
+      includedExternal: payload.includedExternal,
+      actorId: payload.actorId,
+    });
 
     internal.push(...page.internal);
     dangling.push(...page.dangling);

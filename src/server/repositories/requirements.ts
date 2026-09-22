@@ -1,6 +1,12 @@
 import { Prisma, type Requirement } from '@prisma/client';
 import type { Diagnostic, IndexResult } from '@/domain/indexer';
 import { validateRequirement, type Rule, type Subject } from '@/domain/validation';
+import {
+  changesBetween,
+  recordHistory,
+  type HistoryEntry,
+  type RequirementSnapshot,
+} from './history';
 import { advanceSequencesForKeys } from './requirement-types';
 import { writeValidations, type ValidationRow } from './validations';
 import { prisma } from './client';
@@ -19,6 +25,8 @@ export type ApplyIndexInput = {
    * trigger 1) from data already in hand.
    */
   types?: readonly { id: string; rules: readonly Rule[] }[];
+  /** spec 05 §6 — history is off by default per space (research §2.7). */
+  historyEnabled?: boolean;
 };
 
 export type ApplyIndexOutcome = {
@@ -52,6 +60,12 @@ export async function applyIndexResult(
     where: { spaceId: input.spaceId, baselineId: null, originVersion: { documentId: input.documentId } },
     select: { id: true, upperKey: true, key: true, status: true },
   });
+
+  // Read before anything is written: history compares what the requirement was against
+  // what this save makes it.
+  const before = input.historyEnabled
+    ? await snapshotRequirements(tx, previouslyDefinedHere.map((row) => row.id))
+    : new Map<string, RequirementSnapshot>();
 
   const indexedKeys = result.requirements.map((requirement) => requirement.upperKey);
   const liveWithSameKey = indexedKeys.length
@@ -133,6 +147,11 @@ export async function applyIndexResult(
   // Validation runs after the edges are written, so a `from` rule sees this save's work,
   // and before the diagnostics are persisted, so its findings are part of them.
   diagnostics.push(...(await validateDocumentRequirements(tx, input, definedHere)));
+  // spec 05 §6 / RD-014 — written in the same transaction as the change it describes, so
+  // it cannot outlive a rollback and cannot misattribute an author.
+  if (input.historyEnabled) {
+    await recordIndexHistory(tx, input, definedHere, before, removed.map((row) => row.id));
+  }
   await rewriteDiagnostics(tx, input, diagnostics, conflicts);
 
   return { created, updated, deleted: removed.map((row) => row.id), diagnostics };
@@ -637,4 +656,80 @@ export async function validateDocumentRequirements(
   // longer applies goes with it.
   await writeValidations(tx, ids, rows);
   return diagnostics;
+}
+
+// ------------------------------------------------------------------ slice 14: history
+
+/** What a set of requirements looked like, in the canonical form history compares. */
+async function snapshotRequirements(
+  tx: Prisma.TransactionClient,
+  ids: readonly string[],
+): Promise<Map<string, RequirementSnapshot>> {
+  if (ids.length === 0) return new Map();
+
+  const rows = await tx.requirement.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true,
+      title: true,
+      bodySearch: true,
+      typeId: true,
+      status: true,
+      properties: { where: { kind: 'INLINE' }, select: { searchName: true, value: true, valueIndex: true } },
+      parentEdges: { select: { relationship: true, parent: { select: { upperKey: true } } } },
+    },
+  });
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        title: row.title,
+        bodySearch: row.bodySearch,
+        typeId: row.typeId,
+        status: row.status,
+        properties: row.properties
+          .map((property) => `${property.searchName}=${property.value}`)
+          .sort(),
+        dependencies: row.parentEdges
+          .map((edge) => `${edge.relationship} → ${edge.parent.upperKey}`)
+          .sort(),
+      },
+    ]),
+  );
+}
+
+/**
+ * One history row per field this save changed, for every requirement the document
+ * defines — plus a `STATUS` row for each one the save removed (contract I3).
+ * spec: 05-baselines-and-diff.md §6
+ */
+async function recordIndexHistory(
+  tx: Prisma.TransactionClient,
+  input: ApplyIndexInput,
+  definedHere: Map<string, string>,
+  before: Map<string, RequirementSnapshot>,
+  removedIds: readonly string[],
+): Promise<void> {
+  const ids = [...definedHere.values(), ...removedIds];
+  const after = await snapshotRequirements(tx, ids);
+
+  const entries: HistoryEntry[] = [];
+  for (const id of ids) {
+    const now = after.get(id);
+    if (!now) continue;
+
+    for (const change of changesBetween(before.get(id) ?? null, now)) {
+      entries.push({
+        requirementId: id,
+        spaceId: input.spaceId,
+        actorId: input.actorId,
+        changeKind: change.changeKind,
+        ...(change.before !== undefined ? { before: change.before } : {}),
+        ...(change.after !== undefined ? { after: change.after } : {}),
+      });
+    }
+  }
+
+  await recordHistory(tx, entries);
 }
