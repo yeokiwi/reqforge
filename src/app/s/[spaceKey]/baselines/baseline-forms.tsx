@@ -1,8 +1,10 @@
 'use client';
 
-import { useActionState, useEffect, useState, useTransition } from 'react';
+import { JobProgress } from '@/app/_components/job-progress';
+import { useActionState, useState, useTransition } from 'react';
 import {
   baselineJobStatusAction,
+  cancelBaselineJobAction,
   createBaselineAction,
   deleteBaselineAction,
   freezeAction,
@@ -189,7 +191,14 @@ export function DeleteBaselineForm({ spaceKey, id }: { spaceKey: string; id: str
 function Outcome({ spaceKey, state }: { spaceKey: string; state: BaselineState }) {
   return (
     <>
-      {state.jobId ? <JobProgress spaceKey={spaceKey} jobId={state.jobId} /> : null}
+      {state.jobId ? (
+        <JobProgress
+          jobId={state.jobId}
+          testId="freeze-job"
+          poll={(id) => baselineJobStatusAction(spaceKey, id)}
+          onCancel={(id) => cancelBaselineJobAction(spaceKey, id)}
+        />
+      ) : null}
       {state.message && !state.jobId ? <span className="text-xs text-emerald-700">{state.message}</span> : null}
       {state.error ? (
         <span role="alert" className="text-xs text-red-600">
@@ -200,37 +209,3 @@ function Outcome({ spaceKey, state }: { spaceKey: string; state: BaselineState }
   );
 }
 
-function JobProgress({ spaceKey, jobId }: { spaceKey: string; jobId: string }) {
-  const [status, setStatus] = useState<{
-    state: string;
-    progress: number;
-    message: string | null;
-    error: string | null;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        const result = await baselineJobStatusAction(spaceKey, jobId);
-        if (cancelled) return;
-        if ('failed' in result) return;
-        setStatus(result);
-        if (result.state === 'DONE' || result.state === 'FAILED' || result.state === 'CANCELLED') return;
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId, spaceKey]);
-
-  if (!status) return null;
-  return (
-    <span data-testid="freeze-job" className="text-xs text-[var(--rf-muted)]">
-      {status.state.toLowerCase()} — {status.progress}% {status.message ?? ''}
-      {status.error ? <span className="text-red-600"> {status.error}</span> : null}
-    </span>
-  );
-}

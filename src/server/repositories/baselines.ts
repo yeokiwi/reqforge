@@ -2,6 +2,7 @@ import type { Baseline, BaselineRevision, Prisma } from '@prisma/client';
 import { ConflictError, NotFoundError } from '@/domain/errors';
 import type { Edge } from '@/domain/baselines';
 import { prisma } from './client';
+import { recordAuditEvent } from './audit';
 
 /**
  * Baselines: draft, freeze, refreeze.
@@ -362,7 +363,11 @@ export async function requireFrozen(spaceId: string, id: string): Promise<Baseli
 
 // ------------------------------------------------------------------ audit, spec 07 §6
 
-/** Append-only, never pruned. Freeze, refreeze and delete are what an auditor asks about. */
+/**
+ * Append-only, never pruned. Freeze, refreeze and delete are what an auditor asks about.
+ * The general form lives in `repositories/audit.ts`; this saves the baseline callers
+ * repeating `objectType` at every site.
+ */
 export async function recordAudit(input: {
   actorId: string;
   spaceId: string;
@@ -370,7 +375,7 @@ export async function recordAudit(input: {
   operation: string;
   parameters: Prisma.InputJsonValue;
 }): Promise<void> {
-  await prisma.auditEvent.create({ data: { ...input, objectType: 'Baseline' } });
+  await recordAuditEvent({ ...input, objectType: 'Baseline' });
 }
 
 /**

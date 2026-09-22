@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { JobProgress } from '@/app/_components/job-progress';
+import { useActionState, useState } from 'react';
 import {
   describeRule,
   MAX_RULES_PER_TYPE,
@@ -106,7 +107,13 @@ export function TypeForm({
           {state.error}
         </p>
       ) : null}
-      {state.jobId ? <JobProgress spaceKey={spaceKey} jobId={state.jobId} /> : null}
+      {state.jobId ? (
+        <JobProgress
+          jobId={state.jobId}
+          testId="validation-job"
+          poll={(id) => validationJobStatusAction(spaceKey, id)}
+        />
+      ) : null}
     </form>
   );
 }
@@ -334,34 +341,6 @@ function TemplateEditor({
 }
 
 /** The revalidation job's progress (spec 06 §2.2 trigger 2). */
-function JobProgress({ spaceKey, jobId }: { spaceKey: string; jobId: string }) {
-  const [status, setStatus] = useState<{ state: string; progress: number; message: string | null } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        const result = await validationJobStatusAction(spaceKey, jobId);
-        if (cancelled) return;
-        if ('error' in result) return;
-        setStatus(result);
-        if (result.state === 'DONE' || result.state === 'FAILED' || result.state === 'CANCELLED') return;
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId, spaceKey]);
-
-  if (!status) return null;
-  return (
-    <p data-testid="validation-job" className="text-xs text-[var(--rf-muted)]">
-      Validation {status.state.toLowerCase()} — {status.progress}% {status.message ?? ''}
-    </p>
-  );
-}
 
 /** Delete and "run validation" sit outside the form, so they do not submit it. */
 export function TypeActions({
@@ -402,7 +381,13 @@ export function TypeActions({
           </button>
         </form>
       ) : null}
-      {runState.jobId ? <JobProgress spaceKey={spaceKey} jobId={runState.jobId} /> : null}
+      {runState.jobId ? (
+        <JobProgress
+          jobId={runState.jobId}
+          testId="validation-job"
+          poll={(id) => validationJobStatusAction(spaceKey, id)}
+        />
+      ) : null}
       {runState.error ? (
         <span role="alert" className="text-red-600">
           {runState.error}

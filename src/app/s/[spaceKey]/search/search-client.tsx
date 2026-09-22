@@ -11,10 +11,13 @@ export function SearchClient({
   spaceKey,
   initialQuery,
   isolated,
+  canRename,
 }: {
   spaceKey: string;
   initialQuery: string;
   isolated: boolean;
+  /** spec 07 §2.1 / RD-053 — renaming needs ADMIN. */
+  canRename: boolean;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [submitted, setSubmitted] = useState(initialQuery);
@@ -140,6 +143,15 @@ export function SearchClient({
                 Clear selection
               </button>
             ) : null}
+            {canRename && selected.size > 0 ? (
+              <Link
+                href={`/s/${spaceKey}/rename?keys=${encodeURIComponent([...selected].join(','))}`}
+                data-testid="rename-selected"
+                className="rounded border border-[var(--rf-line)] px-2 py-1 text-[var(--rf-accent)]"
+              >
+                Rename {selected.size === 1 ? 'this' : `these ${selected.size}`}
+              </Link>
+            ) : null}
             {selectionNote ? <span data-testid="selection-note">{selectionNote}</span> : null}
           </div>
 
@@ -158,6 +170,7 @@ export function SearchClient({
                   <td className="py-1.5">
                     <input
                       type="checkbox"
+                      data-testid="select-row"
                       aria-label={`Select ${row.key}`}
                       checked={selected.has(row.key)}
                       onChange={() => toggle(row.key)}

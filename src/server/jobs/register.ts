@@ -212,6 +212,10 @@ const diffPageSource: PageSource<DiffExportPage> = async (job, offset): Promise<
   return { rows, total: result.outcome.rows.length, summary: result.outcome.summary };
 };
 
+import { renameHandler, setRenameWriter, type RenamePayload } from './handlers/rename';
+import { renameRequirements, RenameWasCancelled } from '@/server/repositories/rename';
+import { findSpaceById as findSpaceForRename } from '@/server/repositories/spaces';
+
 let registered = false;
 
 /** Idempotent: both the web process and `pnpm worker` call this before running anything. */
@@ -256,6 +260,31 @@ export function registerJobHandlers(): void {
   });
   registerJobHandler<FreezePayload, FreezePage>('freeze-baseline', freezeHandler, freezePageSource);
   registerJobHandler<ExportDiffPayload, DiffExportPage>('export-diff', exportDiffHandler, diffPageSource);
+
+  // The rename owns its transaction, so it has no page source (spec 03 §5).
+  setRenameWriter({
+    rename: async (payload: RenamePayload, jobId, hooks) => {
+      const space = await findSpaceForRename(payload.spaceId);
+      try {
+        return await renameRequirements(
+          {
+            spaceId: payload.spaceId,
+            spaceKey: payload.spaceKey,
+            isolated: space?.isolated ?? false,
+            actorId: payload.actorId,
+            jobId,
+            pairs: payload.pairs,
+            historyEnabled: space?.historyEnabled ?? false,
+          },
+          hooks,
+        );
+      } catch (error) {
+        if (error instanceof RenameWasCancelled) return 'cancelled';
+        throw error;
+      }
+    },
+  });
+  registerJobHandler<RenamePayload, never>('rename-key', renameHandler);
 
   registered = true;
 }

@@ -733,3 +733,45 @@ async function recordIndexHistory(
 
   await recordHistory(tx, entries);
 }
+
+/**
+ * The key patterns a rename must respect, or none when the space does not lock keys.
+ * Mirrors the indexer's rule exactly (spec 03 §4.3): locking is on when *any* type locks
+ * it, and then every configured pattern is acceptable.
+ */
+export async function lockedPatternsOf(spaceId: string): Promise<string[]> {
+  const types = await prisma.requirementType.findMany({
+    where: { spaceId },
+    select: { keyPattern: true, locked: true },
+  });
+  return types.some((type) => type.locked) ? types.map((type) => type.keyPattern) : [];
+}
+
+/**
+ * Which of these keys are already taken in the space: by a live requirement, or still
+ * claimed by a former key (`RD-051`). Both are collisions a rename preview should show
+ * rather than let the job discover.
+ */
+export async function listLiveKeys(
+  spaceId: string,
+  keys: readonly string[],
+): Promise<{ live: Set<string>; aliased: Set<string> }> {
+  const uppers = keys.map((key) => key.toUpperCase());
+  if (uppers.length === 0) return { live: new Set(), aliased: new Set() };
+
+  const [live, aliased] = await Promise.all([
+    prisma.requirement.findMany({
+      where: { spaceId, baselineId: null, upperKey: { in: uppers } },
+      select: { upperKey: true },
+    }),
+    prisma.requirementKeyAlias.findMany({
+      where: { spaceId, upperKey: { in: uppers } },
+      select: { upperKey: true },
+    }),
+  ]);
+
+  return {
+    live: new Set(live.map((row) => row.upperKey)),
+    aliased: new Set(aliased.map((row) => row.upperKey)),
+  };
+}

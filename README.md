@@ -38,8 +38,9 @@ the documents themselves.
 | 12 | Requirement types: rules, validation on save and on type change, `ruleStatus`, quick fixes |
 | 13 | Baselines: drafts, the batched freeze job, pinning, materialised images, refreeze |
 | 14 | Diff over two queries, `isModified()`, `baseline was`, per-requirement history |
+| 15 | Single and batch rename with the live prefix/middle/suffix transform, propagation into documents and saved queries, the transactional job, the `renamedFrom` chain |
 
-Not built yet: renaming (slice 15) and the hardening slices (16–18).
+Not built yet: the hardening slices (16–18).
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is

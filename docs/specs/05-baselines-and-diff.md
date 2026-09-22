@@ -171,7 +171,7 @@ largest table in the system.
 - Retention is configurable per space; pruning never removes rows that a frozen baseline
   depends on — precisely, a row dated at or before the `frozenAt` of a frozen baseline
   containing that requirement (`RD-049`).
-- This slice writes every kind whose feature exists; `KEY_RENAMED` is emitted by slice 15,
+- This slice writes every kind whose feature exists; `KEY_RENAMED` is emitted by the rename of spec `03` §5, one row per requirement,
   which owns renaming (`RD-048`).
 
 ## 7. Compliance posture

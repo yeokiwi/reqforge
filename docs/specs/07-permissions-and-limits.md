@@ -19,10 +19,14 @@ Subjects: `User`, `Group`. Objects: `Space`, `Document`, `SavedMatrix`, `Baselin
 | `VIEW` | see the space, its documents (subject to §2.2), requirements, search, matrices |
 | `EDIT` | create and edit documents, edit external property values, run a type's validation, reset key sequences |
 | `EXPORT` | dependency matrix, coverage, xlsx/diff exports, bulk operations |
-| `ADMIN` | requirement types, key locking, baselines, history settings, permissions |
+| `ADMIN` | requirement types, key locking, **renaming requirements**, baselines, history settings, permissions |
 
 `EXPORT` is deliberately separate from `VIEW`, exactly as RY does, because those screens
 are the expensive ones (research §4.3).
+
+Renaming sits on `ADMIN` rather than on `EDIT` or on the `EXPORT` bulk-operation rule of
+`RD-039`: a key is a requirement's identity, and RY restricts renaming to a global admin
+or an explicitly granted group (research §2.8). See `RD-053`.
 
 ### 2.2 Document restrictions — the divergence
 
@@ -83,6 +87,8 @@ numbers where they exist, because they were derived from real deployments.
 | Dependency matrix web cells | 40,000 | RY |
 | Dependency matrix export axis | 5,000 | RY's tested size (research §4.3) |
 | Traversal depth (`->`) | 4 | ours (`02` §5.1) |
+| Requirements per rename | 2,000 | ours (`RD-054`) |
+| Documents rewritten per rename | 1,000 | ours (`RD-054`) |
 | Rules per requirement type | 40 | ours |
 | Types applying to one document | 20 | RY |
 | Import rows per file | 5,000 | ours — RY's docs conflict (2,000 vs 12,000) |
@@ -113,3 +119,9 @@ parameters. Audit rows are append-only and are never pruned by the history reten
 policy. Freeze, refreeze, rename, restriction change, permission change and export are
 the operations an auditor will ask about, and each must be reconstructable from the
 audit log alone.
+
+A rename therefore writes **one** row for the whole batch, with `objectType: 'Requirement'`
+and `parameters` carrying every `{from, to}` pair together with the counts of documents and
+saved queries rewritten — the mapping itself, never a count of it. It is written inside the
+rename's transaction, so a rename that rolled back leaves no audit row claiming it
+happened.

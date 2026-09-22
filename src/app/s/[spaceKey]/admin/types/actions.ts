@@ -110,12 +110,12 @@ export async function runValidationAction(
 export async function validationJobStatusAction(
   spaceKey: string,
   jobId: string,
-): Promise<{ state: string; progress: number; message: string | null } | { error: string }> {
+): Promise<{ state: string; progress: number; message: string | null; error: string | null } | { failed: string }> {
   try {
     const job = await jobStatusUseCase(spaceKey, jobId);
-    return { state: job.state, progress: job.progress, message: job.message };
+    return { state: job.state, progress: job.progress, message: job.message, error: job.error };
   } catch (error) {
-    if (isAppError(error)) return { error: error.message };
+    if (isAppError(error)) return { failed: error.message };
     throw error;
   }
 }

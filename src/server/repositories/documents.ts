@@ -106,37 +106,50 @@ export async function createDocument(input: {
  * `onVersion` runs inside the same transaction; slice 2 uses it to index the new version
  * so a requirement row can never disagree with the version it was extracted from.
  */
-export async function saveDocumentVersion(input: {
+export async function saveDocumentVersion(input: SaveVersionInput): Promise<DocumentVersion> {
+  return prisma.$transaction(async (tx) => writeDocumentVersion(tx, input));
+}
+
+export type SaveVersionInput = {
   documentId: string;
   content: PMNode;
   authorId: string;
   message?: string | null;
   onVersion?: (tx: Prisma.TransactionClient, version: DocumentVersion) => Promise<void>;
-}): Promise<DocumentVersion> {
-  return prisma.$transaction(async (tx) => {
-    const document = await tx.document.findUnique({ where: { id: input.documentId } });
-    if (!document || document.deletedAt) throw new NotFoundError('That document no longer exists.');
+};
 
-    const last = await tx.documentVersion.aggregate({
-      where: { documentId: input.documentId },
-      _max: { number: true },
-    });
+/**
+ * The body of a save, against a transaction the caller owns. A rename writes a new version
+ * of every document that mentions the key and needs all of them — and the reindex of each
+ * — to succeed or fail together (spec 03 §5), which it cannot do while the transaction
+ * starts here.
+ */
+export async function writeDocumentVersion(
+  tx: Prisma.TransactionClient,
+  input: SaveVersionInput,
+): Promise<DocumentVersion> {
+  const document = await tx.document.findUnique({ where: { id: input.documentId } });
+  if (!document || document.deletedAt) throw new NotFoundError('That document no longer exists.');
 
-    const version = await tx.documentVersion.create({
-      data: {
-        documentId: input.documentId,
-        number: (last._max.number ?? 0) + 1,
-        content: input.content as unknown as Prisma.InputJsonValue,
-        authorId: input.authorId,
-        message: input.message ?? null,
-      },
-    });
-
-    await tx.document.update({ where: { id: input.documentId }, data: { currentVersionId: version.id } });
-    await input.onVersion?.(tx, version);
-
-    return version;
+  const last = await tx.documentVersion.aggregate({
+    where: { documentId: input.documentId },
+    _max: { number: true },
   });
+
+  const version = await tx.documentVersion.create({
+    data: {
+      documentId: input.documentId,
+      number: (last._max.number ?? 0) + 1,
+      content: input.content as unknown as Prisma.InputJsonValue,
+      authorId: input.authorId,
+      message: input.message ?? null,
+    },
+  });
+
+  await tx.document.update({ where: { id: input.documentId }, data: { currentVersionId: version.id } });
+  await input.onVersion?.(tx, version);
+
+  return version;
 }
 
 export async function renameDocument(spaceId: string, documentId: string, title: string): Promise<void> {

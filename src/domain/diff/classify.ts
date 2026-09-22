@@ -82,9 +82,22 @@ export function diffSides(
   ignore: IgnoreSet,
   filter: readonly DiffClass[],
   limit: number,
+  /**
+   * Former upper-cased key → current upper-cased key. A frozen snapshot keeps the key it
+   * was frozen with (`RD-007`), so without this a renamed requirement pairs with nothing
+   * and reads as removed on one side and added on the other. The RQL compiler's
+   * `snapshotJoin` resolves the same chain in SQL, which is what keeps `isModified` and
+   * this function agreeing (`RD-047`).
+   */
+  aliases: ReadonlyMap<string, string> = new Map(),
 ): DiffOutcome {
-  const left = new Map(leftRows.map((row) => [row.key.toUpperCase(), row]));
-  const right = new Map(rightRows.map((row) => [row.key.toUpperCase(), row]));
+  const canonical = (key: string): string => {
+    const upper = key.toUpperCase();
+    return aliases.get(upper) ?? upper;
+  };
+
+  const left = new Map(leftRows.map((row) => [canonical(row.key), row]));
+  const right = new Map(rightRows.map((row) => [canonical(row.key), row]));
   const keys = [...new Set([...left.keys(), ...right.keys()])].sort();
 
   const summary: DiffSummary = { added: 0, removed: 0, modified: 0, unchanged: 0 };

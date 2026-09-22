@@ -11,7 +11,7 @@ import {
   type PreviewFailure,
   type PreviewSuccess,
 } from '@/server/usecases/baselines';
-import { jobStatusUseCase } from '@/server/usecases/jobs';
+import { cancelJobUseCase, jobStatusUseCase } from '@/server/usecases/jobs';
 
 export type BaselineState = { message: string | null; error: string | null; jobId?: string | null };
 
@@ -109,6 +109,16 @@ export async function baselineJobStatusAction(
   try {
     const job = await jobStatusUseCase(spaceKey, jobId);
     return { state: job.state, progress: job.progress, message: job.message, error: job.error };
+  } catch (error) {
+    if (isAppError(error)) return { failed: error.message };
+    throw error;
+  }
+}
+
+/** spec 05 §3.2 — a freeze runs as a job with progress and cancel. */
+export async function cancelBaselineJobAction(spaceKey: string, jobId: string): Promise<{ failed: string } | void> {
+  try {
+    await cancelJobUseCase(spaceKey, jobId);
   } catch (error) {
     if (isAppError(error)) return { failed: error.message };
     throw error;

@@ -14,13 +14,13 @@ datasource db {
 // ---------------------------------------------------------------- identity
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String       @id @default(cuid())
+  email        String       @unique
   name         String
   /// scrypt, "scrypt$N$r$p$salt$hash" — see src/server/auth/password.ts
   passwordHash String
-  isAdmin      Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  isAdmin      Boolean      @default(false)
+  createdAt    DateTime     @default(now())
   memberships  Membership[]
   apiTokens    ApiToken[]
   sessions     Session[]
@@ -40,15 +40,15 @@ model Session {
 }
 
 model Group {
-  id      String @id @default(cuid())
-  name    String @unique
+  id      String        @id @default(cuid())
+  name    String        @unique
   members GroupMember[]
 }
 
 model GroupMember {
   groupId String
   userId  String
-  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@id([groupId, userId])
 }
@@ -68,39 +68,40 @@ model ApiToken {
 // ---------------------------------------------------------------- space
 
 model Space {
-  id             String  @id @default(cuid())
-  key            String  @unique // [A-Z][A-Z0-9]{1,15}
-  name           String
-  isolated       Boolean @default(false) // research §6.6
-  globalKeys     Boolean @default(false) // research §2.2
-  classification String? // e.g. "Official (Closed)" — spec 07 §2.3
-  historyEnabled Boolean @default(false) // research §2.7 — off by default
+  id                   String  @id @default(cuid())
+  key                  String  @unique // [A-Z][A-Z0-9]{1,15}
+  name                 String
+  isolated             Boolean @default(false) // research §6.6
+  globalKeys           Boolean @default(false) // research §2.2
+  classification       String? // e.g. "Official (Closed)" — spec 07 §2.3
+  historyEnabled       Boolean @default(false) // research §2.7 — off by default
   /// Null keeps history for ever. Pruning never removes a row dated at or before the
   /// freeze of a baseline that contains the requirement — spec 05 §6, RD-049.
   historyRetentionDays Int?
-  limits         Json? // per-space overrides of spec 07 §4
+  limits               Json? // per-space overrides of spec 07 §4
   /// Monotonic. Invariant B2: a baseline number is never reused, including after
   /// deletion, so it comes from a counter that only moves forward — never from
   /// max(number) over the rows that happen to remain.
-  nextBaselineNumber Int @default(1)
+  nextBaselineNumber   Int     @default(1)
 
-  documents    Document[]
-  requirements Requirement[]
-  baselines    Baseline[]
-  types        RequirementType[]
-  matrices     SavedMatrix[]
-  searches     SavedSearch[]
+  documents       Document[]
+  requirements    Requirement[]
+  keyAliases      RequirementKeyAlias[]
+  baselines       Baseline[]
+  types           RequirementType[]
+  matrices        SavedMatrix[]
+  searches        SavedSearch[]
   coverageTargets CoverageTarget[]
-  memberships  Membership[]
-  createdAt    DateTime          @default(now())
+  memberships     Membership[]
+  createdAt       DateTime              @default(now())
 }
 
 model Membership {
-  id          String  @id @default(cuid())
+  id          String            @id @default(cuid())
   spaceId     String
-  space       Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   userId      String?
-  user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
   groupId     String?
   permissions SpacePermission[]
 
@@ -117,23 +118,23 @@ enum SpacePermission {
 // ---------------------------------------------------------------- documents
 
 model Document {
-  id               String  @id @default(cuid())
-  spaceId          String
-  space            Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  parentId         String?
-  parent           Document?  @relation("DocTree", fields: [parentId], references: [id])
-  children         Document[] @relation("DocTree")
-  title            String
-  ordinal          Int        @default(0)
-  classification   String?
-  restrictionMode  RestrictionMode @default(INHERIT) // spec 07 §2.2
-  currentVersionId String?         @unique
-  versions         DocumentVersion[] @relation("DocVersions")
-  restrictions     DocumentRestriction[]
-  diagnostics      IndexDiagnostic[]     @relation("DiagnosticDocument")
-  causedDiagnostics IndexDiagnostic[]    @relation("DiagnosticRelated")
-  createdAt        DateTime @default(now())
-  deletedAt        DateTime?
+  id                String                @id @default(cuid())
+  spaceId           String
+  space             Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parentId          String?
+  parent            Document?             @relation("DocTree", fields: [parentId], references: [id])
+  children          Document[]            @relation("DocTree")
+  title             String
+  ordinal           Int                   @default(0)
+  classification    String?
+  restrictionMode   RestrictionMode       @default(INHERIT) // spec 07 §2.2
+  currentVersionId  String?               @unique
+  versions          DocumentVersion[]     @relation("DocVersions")
+  restrictions      DocumentRestriction[]
+  diagnostics       IndexDiagnostic[]     @relation("DiagnosticDocument")
+  causedDiagnostics IndexDiagnostic[]     @relation("DiagnosticRelated")
+  createdAt         DateTime              @default(now())
+  deletedAt         DateTime?
 
   @@index([spaceId, parentId, ordinal])
 }
@@ -178,9 +179,9 @@ model DocumentVersion {
 /// against each document involved, with `relatedDocument` pointing at the other, so both
 /// editors see it and neither definition is hidden.
 model IndexDiagnostic {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   documentId        String
-  document          Document @relation("DiagnosticDocument", fields: [documentId], references: [id], onDelete: Cascade)
+  document          Document  @relation("DiagnosticDocument", fields: [documentId], references: [id], onDelete: Cascade)
   versionId         String?
   code              String
   severity          String // 'error' | 'warning'
@@ -191,7 +192,7 @@ model IndexDiagnostic {
   fix               Json?
   relatedDocumentId String?
   relatedDocument   Document? @relation("DiagnosticRelated", fields: [relatedDocumentId], references: [id], onDelete: Cascade)
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   @@index([documentId])
   @@index([relatedDocumentId])
@@ -211,9 +212,9 @@ enum RequirementStatus {
 /// baselineId NULL => live. Rows with baselineId set are immutable (invariant R2),
 /// enforced by a trigger in the migration, not by application code.
 model Requirement {
-  id         String  @id @default(cuid())
+  id         String    @id @default(cuid())
   spaceId    String
-  space      Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space      Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   key        String
   upperKey   String
   baselineId String?
@@ -227,24 +228,28 @@ model Requirement {
   anchorPath      String
   uid             String // stable marker id, survives rename
   originVersionId String?
-  originVersion   DocumentVersion? @relation(fields: [originVersionId], references: [id])
+  originVersion   DocumentVersion?  @relation(fields: [originVersionId], references: [id])
 
   typeId String?
   type   RequirementType? @relation(fields: [typeId], references: [id])
 
-  // forwarding pointers when status = MOVED, and the rename chain (RD-007)
+  // Forwarding pointers for a cross-space *move* (status = MOVED). A move is a different
+  // operation from a rename and is not implemented — RD-055.
   newKey      String?
   newSpaceId  String?
+  /// The immediately previous key, for display. The full chain lives in
+  /// `RequirementKeyAlias` — one column cannot survive a second rename (RD-051).
   renamedFrom String?
 
-  properties    Property[]
-  parentEdges   Dependency[] @relation("AsChild")
-  childEdges    Dependency[] @relation("AsParent")
-  unresolved    UnresolvedDependency[]
-  links         DocumentLink[]
-  validations   RequirementValidation[]
-  labels        RequirementLabel[]
-  history       RequirementHistory[]
+  properties  Property[]
+  parentEdges Dependency[]            @relation("AsChild")
+  childEdges  Dependency[]            @relation("AsParent")
+  unresolved  UnresolvedDependency[]
+  links       DocumentLink[]
+  validations RequirementValidation[]
+  labels      RequirementLabel[]
+  history     RequirementHistory[]
+  keyAliases  RequirementKeyAlias[]
 
   createdAt   DateTime @default(now())
   createdById String?
@@ -262,21 +267,44 @@ model Requirement {
   @@index([originVersionId])
 }
 
+/// Every key a live requirement has ever had, so a rename never orphans a reference.
+/// `Requirement.renamedFrom` holds only the last hop; after FN-1 -> FN-2 -> FN-3 the key
+/// FN-1 would be lost, which contradicts the *chain* RD-007 promises. RD-051.
+///
+/// The unique index is also the rename's collision check: a key still claimed by an alias
+/// is not free to reuse, so a stale link can never silently land on a different
+/// requirement.
+model RequirementKeyAlias {
+  id            String      @id @default(cuid())
+  spaceId       String
+  space         Space       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  key           String
+  upperKey      String
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  renamedAt     DateTime    @default(now())
+  actorId       String
+  jobId         String?
+
+  @@unique([spaceId, upperKey])
+  @@index([requirementId])
+}
+
 enum PropertyKind {
   INLINE
   EXTERNAL
 }
 
 model Property {
-  id            String       @id @default(cuid())
+  id            String                      @id @default(cuid())
   requirementId String
-  requirement   Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  requirement   Requirement                 @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   kind          PropertyKind
   name          String
   searchName    String // RD-011
   value         String
-  valueOrdinal  Int          @default(0) // column order
-  valueIndex    Int          @default(0) // list member index
+  valueOrdinal  Int                         @default(0) // column order
+  valueIndex    Int                         @default(0) // list member index
   definitionId  String?
   definition    ExternalPropertyDefinition? @relation(fields: [definitionId], references: [id])
 
@@ -288,14 +316,14 @@ model Property {
 
 /// Instance-global, not space-scoped — research §2.6.
 model ExternalPropertyDefinition {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String     @id @default(cuid())
+  name        String     @unique
   dataType    DataType
   enumValues  String[]
   description String?
   values      Property[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 }
 
 enum DataType {
@@ -320,11 +348,11 @@ model RequirementLabel {
 
 /// Invariant P1: the requirement containing the link is the CHILD.
 model Dependency {
-  relationship String
-  parentId     String
-  childId      String
-  parent       Requirement @relation("AsParent", fields: [parentId], references: [id], onDelete: Cascade)
-  child        Requirement @relation("AsChild", fields: [childId], references: [id], onDelete: Cascade)
+  relationship     String
+  parentId         String
+  childId          String
+  parent           Requirement @relation("AsParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child            Requirement @relation("AsChild", fields: [childId], references: [id], onDelete: Cascade)
   /// Pin to a baseline of the target — research §4.1
   targetBaselineId String?
 
@@ -369,19 +397,19 @@ enum BaselineState {
 }
 
 model Baseline {
-  id                  String        @id @default(cuid())
-  spaceId             String
-  space               Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  number              Int // sequential, immutable, never reused (invariant B2)
-  name                String
-  state               BaselineState @default(DRAFT)
-  sourceQuery         String
-  includedDependencies Boolean      @default(false)
-  includedExternal     Boolean      @default(false) // RD-010
+  id                   String        @id @default(cuid())
+  spaceId              String
+  space                Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  number               Int // sequential, immutable, never reused (invariant B2)
+  name                 String
+  state                BaselineState @default(DRAFT)
+  sourceQuery          String
+  includedDependencies Boolean       @default(false)
+  includedExternal     Boolean       @default(false) // RD-010
   reportDocumentId     String?
   frozenAt             DateTime?
   frozenById           String?
-  createdAt            DateTime     @default(now())
+  createdAt            DateTime      @default(now())
   createdById          String?
 
   requirements Requirement[]
@@ -393,15 +421,15 @@ model Baseline {
 }
 
 model BaselineRevision {
-  id           String   @id @default(cuid())
-  baselineId   String
-  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
-  at           DateTime @default(now())
-  actorId      String
-  reason       String
-  countBefore  Int
-  countAfter   Int
-  detail       Json
+  id          String   @id @default(cuid())
+  baselineId  String
+  baseline    Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  at          DateTime @default(now())
+  actorId     String
+  reason      String
+  countBefore Int
+  countAfter  Int
+  detail      Json
 }
 
 /// Dependencies that pointed outside the member set at freeze time — spec 05 §3.2 step 5.
@@ -548,20 +576,23 @@ enum JobState {
 }
 
 model Job {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   kind            String
   spaceId         String?
   payload         Json
-  state           JobState @default(QUEUED)
-  progress        Int      @default(0)
+  state           JobState  @default(QUEUED)
+  progress        Int       @default(0)
   message         String?
   error           String?
   resultRef       String?
-  cancelRequested Boolean  @default(false)
+  cancelRequested Boolean   @default(false)
   actorId         String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
   startedAt       DateTime?
   finishedAt      DateTime?
+  /// spec 03 §5 — a rename ends with an explicit acknowledgement, so its outcome stays on
+  /// screen until the person who ran it has read it.
+  acknowledgedAt  DateTime?
 
   @@index([state, createdAt])
 }
@@ -586,13 +617,13 @@ model RequirementHistory {
 
 /// Append-only. Never pruned by history retention — spec 07 §6.
 model AuditEvent {
-  id        String   @id @default(cuid())
-  at        DateTime @default(now())
-  actorId   String
-  spaceId   String?
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  actorId    String
+  spaceId    String?
   objectType String
-  objectId  String
-  operation String
+  objectId   String
+  operation  String
   parameters Json
 
   @@index([spaceId, at])

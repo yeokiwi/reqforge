@@ -21,7 +21,12 @@ export default async function SearchPage({
       <section className="flex-1">
         <h1 className="mb-4 text-xl font-semibold tracking-tight">Search</h1>
         <Panel>
-          <SearchClient spaceKey={space.key} initialQuery={q ?? ''} isolated={space.isolated} />
+          <SearchClient
+            spaceKey={space.key}
+            initialQuery={q ?? ''}
+            isolated={space.isolated}
+            canRename={can('ADMIN')}
+          />
         </Panel>
       </section>
 

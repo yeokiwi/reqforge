@@ -523,11 +523,23 @@ function snapshotJoin(alias: string, value: Value): SqlFragment {
     ? sql`b.number = ${param(Math.trunc(numeric))}`
     : sql`b.name = ${literal(value)}`;
 
+  // A renamed requirement keeps the key it was frozen with (`RD-007`), so matching on the
+  // key alone would make it look absent from its own baseline — new on one side and gone
+  // on the other. The alias chain is what resolves that, and `domain/diff/classify.ts`
+  // pairs the two sides by exactly the same rule so the two never disagree (`RD-047`).
   return sql`
     SELECT s.* FROM ${raw(REQUIREMENT_TABLE)} s
     JOIN "Baseline" b ON b.id = s."baselineId"
     WHERE s."spaceId" = ${raw(alias)}."spaceId"
-      AND s."upperKey" = ${raw(alias)}."upperKey"
+      AND (
+        s."upperKey" = ${raw(alias)}."upperKey"
+        OR EXISTS (
+          SELECT 1 FROM "RequirementKeyAlias" ka
+           WHERE ka."requirementId" = ${raw(alias)}.id
+             AND ka."spaceId" = s."spaceId"
+             AND ka."upperKey" = s."upperKey"
+        )
+      )
       AND ${match}
   `;
 }

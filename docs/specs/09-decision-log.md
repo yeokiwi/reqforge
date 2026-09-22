@@ -525,3 +525,113 @@ end up baselined that makes retention a no-op, and spec `05` §6 calls this the 
 table in the system. *Why not protect nothing:* the frozen rows are self-contained, but
 "prove it has not changed since" is answered by the snapshot **and** the trail, and
 discarding the trail discards half the answer.
+
+### RD-050 — A rename rewrites the document and reindexes, in one transaction
+**accepted.** Spec `03` §5 requires propagation into "every `requirement` and
+`requirementLink` node in every *current* document version" but does not say how. Two
+readings were open: patch the rows and the stored JSON surgically, or rewrite the JSON and
+put it back through the ordinary indexing path.
+
+Ours: rename the rows, rewrite the key in each affected document's ProseMirror JSON, write
+a **new** `DocumentVersion` authored by the renamer, and run the normal index pipeline —
+all inside the one transaction.
+
+*Why:* this is not tidiness, it is correctness. `applyIndexResult` reconciles requirements
+by key (contract I2) and contract I3 marks a key that vanishes from its document as
+`DELETED`. A rename that moved the row but left the document saying the old key would, on
+that document's next save, **resurrect the old key as a new requirement and delete the
+renamed one**. Because the rewritten content is byte-identical apart from keys, the index
+result is identical apart from keys, so reindexing costs a pass and buys agreement with
+contract I2 by construction rather than by a second copy of the indexer's rules.
+
+*Why a new version rather than patching the current one:* `DocumentVersion` is immutable
+(invariant D1, spec `01`), a pinned one is undeletable, and a reader who has cited a
+version should not find its text changed underneath them. The cost is one version row per
+affected document, and the benefit is that the rename shows up in each document's history
+where an editor will look for it.
+
+*Consequence for the rename job:* it is the first job that is a single transaction, so it
+does not page. `registerJobHandler`'s page source became optional rather than pretending to
+offer one, because a page source is read outside any transaction.
+
+### RD-051 — Historical keys live in `RequirementKeyAlias`
+**accepted.** `RD-007` promises the live requirement carries a "`renamedFrom` chain", and
+the schema has carried a single `Requirement.renamedFrom` column since slice 0. One column
+is not a chain: after `FN-1 → FN-2 → FN-3` the key `FN-1` is lost.
+
+Ours: `RequirementKeyAlias(spaceId, key, upperKey, requirementId, renamedAt, actorId,
+jobId)`, unique on `(spaceId, upperKey)`. `renamedFrom` stays as the immediate predecessor
+for display. Any former key resolves to its current requirement in one indexed lookup, so
+a link written before a rename and a key read off a frozen baseline both still land.
+
+The unique index is also the rename's **collision check**: a key an alias still claims is
+not free to hand to a different requirement, because doing so would silently re-point every
+reference written before the rename. That is the one case where reusing a key is worse than
+refusing it.
+
+Two rules make the table behave:
+
+- **A live requirement wins.** An alias for a key some live requirement currently wears is
+  ignored on read and cleared on write; the requirement wearing the key answers for it.
+- **The most recent claim wins.** A swap inside one batch (`A → B`, `B → A`) leaves both
+  requirements having held both keys, and the unique index allows one owner per key. The
+  older record is dropped. This is the only case that can produce the ambiguity the
+  collision check otherwise prevents, and it is unavoidable: the alternative is refusing
+  swaps, which are the most ordinary renumbering there is.
+
+*Why not a JSON array on the requirement:* resolving an old key would mean scanning or
+indexing JSON, and it puts a second copy of the identity model on the row.
+
+### RD-052 — Saved queries are rewritten by AST-located splice; frozen provenance is not rewritten
+**accepted.** Spec `03` §5 says a rename propagates to "every saved matrix query that
+references the key literally", which needs a definition of *literally* and a list of what
+counts as a saved query.
+
+Ours: parse each query, walk the AST, and replace only the string literals compared against
+`key` or `key_case_sensitive` with `=`, `!=` or `IN`, splicing by offset into the original
+text so spacing and layout survive. `key ~ 'FN-%'` is a **pattern, not a reference**, and is
+left alone: after the rename it still means "every key starting FN-", and rewriting it
+would change the question. A query that no longer parses is reported, never mangled —
+textual substitution is precisely what this rule exists to avoid, since it would rewrite a
+key inside a property value or inside a longer key that merely starts with it.
+
+In scope: `SavedMatrix.query`, `SavedSearch.query`, and the `report` node's `query`
+attribute (which lives in a document and so is rewritten with it).
+
+**Not** in scope, deliberately: `Baseline.sourceQuery`, `BaselineDanglingDependency`'s
+`childKey`/`targetKey`, and a `requirementLink` pinned with a `baselineNumber`. All three
+describe a frozen snapshot. Under `RD-007` a baseline keeps the keys it was frozen with, so
+rewriting them would change a baseline's provenance — the one thing a baseline exists to
+hold still.
+
+### RD-053 — Renaming requires `ADMIN`
+**accepted.** Requirement Yogi restricts renaming to a global administrator or a group
+explicitly granted "Requirement rename" (research §2.8). Reqforge's permission table
+(spec `07` §2.1) had no rename row; it gains one, on `ADMIN`.
+
+*Why not `EDIT`:* a key is a requirement's identity, and of the four things `CLAUDE.md`
+names as expensive to undo, this touches the first. *Why not `EDIT` + `EXPORT`, the
+existing bulk-operation rule of `RD-039`:* a bulk property set changes values, which any
+later edit can change back; a rename changes what everything else refers to.
+
+### RD-054 — A rename is capped at 2,000 requirements and 1,000 documents
+**accepted.** Spec `03` §5 requires one transaction and spec `07` §4 lists no rename limit
+— ours, since RY documents none.
+
+A single transaction is the spec's promise and an unbounded one is an outage: every
+affected document is rewritten and reindexed inside it. Both caps are hard limits, refused
+with the limit named in the message, as spec `07` §4 requires. They sit well below the
+12,000-per-space limit so an accidental "select all matching" cannot take the instance out.
+
+A second mechanical consequence: the keys move in **two phases**, every renamed row first
+to a sentinel and then to its target. The partial unique index on `(spaceId, upperKey)
+WHERE "baselineId" IS NULL` is not deferrable and Postgres checks it row by row, so a
+permutation cannot be done in one pass. The sentinel uses `~`, which is outside the key
+alphabet of spec `03` §4.1 and so can never collide with a real key.
+
+### RD-055 — `newKey`, `newSpaceId` and `status = MOVED` stay unimplemented
+**accepted.** These three have had no reader and no writer since slice 0, and the schema
+comment conflated them with `renamedFrom`. They are the forwarding pointers of a
+cross-space **move** — a different operation from a rename, which stays inside its space —
+so slice 15 does not touch them, and the comment now says which is which. Recorded so the
+next person to find them does not read them as an unfinished rename.

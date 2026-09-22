@@ -11,6 +11,7 @@ import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
 import { requireSpace } from '@/server/authz';
 import { prisma } from '@/server/repositories/client';
 import { loadExternalTypes } from '@/server/repositories/external-properties';
+import { aliasMapFor } from '@/server/repositories/rename';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
 
 /**
@@ -109,6 +110,11 @@ export async function runDiffForUser(input: {
 
   const [leftRows, rightRows] = await Promise.all([loadComparable(left.ids), loadComparable(right.ids)]);
 
+  // A frozen snapshot keeps the key it was frozen with (RD-007), so a requirement renamed
+  // since the baseline has to be paired through its former keys or it reads as removed on
+  // one side and added on the other.
+  const aliases = await aliasMapFor(space.id, [...leftRows, ...rightRows].map((row) => row.key));
+
   return {
     ok: true,
     request,
@@ -119,6 +125,7 @@ export async function runDiffForUser(input: {
       request.ignore,
       request.filter,
       input.maxRows ?? request.limit,
+      aliases,
     ),
     warnings: [...left.warnings, ...right.warnings],
   };

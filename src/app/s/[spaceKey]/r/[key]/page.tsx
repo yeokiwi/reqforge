@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Panel } from '@/app/_components/chrome';
 import { requireSpace } from '@/server/authz';
 import { baselinesContaining } from '@/server/repositories/baselines';
 import { listHistory } from '@/server/repositories/history';
+import { formerKeys, resolveKeyAlias } from '@/server/repositories/rename';
 import { findRequirementDetail } from '@/server/repositories/requirements';
 import { definitionsForSpace } from '@/server/usecases/external-properties';
 import { DependencyPanel } from '../dependency-panel';
@@ -24,8 +25,16 @@ export default async function RequirementPage({
 }) {
   const { spaceKey, key } = await params;
   const { space, can } = await requireSpace(spaceKey);
-  const requirement = await findRequirementDetail(space.id, decodeURIComponent(key));
-  if (!requirement) notFound();
+  const asked = decodeURIComponent(key);
+  const requirement = await findRequirementDetail(space.id, asked);
+
+  if (!requirement) {
+    // spec 03 §5 / RD-051 — a key this requirement used to have still resolves, so a link
+    // written before a rename, and a key read off a frozen baseline, both still land.
+    const renamed = await resolveKeyAlias(space.id, asked);
+    if (renamed) redirect(`/s/${spaceKey}/r/${encodeURIComponent(renamed.currentKey)}?renamedFrom=${encodeURIComponent(renamed.formerKey)}`);
+    notFound();
+  }
 
   const origin = requirement.links.find((link) => link.origin);
   const citations = requirement.links.filter((link) => !link.origin);
@@ -38,6 +47,7 @@ export default async function RequirementPage({
   const history = space.historyEnabled
     ? await listHistory({ spaceId: space.id, requirementId: requirement.id, limit: 50 })
     : [];
+  const former = await formerKeys(requirement.id);
   const inline = requirement.properties.filter((property) => property.kind === 'INLINE');
   const definitions = await definitionsForSpace(spaceKey);
   const externalRows: ValueRow[] = definitions.map((definition) => ({
@@ -50,6 +60,12 @@ export default async function RequirementPage({
 
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-4 px-6 py-8">
+      {former.length > 0 ? (
+        <p className="text-xs text-[var(--rf-muted)]" data-testid="renamed-from">
+          Previously {former.join(', ')}. A baseline frozen before the rename still shows the older key (RD-007).
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-3">
         <span className="rf-req">{requirement.key}</span>
         <h1 className="flex-1 text-xl font-semibold tracking-tight">{requirement.title}</h1>

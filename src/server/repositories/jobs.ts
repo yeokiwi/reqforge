@@ -1,7 +1,13 @@
 import type { Job, JobState, Prisma } from '@prisma/client';
 import { prisma } from './client';
 
-export type JobKind = 'export-matrix' | 'export-dependency-matrix' | 'revalidate-type' | 'freeze-baseline' | 'export-diff';
+export type JobKind =
+  | 'export-matrix'
+  | 'export-dependency-matrix'
+  | 'revalidate-type'
+  | 'freeze-baseline'
+  | 'export-diff'
+  | 'rename-key';
 
 export async function enqueueJob(input: {
   kind: JobKind;
@@ -87,4 +93,12 @@ export async function findJob(id: string): Promise<Job | null> {
 
 export async function listJobs(spaceId: string, take = 20): Promise<Job[]> {
   return prisma.job.findMany({ where: { spaceId }, orderBy: { createdAt: 'desc' }, take });
+}
+
+/**
+ * spec 03 §5 — a rename ends with an explicit acknowledgement, so its outcome stays on
+ * screen until the person who ran it has read it.
+ */
+export async function acknowledgeJob(id: string): Promise<void> {
+  await prisma.job.update({ where: { id }, data: { acknowledgedAt: new Date() } });
 }

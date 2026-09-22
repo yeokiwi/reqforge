@@ -40,13 +40,19 @@ export type PageSource<TPage = JobPage> = (job: Job, offset: number) => Promise<
 const handlers = new Map<string, JobHandler<never, never>>();
 const pageSources = new Map<string, PageSource<never>>();
 
+/**
+ * `pageSource` is optional: a handler that does its whole job in one transaction — the
+ * rename of spec 03 §5 — has no pages to fetch, and a page source is read outside any
+ * transaction, so offering it one would be a lie. Calling `fetchPage` without one throws.
+ */
 export function registerJobHandler<TPayload, TPage = JobPage>(
   kind: string,
   handler: JobHandler<TPayload, TPage>,
-  pageSource: PageSource<TPage>,
+  pageSource?: PageSource<TPage>,
 ): void {
   handlers.set(kind, handler as unknown as JobHandler<never, never>);
-  pageSources.set(kind, pageSource as unknown as PageSource<never>);
+  if (pageSource) pageSources.set(kind, pageSource as unknown as PageSource<never>);
+  else pageSources.delete(kind);
 }
 
 /** Runs one already-claimed job to completion. */
@@ -54,7 +60,7 @@ export async function runClaimedJob(job: Job): Promise<void> {
   const handler = handlers.get(job.kind);
   const pageSource = pageSources.get(job.kind);
 
-  if (!handler || !pageSource) {
+  if (!handler) {
     await failJob(job.id, `No handler is registered for job kind "${job.kind}".`);
     return;
   }
@@ -63,7 +69,10 @@ export async function runClaimedJob(job: Job): Promise<void> {
     jobId: job.id,
     cancelled: () => isCancelRequested(job.id),
     progress: (percent, message) => reportProgress(job.id, percent, message),
-    fetchPage: (offset) => (pageSource as unknown as PageSource<unknown>)(job, offset),
+    fetchPage: (offset) => {
+      if (!pageSource) throw new Error(`Job kind "${job.kind}" has no page source.`);
+      return (pageSource as unknown as PageSource<unknown>)(job, offset);
+    },
   };
 
   try {

@@ -166,14 +166,39 @@ Mirrors RY's behaviour (research §2.8) with one improvement.
   common suffix. The user edits the first line; the rest transform live. The preview
   lists at most 50 with a count of the remainder.
 - **Propagation**: every `requirement` and `requirementLink` node in every *current*
-  document version, every dependency row, every external property row, every saved matrix
-  query that references the key literally.
+  document version, every `UnresolvedDependency.targetKey`, and every saved query that
+  references the key literally — `SavedMatrix.query`, `SavedSearch.query` and the `report`
+  node's `query`, located by the grammar rather than by text search (`RD-052`).
+  Dependencies and document links need nothing: they are foreign-key edges, so they follow
+  the requirement. Nor do properties, inline or external: a property hangs off
+  `requirementId`, never off the key.
+- **How a document is rewritten**: the key moves in the document's ProseMirror JSON, a
+  **new** `DocumentVersion` is written, and the ordinary index pipeline runs over it, all
+  inside the rename's transaction (`RD-050`). This is required, not cosmetic: the indexer
+  reconciles by key and marks a vanished key `DELETED`, so a rename that left the document
+  saying the old key would resurrect it on that document's next save and delete the
+  renamed row.
+- **Two-phase key update**: every renamed row goes to a sentinel key and then to its
+  target, because the partial unique index on the live key is not deferrable and a batch
+  may be a permutation — `FN-1 → FN-2` alongside `FN-2 → FN-3` (`RD-054`).
+- **Limits**: at most 2,000 requirements and 1,000 documents per rename (`RD-054`).
+- **Permission**: `ADMIN` (`RD-053`), matching RY's "global admin or a granted group".
 - **Transactionality**: one job, one database transaction, full rollback on any error —
-  RY's "No modification was saved".
+  RY's "No modification was saved". Cancelling gets the same guarantee, because it rolls
+  the same transaction back.
 - **Baselined rows are never renamed.** A frozen baseline keeps the key it was frozen
   with; the live requirement carries a `renamedFrom` chain so history resolves. This is
   `RD-007` and is a deliberate divergence: RY rewrites page XHTML, which cannot reach
   frozen snapshots either, but never says so.
+  The chain is stored in `RequirementKeyAlias` (`RD-051`); `Requirement.renamedFrom` holds
+  only the last hop. Two things read it: the requirement screen, so a link written before
+  the rename still lands, and the diff, so a renamed requirement pairs with its own
+  snapshot instead of reading as removed on one side and added on the other. The RQL
+  compiler resolves the same chain in SQL, which is what keeps `isModified()` and the diff
+  agreeing (`RD-047`).
+- **History**: one `KEY_RENAMED` row per requirement, and one audit row carrying the whole
+  mapping, so spec `07` §6's "reconstructable from the audit log alone" holds for a
+  rename.
 - **Progress**: job progress with cancel, and an explicit acknowledge step.
 
 ## 6. Editor UX requirements
