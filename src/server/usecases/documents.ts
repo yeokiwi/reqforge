@@ -11,6 +11,11 @@ import {
   templateColumnsOf,
 } from '@/server/repositories/requirement-types';
 import { requireSpace } from '@/server/authz';
+import { runWithPrincipal } from '@/server/auth/principal';
+import { registerJobHandlers } from '@/server/jobs/register';
+import { jobsRunInline, runJobNow } from '@/server/jobs/runner';
+import { enqueueJob, findJob } from '@/server/repositories/jobs';
+import { findUserOrThrow } from '@/server/repositories/users';
 import { recordAuditEvent } from '@/server/repositories/audit';
 import { isDocumentEditable } from '@/server/repositories/visibility';
 import {
@@ -20,6 +25,7 @@ import {
   listDocumentTree,
   listVersions,
   moveDocument,
+  reindexCurrentVersion,
   renameDocument,
   saveDocumentVersion,
   softDeleteDocument,
@@ -136,19 +142,7 @@ export async function saveDocumentUseCase(input: {
   const content = input.content as PMNode;
   // With their rules: validation runs on every save (spec 06 §2.2 trigger 1) from data
   // already in hand, so it costs no query per requirement.
-  const types = await listTypesWithRules(space.id);
-  const indexed = indexDocumentVersion({
-    content,
-    space: {
-      key: space.key,
-      types: types.map((type) => ({
-        id: type.id,
-        name: type.name,
-        keyPattern: type.keyPattern,
-        locked: type.locked,
-      })),
-    },
-  });
+  const { types, indexed } = await indexFor(space, content);
 
   let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: indexed.diagnostics };
 
@@ -236,4 +230,65 @@ export async function documentVersion(spaceKey: string, documentId: string, numb
   const version = await findVersion(documentId, number);
   if (!version) throw new NotFoundError(`Version ${number} does not exist.`);
   return { document, version };
+}
+
+async function indexFor(space: { id: string; key: string }, content: PMNode) {
+  const types = await listTypesWithRules(space.id);
+  const indexed = indexDocumentVersion({
+    content,
+    space: {
+      key: space.key,
+      types: types.map((type) => ({
+        id: type.id,
+        name: type.name,
+        keyPattern: type.keyPattern,
+        locked: type.locked,
+      })),
+    },
+  });
+  return { types, indexed };
+}
+
+/**
+ * spec 08 §3 — `POST …/documents/{id}/reindex` returns a job. RD-070: it re-indexes the
+ * current version, writing no new version, for picking up a changed rule or pattern.
+ * Needs what a save needs: space EDIT and the document's own edit list.
+ */
+export async function reindexDocumentUseCase(spaceKey: string, documentId: string) {
+  const { space, user } = await requireEditableDocument(spaceKey, documentId);
+  registerJobHandlers();
+  const job = await enqueueJob({
+    kind: 'reindex-document',
+    spaceId: space.id,
+    actorId: user.id,
+    payload: { spaceKey: space.key, documentId, actorId: user.id },
+  });
+  if (jobsRunInline()) await runJobNow(job.id);
+  return (await findJob(job.id)) ?? job;
+}
+
+/**
+ * The reindex job's body, run as the person who queued it: their edit rights are checked
+ * again, because the worker may run long after the request (as every job here does).
+ */
+export async function runReindex(input: { spaceKey: string; documentId: string; actorId: string }) {
+  return runWithPrincipal({ kind: 'session', user: await findUserOrThrow(input.actorId) }, async () => {
+    const { space } = await requireEditableDocument(input.spaceKey, input.documentId);
+    let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: [] as Diagnostic[] };
+    await reindexCurrentVersion(input.documentId, async (tx, version) => {
+      const { types, indexed } = await indexFor(space, version.content as unknown as PMNode);
+      outcome = await applyIndexResult(tx, {
+        spaceId: space.id,
+        spaceKey: space.key,
+        isolated: space.isolated,
+        documentId: input.documentId,
+        versionId: version.id,
+        actorId: input.actorId,
+        result: indexed,
+        types: types.map((type) => ({ id: type.id, rules: rulesOf(type) })),
+        historyEnabled: space.historyEnabled,
+      });
+    });
+    return outcome;
+  });
 }

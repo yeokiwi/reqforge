@@ -2,6 +2,7 @@ import type { Prisma, ValidationStatus } from '@prisma/client';
 import type { Diagnostic } from '@/domain/indexer';
 import { messagesOf } from '@/domain/validation';
 import { prisma } from './client';
+import { emitEvents } from './webhooks';
 import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
 import { requirementVisibility, type Viewer } from './visibility';
 
@@ -80,25 +81,51 @@ export async function countByStatusForSpace(viewer: Viewer, spaceId: string): Pr
  * Unlike `writeValidations`, the delete is over `(requirementId, typeId)`: the job is
  * revalidating one type, and a requirement's rows for other types are not its business.
  */
-export async function writeValidationsOutsideTransaction(rows: readonly ValidationRow[]): Promise<void> {
+export async function writeValidationsOutsideTransaction(
+  rows: readonly ValidationRow[],
+  context: { actorId: string | null } = { actorId: null },
+): Promise<void> {
+  // X3-exempt: the revalidation job writes statuses; it shows nothing.
   if (rows.length === 0) return;
+  const ids = rows.map((row) => row.requirementId);
+  const typeId = rows[0]!.typeId;
 
-  await prisma.$transaction([
-    prisma.requirementValidation.deleteMany({
-      where: {
-        requirementId: { in: rows.map((row) => row.requirementId) },
-        typeId: rows[0]!.typeId,
-      },
-    }),
-    prisma.requirementValidation.createMany({
+  await prisma.$transaction(async (tx) => {
+    // spec 08 §7 — `validation.failed` when a requirement's status for this type *becomes*
+    // FALSE, so a revalidation that confirms an existing failure stays quiet.
+    const was = await tx.requirementValidation.findMany({
+      where: { requirementId: { in: ids }, typeId },
+      select: { requirementId: true, status: true },
+    });
+    const failingBefore = new Set(was.filter((row) => row.status === 'FALSE').map((row) => row.requirementId));
+
+    await tx.requirementValidation.deleteMany({ where: { requirementId: { in: ids }, typeId } });
+    await tx.requirementValidation.createMany({
       data: rows.map((row) => ({
         requirementId: row.requirementId,
         typeId: row.typeId,
         status: row.status,
         messages: messagesOf(row.diagnostics) as unknown as Prisma.InputJsonValue,
       })),
-    }),
-  ]);
+    });
+
+    const newlyFailing = rows.filter((row) => row.status === 'FALSE' && !failingBefore.has(row.requirementId));
+    if (newlyFailing.length === 0) return;
+    const subjects = await tx.requirement.findMany({
+      where: { id: { in: newlyFailing.map((row) => row.requirementId) } },
+      select: { id: true, key: true, spaceId: true },
+    });
+    await emitEvents(
+      tx,
+      subjects.map((subject) => ({
+        type: 'validation.failed' as const,
+        spaceId: subject.spaceId,
+        actorId: context.actorId ?? 'system',
+        key: subject.key,
+        data: { typeId },
+      })),
+    );
+  });
 }
 
 export type ValidationSubject = {

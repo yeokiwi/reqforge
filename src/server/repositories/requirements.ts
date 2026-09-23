@@ -10,6 +10,7 @@ import {
 import { advanceSequencesForKeys } from './requirement-types';
 import { writeValidations, type ValidationRow } from './validations';
 import { prisma } from './client';
+import { emitEvents, hasSubscribers, type EventInput } from './webhooks';
 import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
 import { requirementVisibility, visibleDocumentIds, visibleRequirementIdsFor, type Viewer } from './visibility';
 
@@ -66,9 +67,16 @@ export async function applyIndexResult(
 
   // Read before anything is written: history compares what the requirement was against
   // what this save makes it.
-  const before = input.historyEnabled
-    ? await snapshotRequirements(tx, previouslyDefinedHere.map((row) => row.id))
-    : new Map<string, RequirementSnapshot>();
+  // spec 08 §7 — webhooks need the same before-image, and nothing else does when history
+  // is off; a space nobody subscribes to pays for neither.
+  const listening = await hasSubscribers(tx, input.spaceId);
+  const before =
+    input.historyEnabled || listening
+      ? await snapshotRequirements(tx, previouslyDefinedHere.map((row) => row.id))
+      : new Map<string, RequirementSnapshot>();
+  const failingBefore = listening
+    ? await failingIds(tx, previouslyDefinedHere.map((row) => row.id))
+    : new Set<string>();
 
   const indexedKeys = result.requirements.map((requirement) => requirement.upperKey);
   const liveWithSameKey = indexedKeys.length
@@ -152,8 +160,28 @@ export async function applyIndexResult(
   diagnostics.push(...(await validateDocumentRequirements(tx, input, definedHere)));
   // spec 05 §6 / RD-014 — written in the same transaction as the change it describes, so
   // it cannot outlive a rollback and cannot misattribute an author.
-  if (input.historyEnabled) {
-    await recordIndexHistory(tx, input, definedHere, before, removed.map((row) => row.id));
+  if (input.historyEnabled || listening) {
+    const touched = [...definedHere.values(), ...removed.map((row) => row.id)];
+    const after = await snapshotRequirements(tx, touched);
+    if (input.historyEnabled) await recordIndexHistory(tx, input, touched, before, after);
+    if (listening) {
+      const keyOf = new Map<string, string>();
+      for (const requirement of result.requirements) {
+        const id = definedHere.get(requirement.upperKey);
+        if (id) keyOf.set(id, requirement.key);
+      }
+      for (const row of removed) keyOf.set(row.id, row.key);
+      await emitIndexEvents(tx, input, {
+        created,
+        touched,
+        removed: removed.map((row) => row.id),
+        keyOf,
+        before,
+        after,
+        failingBefore,
+        failingAfter: await failingIds(tx, [...definedHere.values()]),
+      });
+    }
   }
   await rewriteDiagnostics(tx, input, diagnostics, conflicts);
 
@@ -782,13 +810,10 @@ async function snapshotRequirements(
 async function recordIndexHistory(
   tx: Prisma.TransactionClient,
   input: ApplyIndexInput,
-  definedHere: Map<string, string>,
+  ids: readonly string[],
   before: Map<string, RequirementSnapshot>,
-  removedIds: readonly string[],
+  after: Map<string, RequirementSnapshot>,
 ): Promise<void> {
-  const ids = [...definedHere.values(), ...removedIds];
-  const after = await snapshotRequirements(tx, ids);
-
   const entries: HistoryEntry[] = [];
   for (const id of ids) {
     const now = after.get(id);
@@ -807,6 +832,68 @@ async function recordIndexHistory(
   }
 
   await recordHistory(tx, entries);
+}
+
+/** Requirements among `ids` with at least one type whose rules they currently fail. */
+async function failingIds(tx: Prisma.TransactionClient, ids: readonly string[]): Promise<Set<string>> {
+  // X3-exempt: the indexer's own bookkeeping for webhook events; ids only.
+  if (ids.length === 0) return new Set();
+  const rows = await tx.requirementValidation.findMany({
+    where: { requirementId: { in: [...ids] }, status: 'FALSE' },
+    select: { requirementId: true },
+  });
+  return new Set(rows.map((row) => row.requirementId));
+}
+
+/**
+ * spec 08 §7 — what a save tells subscribers, written into the outbox in the save's own
+ * transaction (RD-067). `updated` fires only when a recorded field actually changed — the
+ * same test history uses — so re-saving an unchanged document is quiet.
+ */
+async function emitIndexEvents(
+  tx: Prisma.TransactionClient,
+  input: ApplyIndexInput,
+  outcome: {
+    created: readonly string[];
+    touched: readonly string[];
+    removed: readonly string[];
+    keyOf: ReadonlyMap<string, string>;
+    before: ReadonlyMap<string, RequirementSnapshot>;
+    after: ReadonlyMap<string, RequirementSnapshot>;
+    failingBefore: ReadonlySet<string>;
+    failingAfter: ReadonlySet<string>;
+  },
+): Promise<void> {
+  const base = { spaceId: input.spaceId, actorId: input.actorId, data: { documentId: input.documentId } };
+  const created = new Set(outcome.created);
+  const removed = new Set(outcome.removed);
+  const events: EventInput[] = [];
+
+  for (const id of outcome.touched) {
+    const key = outcome.keyOf.get(id) ?? null;
+    if (created.has(id)) {
+      events.push({ ...base, type: 'requirement.created', key });
+      continue;
+    }
+    if (removed.has(id)) {
+      events.push({ ...base, type: 'requirement.deleted', key });
+      continue;
+    }
+    const after = outcome.after.get(id);
+    const changes = after ? changesBetween(outcome.before.get(id) ?? null, after) : [];
+    if (changes.length > 0) events.push({ ...base, type: 'requirement.updated', key });
+    if (changes.some((change) => change.changeKind === 'DEPENDENCY')) {
+      events.push({ ...base, type: 'dependency.changed', key });
+    }
+  }
+  for (const id of outcome.touched) {
+    if (outcome.failingAfter.has(id) && !outcome.failingBefore.has(id)) {
+      events.push({ ...base, type: 'validation.failed', key: outcome.keyOf.get(id) ?? null });
+    }
+  }
+  events.push({ ...base, type: 'document.indexed', data: { documentId: input.documentId, versionId: input.versionId } });
+
+  await emitEvents(tx, events);
 }
 
 /**

@@ -259,3 +259,25 @@ export async function softDeleteDocument(
   });
   return documentIds;
 }
+
+/**
+ * RD-070 — re-runs the indexer over a document's *current* version without writing a new
+ * one: the content has not changed, only what it is judged against (a type's rules, a key
+ * pattern). The same transaction boundary as a save, so the rows can never disagree with
+ * the version they claim to come from.
+ */
+export async function reindexCurrentVersion(
+  documentId: string,
+  apply: (tx: Prisma.TransactionClient, version: DocumentVersion) => Promise<void>,
+): Promise<DocumentVersion> {
+  // X3-exempt: the reindex job re-checks the actor's edit rights before calling this.
+  return prisma.$transaction(async (tx) => {
+    const document = await tx.document.findUnique({ where: { id: documentId }, select: { currentVersionId: true, deletedAt: true } });
+    if (!document || document.deletedAt || !document.currentVersionId) {
+      throw new NotFoundError('That document no longer exists.');
+    }
+    const version = await tx.documentVersion.findUniqueOrThrow({ where: { id: document.currentVersionId } });
+    await apply(tx, version);
+    return version;
+  });
+}

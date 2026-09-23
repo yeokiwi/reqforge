@@ -7,7 +7,8 @@ export type JobKind =
   | 'revalidate-type'
   | 'freeze-baseline'
   | 'export-diff'
-  | 'rename-key';
+  | 'rename-key'
+  | 'reindex-document';
 
 export async function enqueueJob(input: {
   kind: JobKind;

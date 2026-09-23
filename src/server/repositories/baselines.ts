@@ -465,3 +465,33 @@ export async function baselinesContaining(viewer: Viewer, spaceId: string, upper
     .flatMap((row) => (row.baseline ? [row.baseline] : []))
     .sort((a, b) => b.number - a.number);
 }
+
+/** A refreeze with a new query (spec 08 §4). Called only after the query has resolved. */
+export async function setSourceQuery(baselineId: string, sourceQuery: string): Promise<void> {
+  await prisma.baseline.update({ where: { id: baselineId }, data: { sourceQuery } });
+}
+
+/**
+ * spec 08 §4 — the document versions a baseline pinned: the distinct origin versions of
+ * its frozen rows. `pinned` is a flag on a version rather than a per-baseline link, so the
+ * frozen rows are the record of which baseline pinned what. Only documents the reader may
+ * see are listed, and only rows they may see count (rules X2, X4).
+ */
+export async function pinnedVersionsOf(viewer: Viewer, baselineId: string) {
+  const { text, params } = render(sql`
+    SELECT DISTINCT v.id AS "versionId", v.number AS "versionNumber", v."documentId" AS "documentId"
+      FROM "Requirement" r
+      JOIN "DocumentVersion" v ON v.id = r."originVersionId"
+     WHERE r."baselineId" = ${param(baselineId)}
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ versionId: string; versionNumber: number; documentId: string }>>(text, ...params);
+  const documents = await prisma.document.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.documentId))] } },
+    select: { id: true, title: true },
+  });
+  const titles = new Map(documents.map((document) => [document.id, document.title]));
+  return rows
+    .map((row) => ({ ...row, documentTitle: titles.get(row.documentId) ?? '' }))
+    .sort((a, b) => a.documentTitle.localeCompare(b.documentTitle) || a.versionNumber - b.versionNumber);
+}

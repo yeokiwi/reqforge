@@ -2,7 +2,8 @@ import type { Job, Prisma } from '@prisma/client';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { parseMatrixConfig } from '@/domain/traceability/matrix';
 import { parseDiffRequest } from '@/domain/diff';
-import { requireSpace } from '@/server/authz';
+import { requireSpace, requireUser } from '@/server/authz';
+import { findSpaceById } from '@/server/repositories/spaces';
 import { recordAuditEvent } from '@/server/repositories/audit';
 import { spaceLabel } from '@/server/repositories/classification';
 import { registerJobHandlers } from '@/server/jobs/register';
@@ -172,4 +173,32 @@ async function auditExportQueued(job: Job): Promise<void> {
     operation: 'queue',
     parameters: { kind: job.kind, payload: job.payload ?? {} } as Prisma.InputJsonValue,
   });
+}
+
+/**
+ * spec 08 §6 — `/jobs/{id}` is addressed by id alone, with no space in the path. A job
+ * belongs to the person who queued it: anyone else gets 404, not 403 (RD-064), and so does
+ * that person once they lose VIEW on the job's space.
+ */
+export async function myJobUseCase(jobId: string): Promise<{ job: Job; spaceKey: string }> {
+  const user = await requireUser();
+  const job = await findJob(jobId);
+  if (!job || job.actorId !== user.id || !job.spaceId) throw new NotFoundError('No such job.');
+  const space = await findSpaceById(job.spaceId);
+  if (!space) throw new NotFoundError('No such job.');
+  await requireSpace(space.key);
+  return { job, spaceKey: space.key };
+}
+
+/**
+ * The checks of a download without the download: EXPORT, ownership, DONE. The API's
+ * `/result` redirect uses it so that only the artefact itself records the download
+ * (RD-062), once.
+ */
+export async function assertExportReadyUseCase(jobId: string): Promise<void> {
+  const { job, spaceKey } = await myJobUseCase(jobId);
+  await requireSpace(spaceKey, 'EXPORT');
+  if (job.state !== 'DONE' || !job.resultRef) {
+    throw new ConflictError(`That export is ${job.state.toLowerCase()}.`);
+  }
 }

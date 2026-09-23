@@ -44,10 +44,18 @@ export type SearchOutcome = { rows: SearchRow[]; total: number; sql: string };
  * Runs a compiled RQL query. This is the only place the compiler's SQL is executed, and
  * it is executed with bound parameters — the compiler never interpolates a value.
  */
-export async function runSearch(expr: Expr, context: CompileContext): Promise<SearchOutcome> {
+export async function runSearch(
+  expr: Expr,
+  context: CompileContext,
+  options: { count?: boolean } = {},
+): Promise<SearchOutcome> {
   const compiled = compile(expr, context);
 
   const rows = await prisma.$queryRawUnsafe<SearchRow[]>(compiled.text, ...compiled.params);
+  // RD-068 — the API pages by cursor and reports `hasMore`; a count can cost as much as the
+  // search, so it is only run when a screen shows it.
+  if (options.count === false) return { rows, total: -1, sql: compiled.text };
+
   const counted = await prisma.$queryRawUnsafe<Array<{ count: number }>>(
     compiled.countText,
     ...compiled.countParams,

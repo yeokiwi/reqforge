@@ -16,5 +16,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/spaces/:path*', '/s/:path*'],
+  matcher: ['/spaces/:path*', '/s/:path*', '/settings/:path*'],
 };

@@ -222,7 +222,7 @@ async function enqueueRevalidation(input: {
     spaceId: input.spaceId,
     kind: 'revalidate-type',
     actorId: input.actorId,
-    payload: { spaceKey: input.spaceKey, typeId: input.typeId, pageSize: 200 },
+    payload: { spaceKey: input.spaceKey, typeId: input.typeId, pageSize: 200, actorId: input.actorId },
   });
 
   if (jobsRunInline()) await runJobNow(job.id);

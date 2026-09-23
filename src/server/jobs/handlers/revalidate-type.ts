@@ -6,6 +6,8 @@ export type RevalidateTypePayload = {
   spaceKey: string;
   typeId: string;
   pageSize: number;
+  /** Who changed the type — the actor of any `validation.failed` event (spec 08 §7). */
+  actorId?: string;
 };
 
 /** One page of a type's requirements, with everything validating them needs. */
@@ -24,6 +26,7 @@ export type RevalidatePage = {
 
 export type RevalidateWriter = (
   rows: Array<{ requirementId: string; typeId: string; status: 'TRUE' | 'FALSE' | 'WARNING'; diagnostics: Diagnostic[] }>,
+  context: { actorId: string | null },
 ) => Promise<void>;
 
 /** Supplied by `register.ts`, which is the only place that knows about the database. */
@@ -77,6 +80,7 @@ export const revalidateTypeHandler: JobHandler<RevalidateTypePayload, Revalidate
           diagnostics: outcome.diagnostics,
         };
       }),
+      { actorId: payload.actorId ?? null },
     );
 
     done += page.subjects.length;

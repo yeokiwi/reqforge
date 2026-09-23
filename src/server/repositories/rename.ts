@@ -7,6 +7,7 @@ import { buildMapping, RENAME_MAX_DOCUMENTS, RENAME_MAX_REQUIREMENTS } from '@/d
 import { upperKey } from '@/domain/keys/validate';
 import { rewriteKeyLiterals } from '@/domain/ryql/rewrite';
 import { recordAuditEventIn } from './audit';
+import { emitEvents } from './webhooks';
 import { SYSTEM, visibleRequirementIdsFor, type ReaderScope } from './visibility';
 import { prisma } from './client';
 import { writeDocumentVersion } from './documents';
@@ -217,6 +218,18 @@ async function renameInTransaction(
       jobId: input.jobId ?? null,
     })),
   });
+
+  // spec 08 §7 — in the rename's transaction, so a rolled-back rename emits nothing.
+  await emitEvents(
+    tx,
+    plan.map((step) => ({
+      type: 'requirement.renamed' as const,
+      spaceId: input.spaceId,
+      actorId: input.actorId,
+      key: step.to,
+      data: { previousKey: step.from },
+    })),
+  );
 
   // spec 03 §4.2 step 3 — using a key advances its type's sequence and never rewinds it.
   await advanceSequencesForKeys(tx, input.spaceId, plan.map((step) => step.toUpper));

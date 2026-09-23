@@ -45,6 +45,7 @@ export default async function SpaceLayout({
           { href: `/s/${spaceKey}/admin/permissions`, label: 'Permissions' },
           { href: `/s/${spaceKey}/admin/restrictions`, label: 'Restricted' },
           { href: `/s/${spaceKey}/admin/audit`, label: 'Audit log' },
+          { href: `/s/${spaceKey}/admin/webhooks`, label: 'Webhooks' },
         ]
       : []),
   ];

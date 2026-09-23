@@ -17,16 +17,42 @@ export abstract class AppError extends Error {
     this.name = new.target.name;
   }
 
-  toProblem(): { type: string; title: string; status: number; code: string; detail?: Record<string, unknown> } {
+  /**
+   * RFC 9457 problem details (spec 08 §1). `title` is constant for the problem type and
+   * `detail` is this occurrence's explanation, as the RFC requires: `detail` is a string,
+   * never an object. Structured context rides along as extension members, e.g. an RQL
+   * failure's `errors` (spec 02 §9).
+   */
+  toProblem(): Problem {
     return {
-      type: `https://reqforge.dev/problems/${this.code.toLowerCase()}`,
-      title: this.message,
+      type: `https://reqforge.dev/problems/${this.code.toLowerCase().replace(/_/g, '-')}`,
+      title: PROBLEM_TITLES[this.code] ?? 'Request failed',
       status: this.status,
+      detail: this.message,
       code: this.code,
-      ...(this.details ? { detail: { ...this.details } } : {}),
+      ...(this.details ? { ...this.details } : {}),
     };
   }
 }
+
+export type Problem = {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  code: string;
+  [extension: string]: unknown;
+};
+
+const PROBLEM_TITLES: Readonly<Record<string, string>> = {
+  NOT_AUTHENTICATED: 'Not authenticated',
+  FORBIDDEN: 'Forbidden',
+  NOT_FOUND: 'Not found',
+  VALIDATION_FAILED: 'Validation failed',
+  CONFLICT: 'Conflict',
+  LIMIT_EXCEEDED: 'Limit exceeded',
+  QUERY_INVALID: 'Invalid query',
+};
 
 export class AuthenticationError extends AppError {
   readonly code = 'NOT_AUTHENTICATED';

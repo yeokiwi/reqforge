@@ -17,6 +17,12 @@ export type CompileContext = {
   limit?: number;
   offset?: number;
   /**
+   * Keyset paging (spec 08 §1, "never offset"; RD-068): return only rows strictly after
+   * this `(upperKey, id)`. A page then never skips or repeats a row when rows are inserted
+   * between requests, which an offset cannot promise. Ignores `offset` when set.
+   */
+  after?: { upperKey: string; id: string };
+  /**
    * The declared data type of each external property, by lookup name. With one, `ext@`
    * compares in that type rather than guessing from the shape of the literal (RD-037).
    */
@@ -39,14 +45,19 @@ export function compile(expr: Expr, context: CompileContext): CompiledQuery {
   const where = compileExpr(expr, 'r', context);
   const visibility = substituteAlias(context.visibility, 'r');
 
+  // `upperKey` alone is unique only within one space and one baseline, so `id` breaks the
+  // tie: the order is total, which is what makes a keyset cursor exact (RD-068).
+  const keyset = context.after
+    ? sql` AND (r."upperKey", r.id) > (${param(context.after.upperKey)}, ${param(context.after.id)})`
+    : sql``;
   const selection = sql`
     SELECT r.id, r."spaceId", r.key, r."upperKey", r.title, r."bodyHtml", r.status,
            r."baselineId", r."typeId", r."originVersionId", r."anchorPath"
     FROM ${raw(REQUIREMENT_TABLE)} r
-    WHERE (${where}) AND (${visibility})
-    ORDER BY r."upperKey" ASC
+    WHERE (${where}) AND (${visibility})${keyset}
+    ORDER BY r."upperKey" ASC, r.id ASC
     LIMIT ${param(Math.min(Math.max(context.limit ?? 100, 1), 600))}
-    OFFSET ${param(Math.max(context.offset ?? 0, 0))}
+    OFFSET ${param(context.after ? 0 : Math.max(context.offset ?? 0, 0))}
   `;
 
   const counting = sql`

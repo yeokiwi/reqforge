@@ -44,9 +44,10 @@ test('build a population, read the grid, then click a coverage figure through to
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByTestId('editor-status')).toContainText('1 new');
 
-  // Row 2: the child, linking to the parent from the Refines column.
-  await page.locator('.rf-prose').click();
-  await page.keyboard.press('Tab');
+  // Row 2: the child, linking to the parent from the Refines column. Click the cell itself:
+  // the editor is taller than the table, so a click on its centre can land below the
+  // table and leave a gap cursor that swallows the typing.
+  await page.locator('.rf-prose tr').nth(2).locator('td').first().click();
   await page.keyboard.type('The system shall be traceable.');
   await page.keyboard.press('Tab');
   await page.getByRole('button', { name: '+ Link' }).click();

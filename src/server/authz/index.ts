@@ -1,5 +1,7 @@
 import type { Space, SpacePermission, User } from '@prisma/client';
 import { AuthenticationError, ForbiddenError, NotFoundError } from '@/domain/errors';
+import { intersectPermissions } from '@/domain/api-scopes';
+import { currentPrincipal } from '@/server/auth/principal';
 import { currentUser } from '@/server/auth/session';
 import { effectivePermissions, findSpaceByKey } from '@/server/repositories/spaces';
 import { viewerFor, type Viewer } from '@/server/repositories/visibility';
@@ -30,7 +32,15 @@ export async function requireSpace(spaceKey: string, permission: SpacePermission
   const space = await findSpaceByKey(spaceKey);
   if (!space) throw new NotFoundError(`No space with key "${spaceKey}".`);
 
-  const permissions = await effectivePermissions(user.id, space.id);
+  const principal = currentPrincipal();
+  // RD-065 — a token confined to other spaces sees this one exactly as a space it may not
+  // view: not found, never forbidden.
+  if (principal?.kind === 'token' && principal.spaceKeys.length > 0 && !principal.spaceKeys.includes(space.key)) {
+    throw new NotFoundError(`No space with key "${spaceKey}".`);
+  }
+  const owned = await effectivePermissions(user.id, space.id);
+  // RD-065 — a token never exceeds its owner, and never exceeds its own scopes.
+  const permissions = principal?.kind === 'token' ? intersectPermissions(owned, principal.scopes) : owned;
   if (!permissions.includes('VIEW')) {
     // Not "forbidden": a space you cannot view should not be distinguishable from one
     // that does not exist.
@@ -56,8 +66,24 @@ export async function requireSpace(spaceKey: string, permission: SpacePermission
  */
 export async function requireInstanceAdmin(what = 'manage external property definitions'): Promise<User> {
   const user = await requireUser();
+  // RD-065 — instance administration needs a person at a browser, never a token.
+  if (currentPrincipal()?.kind === 'token') {
+    throw new ForbiddenError(`An API token cannot ${what}; sign in to do it.`);
+  }
   if (!user.isAdmin) {
     throw new ForbiddenError(`Only an instance administrator can ${what}.`);
+  }
+  return user;
+}
+
+/**
+ * Managing API tokens needs a session: a token that could mint tokens would make every
+ * scope meaningless (RD-065).
+ */
+export async function requireSessionUser(): Promise<User> {
+  const user = await requireUser();
+  if (currentPrincipal()?.kind === 'token') {
+    throw new ForbiddenError('API tokens are managed from a signed-in session, not with a token.');
   }
   return user;
 }

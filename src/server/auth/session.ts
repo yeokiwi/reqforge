@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import type { User } from '@prisma/client';
 import { createSession, deleteSession, findLiveSession } from '@/server/repositories/sessions';
+import { currentPrincipal } from './principal';
 
 const COOKIE_NAME = 'reqforge_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
@@ -17,6 +18,13 @@ function secret(): string {
 function sign(sessionId: string): string {
   return createHmac('sha256', secret()).update(sessionId).digest('base64url');
 }
+
+/** The cookie value for a session id: `<id>.<hmac>`. */
+export function sealSessionId(sessionId: string): string {
+  return `${sessionId}.${sign(sessionId)}`;
+}
+
+export const SESSION_COOKIE = COOKIE_NAME;
 
 /** Cookie value is `<id>.<hmac>`; a tampered id fails before it ever reaches the database. */
 function unseal(raw: string | undefined): string | null {
@@ -35,7 +43,7 @@ export async function startSession(userId: string): Promise<void> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   await createSession(id, userId, expiresAt);
   const jar = await cookies();
-  jar.set(COOKIE_NAME, `${id}.${sign(id)}`, {
+  jar.set(COOKIE_NAME, sealSessionId(id), {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -52,8 +60,29 @@ export async function endSession(): Promise<void> {
 }
 
 export async function currentUser(): Promise<User | null> {
+  // An API request has already authenticated, by token or by cookie (spec 08 §1).
+  const principal = currentPrincipal();
+  if (principal) return principal.user;
+
   const jar = await cookies();
   const id = unseal(jar.get(COOKIE_NAME)?.value);
+  if (!id) return null;
+  const session = await findLiveSession(id);
+  return session?.user ?? null;
+}
+
+/**
+ * The signed-in user from a cookie header, for the API layer, which authenticates before
+ * `next/headers` is involved. Same unsealing, same expiry, as `currentUser`.
+ */
+export async function userFromCookieHeader(header: string | null): Promise<User | null> {
+  if (!header) return null;
+  const raw = header
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${COOKIE_NAME}=`))
+    ?.slice(COOKIE_NAME.length + 1);
+  const id = unseal(raw ? decodeURIComponent(raw) : undefined);
   if (!id) return null;
   const session = await findLiveSession(id);
   return session?.user ?? null;

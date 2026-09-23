@@ -43,6 +43,8 @@ import { fetchValidationSubjects, writeValidationsOutsideTransaction } from '@/s
 import { captureBaselineLabel, labelForRequirements } from '@/server/repositories/classification';
 import { snapshotGatesForBaseline } from '@/server/repositories/restrictions';
 import { SYSTEM } from '@/server/repositories/visibility';
+import { emitEventsNow } from '@/server/repositories/webhooks';
+import { startWebhookDispatcher } from '@/server/webhooks/dispatcher';
 import { registerJobHandler, type JobPage, type PageSource } from './runner';
 
 /**
@@ -223,6 +225,7 @@ const diffPageSource: PageSource<DiffExportPage> = async (job, offset): Promise<
 };
 
 import { renameHandler, setRenameWriter, type RenamePayload } from './handlers/rename';
+import { reindexHandler, setReindexRunner, type ReindexPayload } from './handlers/reindex';
 import { renameRequirements, RenameWasCancelled } from '@/server/repositories/rename';
 import { findSpaceById as findSpaceForRename } from '@/server/repositories/spaces';
 
@@ -269,7 +272,16 @@ export function registerJobHandlers(): void {
       // visible without its frozen gates.
       await snapshotGatesForBaseline(baselineId);
       await captureBaselineLabel(baselineId);
-      await markFrozen(baselineId, actorId);
+      const frozen = await markFrozen(baselineId, actorId);
+      // spec 08 §7 — after the freeze is committed; the baseline is its own record.
+      await emitEventsNow([
+        {
+          type: 'baseline.frozen',
+          spaceId: frozen.spaceId,
+          actorId,
+          data: { baselineNumber: frozen.number, baselineId },
+        },
+      ]);
     },
     clear: clearBaselineRows,
   });
@@ -300,6 +312,17 @@ export function registerJobHandlers(): void {
     },
   });
   registerJobHandler<RenamePayload, never>('rename-key', renameHandler);
+
+  // RD-070 — imported lazily: the documents use case imports this module to register
+  // handlers, so a static import would be a cycle.
+  setReindexRunner(async (payload) => {
+    const { runReindex } = await import('@/server/usecases/documents');
+    return runReindex(payload);
+  });
+  registerJobHandler<ReindexPayload & { actorId?: string }, never>('reindex-document', reindexHandler);
+
+  // spec 08 §7 — deliveries move wherever jobs do.
+  startWebhookDispatcher();
 
   registered = true;
 }

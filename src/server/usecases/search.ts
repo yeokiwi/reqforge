@@ -21,6 +21,10 @@ export type SearchOptions = {
   baseline?: number | null;
   limit?: number;
   offset?: number;
+  /** Keyset cursor for the API (RD-068); the screens keep their offset paging. */
+  after?: { upperKey: string; id: string };
+  /** False skips the count, which the API never shows (RD-068). */
+  count?: boolean;
 };
 
 export type SearchSuccess = {
@@ -52,12 +56,17 @@ export async function searchUseCase(options: SearchOptions): Promise<SearchSucce
   const visibility = visibilityPredicate(user.id, await groupIdsOf(user.id));
 
   try {
-    const { rows, total } = await runSearch(analysed.query.expr, {
-      visibility,
-      externalTypes,
-      limit: options.limit ?? 100,
-      offset: options.offset ?? 0,
-    });
+    const { rows, total } = await runSearch(
+      analysed.query.expr,
+      {
+        visibility,
+        externalTypes,
+        limit: options.limit ?? 100,
+        offset: options.offset ?? 0,
+        ...(options.after ? { after: options.after } : {}),
+      },
+      { count: options.count ?? true },
+    );
 
     return {
       ok: true,

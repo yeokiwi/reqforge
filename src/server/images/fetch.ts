@@ -34,7 +34,8 @@ export type FetchOptions = {
   timeoutMs?: number;
 };
 
-const defaultResolver: Resolver = async (hostname) => {
+/** The system resolver. Webhook delivery shares it, and the guard below, with images. */
+export const defaultResolver: Resolver = async (hostname) => {
   const addresses = await lookup(hostname, { all: true });
   return addresses.map((address) => address.address);
 };

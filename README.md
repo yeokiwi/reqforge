@@ -40,13 +40,36 @@ the documents themselves.
 | 14 | Diff over two queries, `isModified()`, `baseline was`, per-requirement history |
 | 15 | Single and batch rename with the live prefix/middle/suffix transform, propagation into documents and saved queries, the transactional job, the `renamedFrom` chain |
 | 16 | Document restrictions inherited down the tree, rule X4 on baselines, the X3 architecture rule, ordered classification labels on every export, permission and group administration, the audit log |
+| 17 | `/api/v1` over every use case, scoped API tokens, OpenAPI 3.1 generated from the routes, keyset cursors, jobs endpoints, HMAC-signed webhooks with an outbox, retries and a dead-letter view |
 
-Not built yet: the REST API and webhooks (slice 17), performance and limits (slice 18).
+Not built yet: performance and limits (slice 18).
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
-refused until token auth (`RD-030`, slice 17); a link's `displayProperty` is stored but
+deferred (`RD-030`: a public link has no reader for rule X3 to filter by); a link's `displayProperty` is stored but
 not yet rendered live.
+
+## The API
+
+Everything the screens do is also under `/api/v1` (spec `08`). Create a token on
+**API tokens** (`/settings/tokens`), then:
+
+```bash
+TOKEN=rf_…
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/v1/spaces/SJ/requirements?q=key%20~%20'FN-%25'&limit=2&expand=validation"
+# → { "items": [...], "hasMore": true, "nextCursor": "…" }  — pass ?cursor= for the next page
+
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d @document.json http://localhost:3000/api/v1/spaces/SJ/documents/<id>
+# → { "version": 4, "valid": false, "diagnostics": [...] }  — a CI job's verdict, at once
+
+curl http://localhost:3000/api/v1/openapi.json   # the full surface, generated from the routes
+```
+
+Webhooks are managed per space under **Admin → Webhooks**. Payloads carry identifiers
+only (`RD-066`). Verify `X-Reqforge-Signature` as
+`v1=hex(HMAC-SHA256(secret, X-Reqforge-Timestamp + "." + body))`.
 
 ## Background jobs
 

@@ -24,6 +24,7 @@ import {
   listBaselines,
   listDangling,
   listMembers,
+  setSourceQuery,
   upperKeysOf,
   listRevisions,
   loadEdges,
@@ -182,6 +183,8 @@ export type CreateBaselineInput = {
   includeParentDependencies?: boolean;
   includedExternal?: boolean;
   withReportDocument?: boolean;
+  /** spec 08 §4 — attach an existing document as the report, instead of generating one. */
+  reportDocumentId?: string | null;
 };
 
 const NAME_MAX = 200;
@@ -195,9 +198,14 @@ function cleanName(raw: unknown): string {
 
 /** spec 05 §2 — creating a DRAFT. It owns no requirement rows (invariant B1). */
 export async function createBaselineUseCase(input: CreateBaselineInput): Promise<Baseline> {
-  const { space, user } = await requireSpace(input.spaceKey, 'ADMIN');
+  const { space, user, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
   const name = cleanName(input.name);
   const query = typeof input.query === 'string' ? input.query.trim() : '';
+
+  // Checked before anything is written: a report document the administrator cannot see
+  // does not exist for them (RD-064).
+  const existingReport = input.reportDocumentId ? await findDocument(viewer, space.id, input.reportDocumentId) : null;
+  if (input.reportDocumentId && !existingReport) throw new NotFoundError('That report document does not exist.');
 
   // Never store a query that does not parse — the draft would be unfreezable.
   const analysed = parseAndAnalyse(query, {
@@ -228,7 +236,9 @@ export async function createBaselineUseCase(input: CreateBaselineInput): Promise
 
   // RD-045 — a report document with a live report over this baseline's members. It is
   // also the path that exercises RD-031's `$currentBaseline` resolution.
-  if (input.withReportDocument) {
+  if (existingReport) {
+    await attachReportDocument(baseline.id, existingReport.id);
+  } else if (input.withReportDocument) {
     const document = await createDocument({
       spaceId: space.id,
       title: baselineReportTitle({ number: baseline.number, name }),
@@ -336,7 +346,12 @@ export async function instantBaselineUseCase(input: { spaceKey: string; document
  * recording who, when, why and the before/after counts. The revision history is not
  * erasable, and a refrozen baseline is visibly marked as revised.
  */
-export async function refreezeUseCase(input: { spaceKey: string; id: string; reason: unknown }) {
+/**
+ * spec 05 §3.4. `query`, when given, replaces the baseline's source query (spec 08 §4's
+ * `{query, reason}`): members are resolved from it first, and it is stored only once it has
+ * resolved, so a refreeze with a broken query changes nothing.
+ */
+export async function refreezeUseCase(input: { spaceKey: string; id: string; reason: unknown; query?: unknown }) {
   const { space, user } = await requireSpace(input.spaceKey, 'ADMIN');
   const baseline = await requireFrozen(space.id, input.id);
 
@@ -345,13 +360,14 @@ export async function refreezeUseCase(input: { spaceKey: string; id: string; rea
     throw new ValidationError('A refreeze needs a reason. It is the part an auditor reads.');
   }
 
+  const newQuery = typeof input.query === 'string' && input.query.trim().length > 0 ? input.query.trim() : null;
   const before = await frozenMemberKeys(baseline.id);
   const members = await resolveMembers({
     spaceId: space.id,
     spaceKey: space.key,
     isolated: space.isolated,
     userId: user.id,
-    query: baseline.sourceQuery,
+    query: newQuery ?? baseline.sourceQuery,
     includeParentDependencies: baseline.includedDependencies,
   });
   if (!members.ok) {
@@ -360,6 +376,10 @@ export async function refreezeUseCase(input: { spaceKey: string; id: string; rea
 
   const checked = checkFreezeable(members.preview.keys);
   if (!checked.ok) throw new ValidationError(checked.message);
+
+  if (newQuery !== null && newQuery !== baseline.sourceQuery) {
+    await setSourceQuery(baseline.id, newQuery);
+  }
 
   const after = members.preview.keys;
   const added = after.filter((key) => !before.includes(key));
@@ -382,7 +402,13 @@ export async function refreezeUseCase(input: { spaceKey: string; id: string; rea
     memberKeys: after,
     includedExternal: baseline.includedExternal,
     operation: 'refreeze',
-    parameters: { number: baseline.number, reason, added: added.length, removed: removed.length },
+    parameters: {
+      number: baseline.number,
+      reason,
+      added: added.length,
+      removed: removed.length,
+      ...(newQuery !== null && newQuery !== baseline.sourceQuery ? { fromQuery: baseline.sourceQuery, toQuery: newQuery } : {}),
+    },
   });
 }
 

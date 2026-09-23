@@ -241,6 +241,34 @@ refused with an error diagnostic and kept as unresolved (spec `07` §3), so turn
 isolation off later resolves it; and a link pinned to a baseline that does not exist warns
 and falls back to the live requirement rather than failing the save.
 
+### RD-030 — `public-link` matrix visibility is deferred
+**deferred.** Spec `04` §2.3 lists `public-link` among a saved matrix's visibilities.
+Saving one is refused with a message naming this entry.
+
+*Why:* an anonymous URL has no answer to "who is asking", and rule X3's mandatory
+visibility predicate is built from that answer. Rendering the matrix as its author would
+publish everything the author can see to anyone holding the link, including restricted
+documents added after the link was shared.
+
+API tokens (`RD-065`) do not resolve this: a token belongs to a person and applies that
+person's rights, and a public link has no person. A future entry must decide whose view a
+link carries and how it is revoked before this can be built.
+
+*Back-filled in slice 17:* this entry and `RD-031` were described in the slice 8 commit
+but never written to this log. The text records what slice 8 built.
+
+### RD-031 — `$currentBaseline` outside a baseline report document means the live set
+**accepted.** Spec `02` §4 defines `$currentBaseline` as the baseline a report document
+reports on. It does not say what the variable means anywhere else: an embedded matrix in
+an ordinary document, the search screen, or the API.
+
+- **Here, it resolves to the live set:** `baselineId IS NULL`. A query that names
+  `$currentBaseline` therefore runs everywhere and means "the rows this document
+  reports on", which for an ordinary document is the live requirements.
+- **Naming `baseline` drops the implicit ACTIVE filter.** Any query that mentions the
+  `baseline` field, `$currentBaseline` included, is taken to address its rows explicitly,
+  so the implicit filter is not injected. The tests pin this consequence.
+
 ### RD-032 — Relationship names are case-sensitive, and collisions are surfaced
 **accepted.** Research §4 lists "relationship-name normalisation (case, whitespace)" as an
 open gap, and coverage forces the question: is `Refines` the same relationship as
@@ -797,3 +825,132 @@ existence of a link is not itself secret, its target's content is."
 Keys are not treated as secret anywhere: key uniqueness is space-wide, and the indexer
 still resolves a link to a hidden key. Titles, bodies, properties, citing documents and
 counts are what the predicate protects.
+
+### RD-065 — API tokens: permission scopes, an optional space list, and the owner's rights
+**accepted.** Spec `08` §1 asks for tokens that are "scoped, per user, revocable" without
+saying what a scope is. RY's API authenticates as the Confluence user and has no token
+scopes of its own (research §6.5), so this is designed.
+
+- A token carries a subset of `read`, `edit`, `export` and `admin`, mapping to the space
+  permissions VIEW, EDIT, EXPORT and ADMIN. `read` is added to any grant, because every
+  permission is useless without VIEW (the rule `RD-061` applies to memberships).
+- A token may be confined to a list of space keys. Any other space answers 404, exactly as
+  a space the owner cannot see does (`RD-064`).
+- A request is authorised against the **intersection** of the token's scopes and its
+  owner's *live* permissions. A token never does more than its owner, and removing a person
+  from a space removes their tokens from it with no separate step.
+- Tokens:
+  - never act as instance administrator;
+  - cannot create or revoke tokens, which needs a signed-in session.
+
+  A leaked token therefore cannot mint its successors.
+- The format is `rf_<id>_<secret>`. The id locates the row; the secret is 32 random bytes,
+  stored as a SHA-256 hash and compared in constant time. A slow hash adds nothing to a
+  32-byte random secret.
+- The token is shown once. `lastUsed` is written at most once a minute. Creating and
+  revoking a token is audited.
+- *How it is enforced:* the API runs every existing use case under a request-scoped
+  principal, so `requireSpace` applies the intersection in one place. There is no second
+  implementation of any permission rule, which is what "no privileged API path" requires.
+
+### RD-066 — Webhook payloads are thin: identifiers only
+**accepted.** Spec `08` §7 fixes the events and the record id but not the payload.
+
+A payload carries:
+- `id`, `type` and `space`;
+- the record id and the key;
+- `actorId` and `occurredAt`;
+- a `data` object of identifiers: `previousKey`, `documentId`, `versionNumber`,
+  `baselineNumber` and `typeId`.
+
+It never carries a title, a body or a property value.
+
+*Why:* a push cannot apply rule X3, because the receiver is not a Reqforge user, and a
+space's subscriptions outlive any one document's restrictions. A consumer that wants
+content fetches it through the API with its own token, and X3 applies there. Keys are not
+secret (`RD-064`), so a thin payload is safe by construction.
+
+*Cost:* one extra API call per event for a consumer that needs the text.
+
+### RD-067 — Webhooks: transactional outbox, fixed retry schedule, dead letter
+**accepted.** Spec `08` §7 asks for "delivery retry and a dead-letter view" without a
+schedule.
+
+- **Outbox.** Events are written as rows in the transaction that made the change, with one
+  delivery row per matching subscription. A rolled-back rename emits nothing, and a
+  committed one cannot lose its event. A space with no subscriber writes no rows, so
+  webhooks cost nothing until they are used.
+- **When `requirement.updated` fires.** The before-image of the requirement is taken
+  whenever the space has a subscriber, as it already is when history is on. The event fires
+  only when `changesBetween` finds a real change, so an unchanged re-save is quiet.
+- **When `validation.failed` fires.** Only when a status *becomes* `FALSE`: on save, on
+  reindex, or during a type revalidation job. A requirement that stays failing does not
+  fire again on every save.
+- **Dispatch.** A dispatcher in the web process and in `pnpm worker` claims due deliveries
+  with `FOR UPDATE SKIP LOCKED`, as the job queue does, so running both is safe.
+- **Signature.** Each request is signed:
+  `X-Reqforge-Signature: v1=<hex HMAC-SHA256(secret, timestamp + "." + body)>`, with
+  `X-Reqforge-Timestamp`. The timestamp is inside the MAC, so a captured request cannot be
+  replayed later under a fresh timestamp.
+- **Guard.** Delivery reuses the image fetcher's SSRF guard (`RD-043`), at subscription
+  and again at every attempt, because DNS can change. A host that does not resolve *yet* is
+  accepted at subscription and fails at delivery. A resolved non-public address is refused
+  at both. Redirects are not followed, and the timeout is 10 s.
+- **Schedule.** A 2xx is delivered. Otherwise the delivery retries at +1 min, 5 min, 30 min,
+  2 h and 12 h. After the sixth failure, about 14½ hours after the first, it is `DEAD`.
+- **Dead letters.** Dead deliveries are listed on the space's Webhooks screen and through
+  the API. Redelivering one restarts its schedule.
+- **Who manages them.** Subscriptions are space ADMIN work and are audited. The signing
+  secret is shown once.
+
+### RD-068 — Keyset cursors for requirement lists; no total for queries
+**accepted.** Spec `08` §1 says "opaque `?cursor`. Never offset" and "`total` only when it
+is cheap".
+
+- A requirement list's cursor encodes the `(upperKey, id)` of the last row returned. The
+  compiler adds `(upperKey, id) > (…)` and orders by the same pair.
+  - A walk therefore neither skips nor repeats a row when rows are inserted between pages.
+    A fast-check property test walks random page sizes with concurrent inserts.
+  - Keys sort case-insensitively (`upperKey`). `id` breaks ties between rows sharing a key,
+    such as the same key in two spaces of a cross-space query, so the order is total.
+- `hasMore` comes from a one-row probe past the page. That keeps the compiler's 600-row
+  cap intact, so a request for 600 returns 600.
+- An RQL result never carries `total`, because counting a query can cost as much as
+  running it. The document tree, baselines and history keep their totals, which are
+  already in hand.
+- The traceability matrix is the one exception. Its cursor is opaque, but encodes a
+  position among the root rows:
+  - the matrix computes its columns and its tree per page of roots;
+  - it is already capped at 600 roots per page;
+  - its roots come from a query the caller controls.
+
+  A root inserted between pages can shift a page by one row. That is the same behaviour as
+  the matrix screen, and is accepted for a view that is a snapshot of its moment.
+- A cursor that does not decode answers `422`, never a silent first page.
+
+### RD-069 — Cookie-authenticated API writes must be same-origin
+**accepted.** The API accepts the session cookie, so the app's own screens and a
+signed-in person's scripts can use it. That makes the API a CSRF target.
+
+- A request that is authenticated by cookie and is not `GET` or `HEAD` must carry an
+  `Origin` equal to the app's own origin (or `REQFORGE_BASE_URL`). Otherwise it is refused
+  with 403.
+- A bearer request is exempt, because a browser never attaches an `Authorization` header by
+  itself.
+- A bearer header that fails authentication is 401. It never falls back to the cookie: a
+  script that believes it acts as a machine must not silently act as the person whose
+  browser it runs in.
+
+### RD-070 — Reindex re-indexes the current version and writes no new version
+**accepted.** Spec `08` §3 lists `POST …/documents/{id}/reindex → job` without saying what
+it writes.
+
+- Reindex runs the indexer and `applyIndexResult` over the document's **current**
+  version.
+- It is for picking up a changed requirement type pattern or rule, not for editing, so it
+  records no new document version. History rows are written only for requirements whose
+  indexed content actually changed.
+- It needs what a save needs: space EDIT and the document's own edit list (`07` §2.2).
+- The job runs as the person who queued it, and their rights are checked again when it
+  runs, as every job here does.
+- It emits the same webhook events a save does.

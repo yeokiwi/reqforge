@@ -53,16 +53,25 @@ model GroupMember {
   @@id([groupId, userId])
 }
 
+/// A machine credential (spec 08 §1; RD-065). The plaintext `rf_<id>_<secret>` is shown
+/// once; only a SHA-256 of the secret is kept. Effective rights are always the
+/// intersection of `scopes` and the owner's live space permissions, so revoking a person
+/// revokes their tokens.
 model ApiToken {
   id        String    @id @default(cuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   hash      String    @unique
+  /// Subset of read | edit | export | admin — never more than the owner holds.
   scopes    String[]
+  /// Space keys the token is confined to; empty means every space the owner may see.
+  spaceKeys String[]  @default([])
   lastUsed  DateTime?
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // ---------------------------------------------------------------- space
@@ -95,6 +104,7 @@ model Space {
   matrices        SavedMatrix[]
   searches        SavedSearch[]
   coverageTargets CoverageTarget[]
+  webhooks        Webhook[]
   memberships     Membership[]
   createdAt       DateTime              @default(now())
 }
@@ -695,4 +705,63 @@ model ClassificationLevel {
   spaces    Space[]    @relation("SpaceClassification")
   documents Document[] @relation("DocumentClassification")
   baselines Baseline[] @relation("BaselineClassification")
+}
+
+/// An outbound webhook subscription for one space (spec 08 §7; RD-066, RD-067).
+model Webhook {
+  id          String   @id @default(cuid())
+  spaceId     String
+  space       Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  url         String
+  /// HMAC key for `X-Reqforge-Signature`; shown once when created.
+  secret      String
+  /// Event types subscribed to; empty means every type.
+  events      String[]
+  active      Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([spaceId, active])
+}
+
+enum WebhookDeliveryState {
+  PENDING
+  DELIVERED
+  DEAD
+}
+
+/// The transactional outbox (RD-067): written in the same transaction as the change it
+/// describes, so a rolled-back change emits nothing. Payloads are thin (RD-066).
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  spaceId   String
+  type      String
+  recordId  String?
+  payload   Json
+  createdAt DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([spaceId, createdAt])
+}
+
+/// One attempt stream of one event to one subscription (RD-067).
+model WebhookDelivery {
+  id            String               @id @default(cuid())
+  webhookId     String
+  webhook       Webhook              @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  eventId       String
+  event         WebhookEvent         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  state         WebhookDeliveryState @default(PENDING)
+  attempt       Int                  @default(0)
+  nextAttemptAt DateTime             @default(now())
+  lastStatus    Int?
+  lastError     String?
+  deliveredAt   DateTime?
+  createdAt     DateTime             @default(now())
+
+  @@index([state, nextAttemptAt])
+  @@index([webhookId, state])
 }

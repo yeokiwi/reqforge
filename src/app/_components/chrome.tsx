@@ -9,6 +9,10 @@ export function TopBar({ userName, children }: { userName: string; children?: Re
       </Link>
       <div className="flex-1">{children}</div>
       <span className="text-sm text-[var(--rf-muted)]">{userName}</span>
+      {/* spec 08 §1 — a person's own API tokens. */}
+      <Link href="/settings/tokens" className="text-sm text-[var(--rf-muted)] hover:text-[var(--rf-ink)]">
+        API tokens
+      </Link>
       <form action={signOutAction}>
         <button type="submit" className="text-sm text-[var(--rf-accent)] hover:underline">
           Sign out

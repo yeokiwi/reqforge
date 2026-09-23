@@ -256,3 +256,12 @@ export async function setValueInBulkUseCase(input: {
   });
   return { written, population: ids.length, value: coerced.value };
 }
+
+/**
+ * A definition by name, for the API's `PATCH …/external-properties`, which addresses
+ * values by property name (spec 08 §2). Names are unique case-insensitively (invariant E3).
+ */
+export async function definitionByNameForApi(spaceKey: string, name: string): Promise<ExternalDefinition | null> {
+  await requireSpace(spaceKey);
+  return findDefinitionByName(name);
+}
