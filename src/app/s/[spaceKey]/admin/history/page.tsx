@@ -6,8 +6,8 @@ import { HistorySettingsForm, PruneForm } from './settings-form';
 /** spec: 05-baselines-and-diff.md §6 — off by default, because it is the largest table. */
 export default async function HistoryAdminPage({ params }: { params: Promise<{ spaceKey: string }> }) {
   const { spaceKey } = await params;
-  const { space, can } = await requireSpace(spaceKey);
-  const recent = space.historyEnabled ? await listHistory({ spaceId: space.id, limit: 100 }) : [];
+  const { space, can, viewer } = await requireSpace(spaceKey);
+  const recent = space.historyEnabled ? await listHistory({ viewer, spaceId: space.id, limit: 100 }) : [];
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8">

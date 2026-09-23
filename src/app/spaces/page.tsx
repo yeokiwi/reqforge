@@ -23,7 +23,7 @@ export default async function SpacesPage() {
           </Panel>
         ) : (
           <ul className="flex flex-col gap-3">
-            {spaces.map(({ space, permissions }) => (
+            {spaces.map(({ space, permissions, classification }) => (
               <li key={space.id}>
                 <Link href={`/s/${space.key}`} className="block">
                   <Panel className="transition hover:border-[var(--rf-accent)]">
@@ -33,8 +33,8 @@ export default async function SpacesPage() {
                       {space.isolated ? (
                         <span className="text-xs text-[var(--rf-muted)]">isolated</span>
                       ) : null}
-                      {space.classification ? (
-                        <span className="text-xs text-amber-700">{space.classification}</span>
+                      {classification ? (
+                        <span className="text-xs text-amber-700">{classification}</span>
                       ) : null}
                     </div>
                     <p className="mt-1 text-xs text-[var(--rf-muted)]">{permissions.join(' · ')}</p>

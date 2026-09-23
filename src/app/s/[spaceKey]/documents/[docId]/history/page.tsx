@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { NotFoundError } from '@/domain/errors';
 import { Panel } from '@/app/_components/chrome';
 import { renderHtml, type PMNode } from '@/domain/doc';
 import { documentHistory, documentVersion } from '@/server/usecases/documents';
@@ -12,7 +14,15 @@ export default async function DocumentHistoryPage({
 }) {
   const { spaceKey, docId } = await params;
   const { version: requested } = await searchParams;
-  const { document, versions } = await documentHistory(spaceKey, docId);
+  let loaded;
+  try {
+    loaded = await documentHistory(spaceKey, docId);
+  } catch (error) {
+    // RD-064 — the versions of a hidden document are as absent as the document.
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  }
+  const { document, versions } = loaded;
 
   const selectedNumber = requested ? Number.parseInt(requested, 10) : versions[0]?.number;
   const selected =

@@ -1,5 +1,7 @@
 import type { Prisma } from '@prisma/client';
+import { join, param, render, sql, substituteAlias } from '@/domain/ryql/sql';
 import { prisma } from './client';
+import { requirementVisibility, type Viewer } from './visibility';
 
 /**
  * The per-requirement change log.
@@ -110,6 +112,8 @@ export async function recordHistoryDirect(entries: readonly HistoryEntry[]): Pro
 }
 
 export type HistoryFilter = {
+  /** Rule X3 — the change log is requirement content; it shows only what this reader may see. */
+  viewer: Viewer;
   spaceId: string;
   requirementId?: string;
   actorId?: string;
@@ -121,18 +125,33 @@ export type HistoryFilter = {
 
 /** spec 05 §6 — searchable by actor, by requirement, by record id and by date. */
 export async function listHistory(filter: HistoryFilter) {
+  const limit = Math.min(filter.limit ?? 200, 1_000);
+  // The predicate is applied in SQL before the limit, so a page is a full page of rows the
+  // reader may see rather than a page with holes in it (rule X2: omitted, not counted).
+  const conditions = [
+    sql`h."spaceId" = ${param(filter.spaceId)}`,
+    substituteAlias(requirementVisibility(filter.viewer), 'r'),
+  ];
+  if (filter.requirementId) conditions.push(sql`h."requirementId" = ${param(filter.requirementId)}`);
+  if (filter.actorId) conditions.push(sql`h."actorId" = ${param(filter.actorId)}`);
+  if (filter.changeKind) conditions.push(sql`h."changeKind" = ${param(filter.changeKind)}`);
+  if (filter.since) conditions.push(sql`h."at" >= ${param(filter.since)}`);
+  if (filter.until) conditions.push(sql`h."at" <= ${param(filter.until)}`);
+
+  const { text, params } = render(sql`
+    SELECT h.id AS id
+      FROM "RequirementHistory" h
+      JOIN "Requirement" r ON r.id = h."requirementId"
+     WHERE ${join(conditions, ' AND ')}
+     ORDER BY h."at" DESC
+     LIMIT ${param(limit)}
+  `);
+  const ids = (await prisma.$queryRawUnsafe<Array<{ id: string }>>(text, ...params)).map((row) => row.id);
+  if (ids.length === 0) return [];
+
   return prisma.requirementHistory.findMany({
-    where: {
-      spaceId: filter.spaceId,
-      ...(filter.requirementId ? { requirementId: filter.requirementId } : {}),
-      ...(filter.actorId ? { actorId: filter.actorId } : {}),
-      ...(filter.changeKind ? { changeKind: filter.changeKind } : {}),
-      ...(filter.since || filter.until
-        ? { at: { ...(filter.since ? { gte: filter.since } : {}), ...(filter.until ? { lte: filter.until } : {}) } }
-        : {}),
-    },
+    where: { id: { in: ids } },
     orderBy: { at: 'desc' },
-    take: Math.min(filter.limit ?? 200, 1_000),
     include: { requirement: { select: { key: true } } },
   });
 }
@@ -149,6 +168,7 @@ export type PruneOutcome = { removed: number; protectedByBaseline: number };
  * Churn after the freeze ages out normally.
  */
 export async function pruneHistory(spaceId: string, retentionDays: number): Promise<PruneOutcome> {
+  // X3-exempt: retention maintenance for space ADMIN; deletes, shows nothing.
   const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
 
   // The latest freeze that covers each requirement: everything up to it is protected.

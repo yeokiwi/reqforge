@@ -15,7 +15,7 @@ export type RequirementSummary = {
   bodyHtml: string;
   properties: Array<{ name: string; value: string; external: boolean }>;
   /** Both directions, grouped by relationship (spec 03 §6). */
-  dependencies: Array<{ label: string; keys: Array<{ key: string; unresolved: boolean }> }>;
+  dependencies: Array<{ label: string; keys: Array<{ key: string; unresolved: boolean; restricted: boolean }> }>;
   documentTitle: string | null;
   href: string;
 };
@@ -26,8 +26,9 @@ export async function requirementSummaryAction(
   key: string,
 ): Promise<RequirementSummary | { error: string }> {
   try {
-    const { space } = await requireSpace(spaceKey);
-    const requirement = await findRequirementDetail(space.id, key);
+    const { space, viewer } = await requireSpace(spaceKey);
+    // RD-064 — a hidden requirement reads exactly like one that does not exist.
+    const requirement = await findRequirementDetail(viewer, space.id, key);
     if (!requirement) return { error: `${key} is not defined in ${spaceKey}.` };
 
     const origin = requirement.links.find((link) => link.origin);
@@ -48,6 +49,7 @@ export async function requirementSummaryAction(
         keys: group.edges.map((edge) => ({
           key: edge.otherSpaceKey ? `${edge.otherSpaceKey}/${edge.otherKey}` : edge.otherKey,
           unresolved: edge.unresolved,
+          restricted: edge.restricted ?? false,
         })),
       })),
       documentTitle: origin?.version.document.title ?? null,

@@ -8,6 +8,7 @@ import {
 } from '@/domain/keys/pattern';
 import { checkKey } from '@/domain/keys/validate';
 import { requireSpace } from '@/server/authz';
+import { recordAuditEvent } from '@/server/repositories/audit';
 import {
   keysUsedInDocument,
   listAllKeys,
@@ -77,7 +78,7 @@ export async function suggestNextKeyUseCase(input: {
  * `preventReusingDeletedKeys = false` and the edit-space permission.
  */
 export async function resetKeySequenceUseCase(spaceKey: string, typeId: string): Promise<number> {
-  const { space } = await requireSpace(spaceKey, 'EDIT');
+  const { space, user } = await requireSpace(spaceKey, 'EDIT');
   const types = await listRequirementTypes(space.id);
   const type = types.find((candidate) => candidate.id === typeId);
   if (!type) throw new NotFoundError('That key pattern does not exist in this space.');
@@ -93,6 +94,15 @@ export async function resetKeySequenceUseCase(spaceKey: string, typeId: string):
 
   const next = resetSequenceTo(pattern, await listKeysExcludingDeleted(space.id));
   await setNextSequence(type.id, next);
+  // RD-062 — a reset can let a key be issued twice across time; an auditor will ask when.
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'RequirementType',
+    objectId: type.id,
+    operation: 'reset-sequence',
+    parameters: { keyPattern: type.keyPattern, next },
+  });
   return next;
 }
 

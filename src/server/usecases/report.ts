@@ -43,7 +43,7 @@ export async function renderReportUseCase(input: {
   reportId: string;
   config: ReportConfig;
 }): Promise<ReportSuccess | ReportFailure> {
-  const { space, user } = await requireSpace(input.spaceKey);
+  const { space, user, viewer } = await requireSpace(input.spaceKey);
   const { columns, problems } = parseColumns(input.config.columns);
   const mode = modeOf(input.config);
 
@@ -51,7 +51,7 @@ export async function renderReportUseCase(input: {
   let resolvedKey: string | null = null;
 
   if (mode !== 'query') {
-    const document = await findDocument(space.id, input.documentId);
+    const document = await findDocument(viewer, space.id, input.documentId);
     const content = document?.currentVersion?.content;
     resolvedKey = isPMNode(content) ? resolveLastRequirement(content as PMNode, input.reportId, mode) : null;
 
@@ -118,6 +118,7 @@ export async function renderReportUseCase(input: {
   const data = await fetchReportData(
     rows.map((row) => row.id),
     visibility,
+    viewer,
   );
 
   const sources: ReportSource[] = rows.map((row) => {

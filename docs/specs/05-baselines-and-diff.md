@@ -86,6 +86,13 @@ re-insert of the affected rows in one transaction, with a `BaselineRevision` aud
 recording who, when, why and the before/after member counts. A refrozen baseline is
 visibly marked as revised; the revision history is not erasable.
 
+**Restrictions at freeze (spec `07` rule X4, `RD-059`).** When the freeze completes, the
+gates of every member's origin document, and their view grants, are copied into the
+baseline before it is marked frozen. A frozen row is then visible only to readers who pass
+both those frozen gates and the document's current ones. Loosening the document later
+therefore never exposes the snapshot, and tightening it applies at once. The baseline also
+records the highest classification label among its members (`07` §2.3, `RD-060`).
+
 ## 4. Numbering and naming
 
 - `number` is sequential per space, assigned at creation, immutable, never reused

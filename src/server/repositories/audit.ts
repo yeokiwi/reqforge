@@ -10,7 +10,8 @@ import { prisma } from './client';
  */
 export type AuditInput = {
   actorId: string;
-  spaceId: string;
+  /** Null for instance-wide objects: groups, classification levels (RD-062). */
+  spaceId: string | null;
   objectType: string;
   objectId: string;
   operation: string;
@@ -27,4 +28,49 @@ export async function recordAuditEvent(input: AuditInput): Promise<void> {
  */
 export async function recordAuditEventIn(tx: Prisma.TransactionClient, input: AuditInput): Promise<void> {
   await tx.auditEvent.create({ data: input });
+}
+
+export type AuditFilter = {
+  spaceId: string;
+  operation?: string;
+  actorId?: string;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+};
+
+/**
+ * The audit log of one space, newest first, with actor names. spec 07 §6; RD-062. Rows
+ * carry identifiers and parameters, never requirement text, so the reader needs ADMIN, not
+ * visibility of every document an entry mentions.
+ */
+export async function listAuditEvents(filter: AuditFilter) {
+  const rows = await prisma.auditEvent.findMany({
+    where: {
+      spaceId: filter.spaceId,
+      ...(filter.operation ? { operation: filter.operation } : {}),
+      ...(filter.actorId ? { actorId: filter.actorId } : {}),
+      ...(filter.since || filter.until
+        ? { at: { ...(filter.since ? { gte: filter.since } : {}), ...(filter.until ? { lte: filter.until } : {}) } }
+        : {}),
+    },
+    orderBy: { at: 'desc' },
+    take: Math.min(filter.limit ?? 200, 1_000),
+  });
+  const actors = await prisma.user.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.actorId))] } },
+    select: { id: true, name: true, email: true },
+  });
+  const byId = new Map(actors.map((actor) => [actor.id, actor]));
+  return rows.map((row) => ({ ...row, actor: byId.get(row.actorId) ?? null }));
+}
+
+export async function listAuditOperations(spaceId: string): Promise<string[]> {
+  const rows = await prisma.auditEvent.findMany({
+    where: { spaceId },
+    distinct: ['operation'],
+    select: { operation: true },
+    orderBy: { operation: 'asc' },
+  });
+  return rows.map((row) => row.operation);
 }

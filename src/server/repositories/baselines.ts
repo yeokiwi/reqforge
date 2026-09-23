@@ -3,6 +3,8 @@ import { ConflictError, NotFoundError } from '@/domain/errors';
 import type { Edge } from '@/domain/baselines';
 import { prisma } from './client';
 import { recordAuditEvent } from './audit';
+import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
+import { requirementVisibility, SYSTEM, visibleRequirementIdsFor, type ReaderScope, type Viewer } from './visibility';
 
 /**
  * Baselines: draft, freeze, refreeze.
@@ -16,13 +18,25 @@ import { recordAuditEvent } from './audit';
 
 export type BaselineWithCounts = Baseline & { memberCount: number };
 
-export async function listBaselines(spaceId: string): Promise<BaselineWithCounts[]> {
+/**
+ * The baselines of a space. That a baseline exists, and its name, are not restricted —
+ * its **member count** is, because rule X2 says hidden requirements are not counted, and
+ * rule X4 means a snapshot can hide rows its live counterpart would show.
+ */
+export async function listBaselines(viewer: Viewer, spaceId: string): Promise<BaselineWithCounts[]> {
+  const { text, params } = render(sql`
+    SELECT r."baselineId" AS "baselineId", count(*)::int AS n
+      FROM "Requirement" r
+     WHERE r."spaceId" = ${param(spaceId)} AND r."baselineId" IS NOT NULL
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+     GROUP BY r."baselineId"
+  `);
   const [baselines, counts] = await Promise.all([
     prisma.baseline.findMany({ where: { spaceId }, orderBy: { number: 'desc' } }),
-    prisma.requirement.groupBy({ by: ['baselineId'], where: { spaceId, baselineId: { not: null } }, _count: { _all: true } }),
+    prisma.$queryRawUnsafe<Array<{ baselineId: string; n: number }>>(text, ...params),
   ]);
 
-  const byBaseline = new Map(counts.flatMap((row) => (row.baselineId ? [[row.baselineId, row._count._all]] : [])));
+  const byBaseline = new Map(counts.map((row) => [row.baselineId, row.n]));
   return baselines.map((baseline) => ({ ...baseline, memberCount: byBaseline.get(baseline.id) ?? 0 }));
 }
 
@@ -117,6 +131,25 @@ export type MemberSource = {
 };
 
 /** The live rows behind a page of member keys, in key order. */
+/**
+ * The upper-cased keys of `ids`, in key order.
+ * X3-exempt: `ids` come only from `runSearchIds`, which applied the visibility predicate.
+ */
+export async function upperKeysOf(ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await prisma.requirement.findMany({
+    where: { id: { in: [...ids] } },
+    orderBy: { upperKey: 'asc' },
+    select: { upperKey: true },
+  });
+  return rows.map((row) => row.upperKey);
+}
+
+/**
+ * X3-exempt: the freeze job copies these rows into the baseline; it shows none of them.
+ * Parents added by the closure may be hidden from the person freezing — RD-059 keeps them
+ * in the snapshot and protects them with their frozen gates.
+ */
 export async function loadMembers(spaceId: string, keys: readonly string[]): Promise<MemberSource[]> {
   if (keys.length === 0) return [];
   return prisma.requirement.findMany({
@@ -138,6 +171,7 @@ export async function loadMembers(spaceId: string, keys: readonly string[]): Pro
 }
 
 /** Every dependency edge among a set of live requirements, by key (invariant P1). */
+/** X3-exempt: edges by key, for the closure and the dangling partition; no content. */
 export async function loadEdges(spaceId: string, keys: readonly string[]): Promise<Edge[]> {
   if (keys.length === 0) return [];
   const upper = keys.map((key) => key.toUpperCase());
@@ -170,6 +204,7 @@ export type FrozenRow = MemberSource & { frozenBodyHtml: string };
  * exhausts the heap (research §6.7).
  */
 export async function writeFrozenBatch(input: {
+  // X3-exempt: the freeze job copies rows into a baseline; it shows none of them (RD-059 protects them).
   spaceId: string;
   baselineId: string;
   rows: readonly FrozenRow[];
@@ -266,6 +301,7 @@ export async function writeFrozenBatch(input: {
  * different batches is not lost.
  */
 export async function writeInternalEdges(baselineId: string, edges: readonly Edge[]): Promise<number> {
+  // X3-exempt: the freeze job writes edges between frozen rows; it shows nothing.
   if (edges.length === 0) return 0;
 
   const rows = await prisma.requirement.findMany({
@@ -300,8 +336,32 @@ export async function writeDangling(baselineId: string, edges: readonly Edge[]):
   });
 }
 
-export async function listDangling(baselineId: string) {
-  return prisma.baselineDanglingDependency.findMany({ where: { baselineId }, orderBy: { childKey: 'asc' } });
+/**
+ * A baseline's dangling edges, for the rows of it this reader may see: a dangling edge is
+ * declared by a frozen member, and a member the reader cannot see declares nothing they
+ * may read (rule X2). The target is a key only, which is never secret.
+ */
+export async function listDangling(viewer: Viewer, baselineId: string) {
+  const [dangling, members] = await Promise.all([
+    prisma.baselineDanglingDependency.findMany({ where: { baselineId }, orderBy: { childKey: 'asc' } }),
+    prisma.requirement.findMany({ where: { baselineId }, select: { id: true, upperKey: true } }),
+  ]);
+  const visible = await visibleRequirementIdsFor(viewer, members.map((member) => member.id));
+  const visibleKeys = new Set(members.filter((member) => visible.has(member.id)).map((member) => member.upperKey));
+  return dangling.filter((row) => visibleKeys.has(row.childKey.toUpperCase()));
+}
+
+/** The members table of a baseline page, as this reader may see it (rules X2, X4). */
+export async function listMembers(viewer: Viewer, baselineId: string, limit = 600) {
+  const { text, params } = render(sql`
+    SELECT r.id, r.key, r.title, r.status::text AS status
+      FROM "Requirement" r
+     WHERE r."baselineId" = ${param(baselineId)}
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+     ORDER BY r."upperKey" ASC
+     LIMIT ${param(limit)}
+  `);
+  return prisma.$queryRawUnsafe<Array<{ id: string; key: string; title: string; status: string }>>(text, ...params);
 }
 
 export async function markFrozen(baselineId: string, frozenById: string): Promise<Baseline> {
@@ -317,11 +377,19 @@ export async function clearBaselineRows(baselineId: string): Promise<number> {
   return removed.count;
 }
 
-export async function countMembers(baselineId: string): Promise<number> {
-  return prisma.requirement.count({ where: { baselineId } });
+export async function countMembers(baselineId: string, reader: ReaderScope): Promise<number> {
+  if (reader === SYSTEM) return prisma.requirement.count({ where: { baselineId } });
+  const { text, params } = render(sql`
+    SELECT count(*)::int AS n FROM "Requirement" r
+     WHERE r."baselineId" = ${param(baselineId)}
+       AND (${substituteAlias(requirementVisibility(reader), 'r')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(text, ...params);
+  return rows[0]?.n ?? 0;
 }
 
 export async function frozenMemberKeys(baselineId: string): Promise<string[]> {
+  // X3-exempt: the refreeze stores the key lists in its revision record; the screen shows counts only.
   const rows = await prisma.requirement.findMany({
     where: { baselineId },
     orderBy: { upperKey: 'asc' },
@@ -383,13 +451,17 @@ export async function recordAudit(input: {
  * spec 05 §4 — addressing is `<SPACE>/<KEY>/<number|current>`, so a requirement should
  * say which numbered snapshots it appears in and let you read each one.
  */
-export async function baselinesContaining(spaceId: string, upperKey: string) {
+export async function baselinesContaining(viewer: Viewer, spaceId: string, upperKey: string) {
   const rows = await prisma.requirement.findMany({
     where: { spaceId, upperKey, baselineId: { not: null } },
-    select: { baseline: { select: { id: true, number: true, name: true, frozenAt: true } } },
+    select: { id: true, baseline: { select: { id: true, number: true, name: true, frozenAt: true } } },
   });
+  // Rule X4 — a snapshot frozen while the document was restricted stays hidden from a
+  // reader the freeze-time restriction excluded, even if the document is open now.
+  const visible = await visibleRequirementIdsFor(viewer, rows.map((row) => row.id));
 
   return rows
+    .filter((row) => visible.has(row.id))
     .flatMap((row) => (row.baseline ? [row.baseline] : []))
     .sort((a, b) => b.number - a.number);
 }

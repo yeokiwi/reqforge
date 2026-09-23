@@ -3,6 +3,7 @@ import { compile, compilePredicate, type CompileContext } from '@/domain/ryql/co
 import type { Expr } from '@/domain/ryql/ast';
 import { param, render, sql, substituteAlias, type SqlFragment } from '@/domain/ryql/sql';
 import { prisma } from './client';
+import { requirementVisibility } from './visibility';
 
 export type SearchRow = {
   id: string;
@@ -27,28 +28,9 @@ export type SearchRow = {
  * to traversal hops as well as to the outer query.
  */
 export function visibilityPredicate(userId: string, groupIds: readonly string[]): SqlFragment {
-  const groups = groupIds.length > 0 ? groupIds : [''];
-
-  return sql`
-    EXISTS (
-      SELECT 1 FROM "Membership" m
-      WHERE m."spaceId" = $alias."spaceId"
-        AND 'VIEW' = ANY(m.permissions)
-        AND (m."userId" = ${param(userId)} OR m."groupId" = ANY(${param(groups)}))
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM "DocumentVersion" dv
-      JOIN "Document" d ON d.id = dv."documentId"
-      WHERE dv.id = $alias."originVersionId"
-        AND d."restrictionMode" = 'EXPLICIT'
-        AND NOT EXISTS (
-          SELECT 1 FROM "DocumentRestriction" dr
-          WHERE dr."documentId" = d.id
-            AND dr."canView"
-            AND (dr."userId" = ${param(userId)} OR dr."groupId" = ANY(${param(groups)}))
-        )
-    )
-  `;
+  // One definition, in `visibility.ts`: inheritance down the tree (RD-056) and the frozen
+  // gates of rule X4 (RD-059) arrive for every existing caller, the compiler included.
+  return requirementVisibility({ userId, groupIds });
 }
 
 export async function groupIdsOf(userId: string): Promise<string[]> {

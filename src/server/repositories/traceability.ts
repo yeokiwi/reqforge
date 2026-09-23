@@ -1,6 +1,7 @@
 import { param, raw, render, sql, substituteAlias, type SqlFragment } from '@/domain/ryql/sql';
 import { columnId, type MatrixCell, type MatrixColumn } from '@/domain/traceability/matrix';
 import { prisma } from './client';
+import { visibleDocumentIds, type Viewer } from './visibility';
 import type { SearchRow } from './search';
 
 export type CellsByRow = Map<string, Record<string, MatrixCell>>;
@@ -17,6 +18,7 @@ export async function fetchEdgesBetween(
   fromIds: readonly string[],
   toIds: readonly string[],
 ): Promise<PopulationEdge[]> {
+  // X3-exempt: both id sets come from the caller's visible populations.
   if (fromIds.length === 0 || toIds.length === 0) return [];
 
   const statement = sql`
@@ -277,6 +279,7 @@ export type ReportData = {
 export async function fetchReportData(
   ids: readonly string[],
   visibility: SqlFragment,
+  viewer: Viewer,
 ): Promise<Map<string, ReportData>> {
   const data = new Map<string, ReportData>(
     ids.map((id) => [id, { properties: [], documents: [], dependencies: [] }]),
@@ -296,6 +299,9 @@ export async function fetchReportData(
     }),
     fetchReportEdges(ids, visibility),
   ]);
+  // Rule X2 — a document the reader cannot open is not named as a place a requirement is
+  // defined or cited, even when the requirement itself is visible.
+  const openable = await visibleDocumentIds(viewer, links.map((link) => link.version.document.id));
 
   for (const property of properties) {
     data.get(property.requirementId)?.properties.push({ name: property.name, value: property.value });
@@ -303,7 +309,7 @@ export async function fetchReportData(
 
   for (const link of links) {
     const entry = data.get(link.requirementId);
-    if (!entry) continue;
+    if (!entry || !openable.has(link.version.document.id)) continue;
     if (!entry.documents.some((document) => document.id === link.version.document.id)) {
       entry.documents.push(link.version.document);
     }
@@ -355,6 +361,7 @@ async function fetchReportEdges(ids: readonly string[], visibility: SqlFragment)
 
 /** The defining document of each row — the tree view and the `document` column. */
 export async function fetchDefiningDocuments(ids: readonly string[]): Promise<Map<string, DocumentOfRow>> {
+  // X3-exempt: ids come from a visible set, and a visible live requirement's origin document is visible by construction (RD-056).
   if (ids.length === 0) return new Map();
 
   const links = await prisma.documentLink.findMany({

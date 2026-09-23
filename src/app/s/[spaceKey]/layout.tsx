@@ -38,10 +38,25 @@ export default async function SpaceLayout({
     // "Change log", not "History": a document has its own version history, and two links
     // called History on one page is a genuine ambiguity, not just a test collision.
     { href: `/s/${spaceKey}/admin/history`, label: 'Change log' },
+    // spec 07 §2.1, §6 — the space administrator's screens, shown only to them (RD-058,
+    // RD-061, RD-062).
+    ...(context.can('ADMIN')
+      ? [
+          { href: `/s/${spaceKey}/admin/permissions`, label: 'Permissions' },
+          { href: `/s/${spaceKey}/admin/restrictions`, label: 'Restricted' },
+          { href: `/s/${spaceKey}/admin/audit`, label: 'Audit log' },
+        ]
+      : []),
   ];
 
-  // Instance-wide, so it is not part of the space nav proper (RD-036).
-  const instanceNav = context.user.isAdmin ? [{ href: '/admin/properties', label: 'External properties' }] : [];
+  // Instance-wide, so it is not part of the space nav proper (RD-036, RD-060, RD-061).
+  const instanceNav = context.user.isAdmin
+    ? [
+        { href: '/admin/properties', label: 'External properties' },
+        { href: '/admin/groups', label: 'Groups' },
+        { href: '/admin/classifications', label: 'Labels' },
+      ]
+    : [];
 
   return (
     <>

@@ -51,11 +51,13 @@ export async function findDefinitionByName(name: string): Promise<ExternalDefini
 }
 
 export async function countValues(definitionId: string): Promise<number> {
+  // X3-exempt: instance-admin value counts per definition; no requirement content.
   return prisma.property.count({ where: { definitionId, kind: 'EXTERNAL' } });
 }
 
 /** How many values each definition carries — the admin list shows it beside every row. */
 export async function countValuesByDefinition(): Promise<Map<string, number>> {
+  // X3-exempt: instance-admin value counts per definition; no requirement content.
   const rows = await prisma.property.groupBy({
     by: ['definitionId'],
     where: { kind: 'EXTERNAL' },
@@ -106,11 +108,15 @@ export async function deleteDefinition(id: string): Promise<void> {
 
 export type ExternalValue = { requirementId: string; definitionId: string; value: string };
 
-/** One batched read for a page of rows — the matrix never fetches per row (spec 04 §2.5). */
+/**
+ * One batched read of external values for rows already on screen — the matrix never
+ * fetches per row (spec 04 §2.5).
+ */
 export async function fetchValuesFor(
   requirementIds: readonly string[],
   definitionIds: readonly string[],
 ): Promise<ExternalValue[]> {
+  // X3-exempt: `requirementIds` are rows the caller already filtered by the predicate.
   if (requirementIds.length === 0 || definitionIds.length === 0) return [];
 
   const rows = await prisma.property.findMany({
@@ -127,10 +133,6 @@ export async function fetchValuesFor(
   );
 }
 
-export async function valuesOfRequirement(requirementId: string): Promise<ExternalValue[]> {
-  return fetchValuesFor([requirementId], (await listDefinitions()).map((definition) => definition.id));
-}
-
 /**
  * Sets one external value across many requirements in a single statement — a bulk set
  * over a whole result set is one round trip, not one per row (spec 04 §2.2).
@@ -140,6 +142,7 @@ export async function valuesOfRequirement(requirementId: string): Promise<Extern
  * Returns how many rows were written.
  */
 export async function setValueForRequirements(input: {
+  // X3-exempt: a write over ids the caller filtered with `visibleRequirementIds`.
   requirementIds: readonly string[];
   definition: Pick<ExternalDefinition, 'id' | 'name' | 'searchName'>;
   value: string | null;
@@ -185,6 +188,7 @@ export async function setValueForRequirements(input: {
 async function recordExternalChange(
   ids: readonly string[],
   input: {
+  // X3-exempt: a write over ids the caller filtered with `visibleRequirementIds`.
     definition: Pick<ExternalDefinition, 'id' | 'name'>;
     value: string | null;
     actorId?: string;

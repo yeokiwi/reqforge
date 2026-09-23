@@ -11,6 +11,7 @@ import { prisma } from '@/server/repositories/client';
 import { createDocument, saveDocumentVersion } from '@/server/repositories/documents';
 import { enqueueJob } from '@/server/repositories/jobs';
 import { aliasMapFor, renameRequirements, resolveKeyAlias } from '@/server/repositories/rename';
+import { SYSTEM } from '@/server/repositories/visibility';
 import { applyIndexResult } from '@/server/repositories/requirements';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
 
@@ -189,7 +190,7 @@ describe('renaming across a baseline (RD-007)', () => {
   });
 
   it('resolves the frozen key back to the renamed live requirement', async () => {
-    const resolved = await resolveKeyAlias(spaceId, K(1));
+    const resolved = await resolveKeyAlias(spaceId, K(1), SYSTEM);
     expect(resolved?.currentKey).toBe(NEW(1));
   });
 

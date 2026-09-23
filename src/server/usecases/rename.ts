@@ -12,7 +12,8 @@ import { requireSpace } from '@/server/authz';
 import { registerJobHandlers } from '@/server/jobs/register';
 import { jobsRunInline, runJobNow } from '@/server/jobs/runner';
 import { acknowledgeJob, enqueueJob, findJob } from '@/server/repositories/jobs';
-import { listLiveKeys, lockedPatternsOf } from '@/server/repositories/requirements';
+import { listLiveKeys, lockedPatternsOf, visibleLiveKeys } from '@/server/repositories/requirements';
+import type { Viewer } from '@/server/repositories/visibility';
 import { formerKeys, resolveKeyAlias } from '@/server/repositories/rename';
 
 /**
@@ -65,8 +66,9 @@ export async function previewRenameUseCase(input: {
   spaceKey: string;
   pairs: unknown;
 }): Promise<RenamePreview> {
-  const { space } = await requireSpace(input.spaceKey, 'ADMIN');
+  const { space, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
   const pairs = cleanPairs(input.pairs);
+  await requireVisibleSources(viewer, space.id, pairs.map((pair) => pair.from));
 
   const plan = planRename({ pairs, lockedPatterns: await lockedPatternsOf(space.id) });
   const withCollisions = await markExistingKeys(space.id, plan);
@@ -114,15 +116,10 @@ async function markExistingKeys(spaceId: string, plan: RenamePlan): Promise<Rena
   const rows = plan.rows.map((row) => {
     if (row.problem !== undefined) return row;
     const upper = row.to.toUpperCase();
-    if (live.has(upper) && !sources.has(upper)) {
-      return { ...row, problem: 'DUPLICATE_TARGET' as const, message: 'Another requirement in this space already has this key.' };
-    }
-    if (aliased.has(upper) && !sources.has(upper)) {
-      return {
-        ...row,
-        problem: 'DUPLICATE_TARGET' as const,
-        message: 'This was another requirement’s key; reusing it would make old links point at the wrong one.',
-      };
+    // RD-063 — one message for both collisions, and neither says which: the key may belong
+    // to a requirement this person cannot see, and naming it would confirm it exists.
+    if ((live.has(upper) || aliased.has(upper)) && !sources.has(upper)) {
+      return { ...row, problem: 'DUPLICATE_TARGET' as const, message: 'This key is not available in this space.' };
     }
     return row;
   });
@@ -134,10 +131,20 @@ async function markExistingKeys(spaceId: string, plan: RenamePlan): Promise<Rena
   };
 }
 
+async function requireVisibleSources(viewer: Viewer, spaceId: string, keys: readonly string[]): Promise<void> {
+  const visible = await visibleLiveKeys(viewer, spaceId, keys);
+  const missing = keys.find((key) => !visible.has(key.toUpperCase()));
+  if (missing) throw new NotFoundError(`${missing} is not a live requirement of this space.`);
+}
+
 /** spec 03 §5 — one job, one transaction, progress with cancel. */
 export async function startRenameUseCase(input: { spaceKey: string; pairs: unknown }): Promise<Job> {
-  const { space, user } = await requireSpace(input.spaceKey, 'ADMIN');
+  const { space, user, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
   const pairs = cleanPairs(input.pairs);
+  // RD-063 — the *selection* is limited to what the renamer can see: a key they cannot see
+  // is refused exactly as a key that does not exist. Propagation into documents they
+  // cannot see still happens, because a stale link would otherwise break (RD-050).
+  await requireVisibleSources(viewer, space.id, pairs.map((pair) => pair.from));
 
   const plan = await markExistingKeys(space.id, planRename({ pairs, lockedPatterns: await lockedPatternsOf(space.id) }));
   if (plan.problems > 0) {
@@ -172,8 +179,9 @@ export async function acknowledgeRenameUseCase(spaceKey: string, jobId: string):
  * Resolves a key that may be a former one, so a link written before a rename still lands.
  * `RD-051`; spec 03 §5.
  */
-export async function resolveRenamedKey(spaceId: string, key: string) {
-  return resolveKeyAlias(spaceId, key);
+export async function resolveRenamedKey(spaceKey: string, key: string) {
+  const { space, viewer } = await requireSpace(spaceKey);
+  return resolveKeyAlias(space.id, key, viewer);
 }
 
 export async function formerKeysOf(requirementId: string): Promise<string[]> {

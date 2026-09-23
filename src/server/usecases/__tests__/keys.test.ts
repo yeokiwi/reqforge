@@ -18,6 +18,7 @@ vi.mock('@/server/authz', () => ({
     space: { id: spaceId, key: spaceKey },
     permissions: ['VIEW', 'EDIT'],
     can: () => true,
+    viewer: { userId, groupIds: [] },
   }),
 }));
 

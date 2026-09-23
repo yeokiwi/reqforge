@@ -3,14 +3,13 @@ import {
   diffSides,
   EXPORT_REQUIRED_ABOVE,
   parseDiffRequest,
-  type ComparableRow,
   type DiffOutcome,
   type DiffRequest,
 } from '@/domain/diff';
 import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
 import { requireSpace } from '@/server/authz';
-import { prisma } from '@/server/repositories/client';
 import { loadExternalTypes } from '@/server/repositories/external-properties';
+import { loadComparable } from '@/server/repositories/diff';
 import { aliasMapFor } from '@/server/repositories/rename';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
 
@@ -21,7 +20,14 @@ import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/reposito
  * "diff a subset" free.
  */
 
-export type DiffSuccess = { ok: true; request: DiffRequest; outcome: DiffOutcome; warnings: RqlDiagnostic[] };
+export type DiffSuccess = {
+  ok: true;
+  request: DiffRequest;
+  outcome: DiffOutcome;
+  warnings: RqlDiagnostic[];
+  /** Every requirement compared, both sides, already filtered by rule X3 — for the label. */
+  ids: string[];
+};
 export type DiffFailure = { ok: false; errors: RqlDiagnostic[]; side?: 'left' | 'right' };
 
 /**
@@ -118,6 +124,7 @@ export async function runDiffForUser(input: {
   return {
     ok: true,
     request,
+    ids: [...left.ids, ...right.ids],
     outcome: diffSides(
       leftRows,
       rightRows,
@@ -131,41 +138,5 @@ export async function runDiffForUser(input: {
   };
 }
 
-/**
- * Everything a comparison needs, in three batched queries — never one per row
- * (spec 04 §2.5's rule applies here too).
- */
-export async function loadComparable(ids: readonly string[]): Promise<ComparableRow[]> {
-  if (ids.length === 0) return [];
-
-  const rows = await prisma.requirement.findMany({
-    where: { id: { in: [...ids] } },
-    orderBy: { upperKey: 'asc' },
-    select: {
-      id: true,
-      key: true,
-      title: true,
-      bodyHtml: true,
-      bodySearch: true,
-      properties: { select: { kind: true, searchName: true, value: true, valueIndex: true } },
-      parentEdges: { select: { relationship: true, parent: { select: { upperKey: true } } } },
-    },
-  });
-
-  return rows.map((row) => ({
-    key: row.key,
-    title: row.title,
-    bodyHtml: row.bodyHtml,
-    bodySearch: row.bodySearch,
-    inlineProperties: row.properties
-      .filter((property) => property.kind === 'INLINE')
-      .map(({ searchName, value, valueIndex }) => ({ searchName, value, valueIndex })),
-    externalProperties: row.properties
-      .filter((property) => property.kind === 'EXTERNAL')
-      .map(({ searchName, value, valueIndex }) => ({ searchName, value, valueIndex })),
-    dependencies: row.parentEdges.map((edge) => ({
-      relationship: edge.relationship,
-      targetKey: edge.parent.upperKey,
-    })),
-  }));
-}
+/** Re-exported: the loader lives in the repository layer, where rule X3 is checked. */
+export { loadComparable } from '@/server/repositories/diff';

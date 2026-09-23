@@ -6,6 +6,7 @@ import { prisma } from '@/server/repositories/client';
 import { createDocument, saveDocumentVersion } from '@/server/repositories/documents';
 import { changesBetween, listHistory, pruneHistory, type RequirementSnapshot } from '@/server/repositories/history';
 import { applyIndexResult } from '@/server/repositories/requirements';
+import { viewerFor } from '@/server/repositories/visibility';
 
 /**
  * The per-requirement change log.
@@ -121,6 +122,8 @@ describe('history on save (spec 05 §6)', () => {
       data: { key: spaceKey, name: 'History', historyEnabled: true },
     });
     spaceId = space.id;
+    // The change log is requirement content (rule X3): its reader needs VIEW.
+    await prisma.membership.create({ data: { spaceId, userId, permissions: ['VIEW', 'EDIT', 'ADMIN'] } });
 
     const document = await createDocument({ spaceId, title: 'Tracked', parentId: null, authorId: userId });
     documentId = document.id;
@@ -136,6 +139,7 @@ describe('history on save (spec 05 §6)', () => {
     await prisma.documentVersion.updateMany({ where: { document: { spaceId } }, data: { pinned: false } });
     await prisma.documentVersion.deleteMany({ where: { document: { spaceId } } });
     await prisma.document.deleteMany({ where: { spaceId } });
+    await prisma.membership.deleteMany({ where: { spaceId } });
     await prisma.space.deleteMany({ where: { id: spaceId } });
     await prisma.user.deleteMany({ where: { id: { in: [userId, otherId] } } });
     await prisma.$disconnect();
@@ -210,14 +214,14 @@ describe('history on save (spec 05 §6)', () => {
   });
 
   it('is searchable by actor, by kind and by date (spec 05 §6)', async () => {
-    const byActor = await listHistory({ spaceId, actorId: otherId });
+    const byActor = await listHistory({ viewer: await viewerFor(userId), spaceId, actorId: otherId });
     expect(byActor.length).toBeGreaterThan(0);
     expect(byActor.every((entry) => entry.actorId === otherId)).toBe(true);
 
-    const byKind = await listHistory({ spaceId, changeKind: 'TITLE' });
+    const byKind = await listHistory({ viewer: await viewerFor(userId), spaceId, changeKind: 'TITLE' });
     expect(byKind.every((entry) => entry.changeKind === 'TITLE')).toBe(true);
 
-    const future = await listHistory({ spaceId, since: new Date(Date.now() + 60_000) });
+    const future = await listHistory({ viewer: await viewerFor(userId), spaceId, since: new Date(Date.now() + 60_000) });
     expect(future).toEqual([]);
 
     // The requirement's key comes back with the row, so the screen needs no second query.

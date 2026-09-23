@@ -14,6 +14,7 @@ import { countMembers, createDraft, findBaseline } from '@/server/repositories/b
 import { enqueueJob } from '@/server/repositories/jobs';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
 import { FREEZE_BATCH_SIZE } from '@/server/usecases/baselines';
+import { SYSTEM } from '@/server/repositories/visibility';
 
 /**
  * Slice 13's acceptance, from PLAN.md: invariants B1, B2 and R2 — R2 by attempting an
@@ -158,7 +159,7 @@ describe('baselines: draft, freeze and the invariants that make them hold', () =
   it('B1: a DRAFT owns no requirement rows', async () => {
     const baseline = await draft('Draft only', `key ~ 'BL${tag}-%'`);
     expect(baseline.state).toBe('DRAFT');
-    expect(await countMembers(baseline.id)).toBe(0);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(0);
   });
 
   // --- the freeze -----------------------------------------------------------------------
@@ -169,7 +170,7 @@ describe('baselines: draft, freeze and the invariants that make them hold', () =
 
     expect(job.state).toBe('DONE');
     expect(job.progress).toBe(100);
-    expect(await countMembers(baseline.id)).toBe(3);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(3);
 
     const frozen = await prisma.requirement.findMany({ where: { baselineId: baseline.id } });
     expect(frozen.every((requirement) => requirement.status === 'ARCHIVED')).toBe(true);
@@ -305,7 +306,7 @@ describe('baselines: draft, freeze and the invariants that make them hold', () =
   it('deleting a baseline takes its frozen rows and leaves the live ones', async () => {
     const baseline = await draft('Disposable', `key = '${key(1)}'`);
     await freeze(baseline.id, [key(1).toUpperCase()]);
-    expect(await countMembers(baseline.id)).toBe(1);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(1);
 
     await prisma.baseline.delete({ where: { id: baseline.id } });
 
@@ -422,7 +423,7 @@ describe('baselines: draft, freeze and the invariants that make them hold', () =
       expect(job.error).toContain('not a public address');
       // A failed freeze leaves the baseline a DRAFT owning no rows (invariant B1).
       expect((await findBaseline(baseline.id))?.state).toBe('DRAFT');
-      expect(await countMembers(baseline.id)).toBe(0);
+      expect(await countMembers(baseline.id, SYSTEM)).toBe(0);
     } finally {
       resetImageFetcher();
     }

@@ -1,7 +1,14 @@
 import type { Space, SpacePermission } from '@prisma/client';
 import { prisma } from './client';
+import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
+import { documentVisibility, requirementVisibility, type Viewer } from './visibility';
 
-export type SpaceWithPermissions = { space: Space; permissions: SpacePermission[] };
+export type SpaceWithPermissions = {
+  space: Space;
+  permissions: SpacePermission[];
+  /** spec 07 §2.3 — shown beside the space everywhere it is listed. */
+  classification: string | null;
+};
 
 async function groupIdsOf(userId: string): Promise<string[]> {
   const rows = await prisma.groupMember.findMany({ where: { userId }, select: { groupId: true } });
@@ -33,13 +40,15 @@ export async function listSpacesForUser(userId: string): Promise<SpaceWithPermis
         where: { OR: [{ userId }, { groupId: { in: groupIds } }] },
         select: { permissions: true },
       },
+      classification: { select: { name: true } },
     },
   });
 
   return spaces
-    .map(({ memberships, ...space }) => ({
+    .map(({ memberships, classification, ...space }) => ({
       space: space as Space,
       permissions: [...new Set(memberships.flatMap((m) => m.permissions))],
+      classification: classification?.name ?? null,
     }))
     .filter((entry) => entry.permissions.includes('VIEW'));
 }
@@ -54,15 +63,38 @@ export async function findSpaceByKey(key: string): Promise<Space | null> {
   return prisma.space.findUnique({ where: { key } });
 }
 
-export async function countRequirements(spaceId: string): Promise<number> {
-  return prisma.requirement.count({ where: { spaceId, baselineId: null, status: 'ACTIVE' } });
+/** Rule X2 — "result counts reflect only what the caller can see". */
+export async function countRequirements(viewer: Viewer, spaceId: string): Promise<number> {
+  const { text, params } = render(sql`
+    SELECT count(*)::int AS n FROM "Requirement" r
+     WHERE r."spaceId" = ${param(spaceId)} AND r."baselineId" IS NULL AND r.status = 'ACTIVE'
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(text, ...params);
+  return rows[0]?.n ?? 0;
 }
 
-export async function countDocuments(spaceId: string): Promise<number> {
-  return prisma.document.count({ where: { spaceId, deletedAt: null } });
+export async function countDocuments(viewer: Viewer, spaceId: string): Promise<number> {
+  const { text, params } = render(sql`
+    SELECT count(*)::int AS n FROM "Document" d
+     WHERE d."spaceId" = ${param(spaceId)} AND d."deletedAt" IS NULL
+       AND (${substituteAlias(documentVisibility(viewer), 'd')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(text, ...params);
+  return rows[0]?.n ?? 0;
 }
 
 /** By id, for the job runner, which carries an id rather than a key. */
 export async function findSpaceById(id: string): Promise<Space | null> {
   return prisma.space.findUnique({ where: { id } });
+}
+
+export async function setHistorySettings(
+  spaceId: string,
+  input: { enabled: boolean; retentionDays: number | null },
+): Promise<void> {
+  await prisma.space.update({
+    where: { id: spaceId },
+    data: { historyEnabled: input.enabled, historyRetentionDays: input.retentionDays },
+  });
 }

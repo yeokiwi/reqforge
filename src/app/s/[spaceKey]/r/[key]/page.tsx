@@ -24,14 +24,15 @@ export default async function RequirementPage({
   params: Promise<{ spaceKey: string; key: string }>;
 }) {
   const { spaceKey, key } = await params;
-  const { space, can } = await requireSpace(spaceKey);
+  const { space, can, viewer } = await requireSpace(spaceKey);
   const asked = decodeURIComponent(key);
-  const requirement = await findRequirementDetail(space.id, asked);
+  // RD-064 — a hidden requirement is a 404, indistinguishable from one that never existed.
+  const requirement = await findRequirementDetail(viewer, space.id, asked);
 
   if (!requirement) {
     // spec 03 §5 / RD-051 — a key this requirement used to have still resolves, so a link
     // written before a rename, and a key read off a frozen baseline, both still land.
-    const renamed = await resolveKeyAlias(space.id, asked);
+    const renamed = await resolveKeyAlias(space.id, asked, viewer);
     if (renamed) redirect(`/s/${spaceKey}/r/${encodeURIComponent(renamed.currentKey)}?renamedFrom=${encodeURIComponent(renamed.formerKey)}`);
     notFound();
   }
@@ -42,10 +43,10 @@ export default async function RequirementPage({
   // Inline properties come out of the document; external ones get their own panel below,
   // because they are the only ones editable here (overview, decision 2).
   // spec 05 §4 — which numbered snapshots hold this key, newest first.
-  const baselines = await baselinesContaining(space.id, requirement.upperKey);
+  const baselines = await baselinesContaining(viewer, space.id, requirement.upperKey);
   // spec 05 §6 — off by default per space, so the panel appears only where it is on.
   const history = space.historyEnabled
-    ? await listHistory({ spaceId: space.id, requirementId: requirement.id, limit: 50 })
+    ? await listHistory({ viewer, spaceId: space.id, requirementId: requirement.id, limit: 50 })
     : [];
   const former = await formerKeys(requirement.id);
   const inline = requirement.properties.filter((property) => property.kind === 'INLINE');

@@ -9,6 +9,7 @@ import {
   type TemplateColumn,
 } from '@/domain/validation';
 import { requireSpace } from '@/server/authz';
+import { recordAuditEvent } from '@/server/repositories/audit';
 import {
   countRequirementsOfType,
   createType,
@@ -63,12 +64,16 @@ function toView(type: TypeWithRules, counts: StatusCounts, requirementCount: num
 }
 
 export async function listTypesUseCase(spaceKey: string): Promise<TypeView[]> {
-  const { space } = await requireSpace(spaceKey);
-  const [types, counts] = await Promise.all([listTypesWithRules(space.id), countByStatusForSpace(space.id)]);
+  const { space, viewer } = await requireSpace(spaceKey);
+  const [types, counts] = await Promise.all([listTypesWithRules(space.id), countByStatusForSpace(viewer, space.id)]);
 
   return Promise.all(
     types.map(async (type) =>
-      toView(type, counts.get(type.id) ?? { TRUE: 0, FALSE: 0, WARNING: 0 }, await countRequirementsOfType(type.id)),
+      toView(
+        type,
+        counts.get(type.id) ?? { TRUE: 0, FALSE: 0, WARNING: 0 },
+        await countRequirementsOfType(type.id, viewer),
+      ),
     ),
   );
 }
@@ -134,14 +139,24 @@ function cleanType(form: {
 }
 
 export async function createTypeUseCase(spaceKey: string, form: Parameters<typeof cleanType>[0]) {
-  const { space } = await requireSpace(spaceKey, 'ADMIN');
+  const { space, user } = await requireSpace(spaceKey, 'ADMIN');
   const input = cleanType(form);
 
   const existing = await listTypesWithRules(space.id);
   if (existing.some((type) => type.keyPattern === input.keyPattern)) {
     throw new ConflictError(`This space already has a type for the pattern ${input.keyPattern}.`);
   }
-  return createType(space.id, input);
+  const created = await createType(space.id, input);
+  // spec 07 §6 / RD-062 — a type's rules decide what counts as valid; changing them is audited.
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'RequirementType',
+    objectId: created.id,
+    operation: 'create',
+    parameters: JSON.parse(JSON.stringify(input)),
+  });
+  return created;
 }
 
 export async function updateTypeUseCase(spaceKey: string, typeId: string, form: Parameters<typeof cleanType>[0]) {
@@ -157,6 +172,14 @@ export async function updateTypeUseCase(spaceKey: string, typeId: string, form: 
   }
 
   const updated = await updateType(space.id, typeId, input);
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'RequirementType',
+    objectId: typeId,
+    operation: 'update',
+    parameters: JSON.parse(JSON.stringify({ from: { name: current.name, keyPattern: current.keyPattern }, to: input })),
+  });
   // spec 06 §2.2 trigger 2 — the one RY cannot do (RD-016): editing a type revalidates
   // every requirement of that type, through a job with progress.
   const job = await enqueueRevalidation({ spaceKey, spaceId: space.id, typeId, actorId: user.id });
@@ -164,10 +187,18 @@ export async function updateTypeUseCase(spaceKey: string, typeId: string, form: 
 }
 
 export async function deleteTypeUseCase(spaceKey: string, typeId: string): Promise<void> {
-  const { space } = await requireSpace(spaceKey, 'ADMIN');
+  const { space, user } = await requireSpace(spaceKey, 'ADMIN');
   const current = await findTypeWithRules(space.id, typeId);
   if (!current) throw new NotFoundError('That requirement type no longer exists.');
   await deleteType(space.id, typeId);
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'RequirementType',
+    objectId: typeId,
+    operation: 'delete',
+    parameters: { name: current.name, keyPattern: current.keyPattern },
+  });
 }
 
 /** spec 06 §2.2 trigger 3 — "run validation" per type, on demand. Edit, not admin (§5). */

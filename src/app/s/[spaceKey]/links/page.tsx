@@ -11,8 +11,8 @@ import { listBrokenLinks } from '@/server/repositories/requirements';
  */
 export default async function BrokenLinksPage({ params }: { params: Promise<{ spaceKey: string }> }) {
   const { spaceKey } = await params;
-  const { space } = await requireSpace(spaceKey);
-  const { unresolved, conflicts, toDeleted } = await listBrokenLinks(space.id);
+  const { space, viewer } = await requireSpace(spaceKey);
+  const { unresolved, conflicts, toDeleted } = await listBrokenLinks(viewer, space.id);
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8">
@@ -111,12 +111,17 @@ export default async function BrokenLinksPage({ params }: { params: Promise<{ sp
                   <>
                     {' '}
                     and{' '}
-                    <Link
-                      href={`/s/${spaceKey}/documents/${conflict.relatedDocument.id}`}
-                      className="text-[var(--rf-accent)]"
-                    >
-                      {conflict.relatedDocument.title}
-                    </Link>
+                    {conflict.relatedDocument.id ? (
+                      <Link
+                        href={`/s/${spaceKey}/documents/${conflict.relatedDocument.id}`}
+                        className="text-[var(--rf-accent)]"
+                      >
+                        {conflict.relatedDocument.title}
+                      </Link>
+                    ) : (
+                      // Rule X2 — the conflict is real, but the other document is not named.
+                      <span className="text-[var(--rf-muted)]">{conflict.relatedDocument.title}</span>
+                    )}
                   </>
                 ) : null}
               </li>

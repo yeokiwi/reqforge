@@ -32,6 +32,12 @@ export type DependencyEdge = {
   baselineNumber: number | null;
   /** True when the edge is recorded but its target does not resolve (invariant P2). */
   unresolved: boolean;
+  /**
+   * Rule X2 — the other end exists but this reader may not see it: "the existence of a
+   * link is not itself secret, its target's content is". The key stays; title and status
+   * do not, and nothing links to it (RD-064).
+   */
+  restricted?: boolean;
 };
 
 export type DependencyGroup = {

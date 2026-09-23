@@ -34,7 +34,12 @@ export function DependencyPanel({
           <ul className="mt-1 flex flex-col gap-1 text-sm">
             {group.edges.map((edge) => (
               <li key={`${edge.direction}-${edge.relationship}-${edge.otherSpaceKey ?? ''}${edge.otherKey}`}>
-                {edge.unresolved ? (
+                {edge.restricted ? (
+                  <span className="rf-req-link" data-testid="restricted-edge" title="You may not view this requirement (spec 07 rule X2)">
+                    {edge.otherSpaceKey ? `${edge.otherSpaceKey}/` : ''}
+                    {edge.otherKey}
+                  </span>
+                ) : edge.unresolved ? (
                   <span className="rf-req-link" title="This target does not resolve (invariant P2)">
                     {edge.otherSpaceKey ? `${edge.otherSpaceKey}/` : ''}
                     {edge.otherKey}
@@ -53,7 +58,7 @@ export function DependencyPanel({
                   <span className="ml-1 text-xs text-[var(--rf-muted)]">pinned to baseline {edge.baselineNumber}</span>
                 ) : null}
                 {edge.unresolved ? <span className="ml-1 text-xs text-red-600">unresolved</span> : null}
-                {!edge.unresolved && edge.otherStatus !== 'ACTIVE' ? (
+                {!edge.unresolved && !edge.restricted && edge.otherStatus !== 'ACTIVE' ? (
                   <span className="ml-1 text-xs text-amber-700">{edge.otherStatus}</span>
                 ) : null}
               </li>

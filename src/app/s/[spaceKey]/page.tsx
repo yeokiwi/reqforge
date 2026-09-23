@@ -5,10 +5,11 @@ import { countDocuments, countRequirements } from '@/server/repositories/spaces'
 
 export default async function SpaceOverviewPage({ params }: { params: Promise<{ spaceKey: string }> }) {
   const { spaceKey } = await params;
-  const { space, permissions } = await requireSpace(spaceKey);
+  const { space, permissions, viewer } = await requireSpace(spaceKey);
+  // Rule X2 — both figures count only what this reader may see (RD-017).
   const [documents, requirements] = await Promise.all([
-    countDocuments(space.id),
-    countRequirements(space.id),
+    countDocuments(viewer, space.id),
+    countRequirements(viewer, space.id),
   ]);
 
   return (

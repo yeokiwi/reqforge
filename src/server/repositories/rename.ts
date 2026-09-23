@@ -7,6 +7,7 @@ import { buildMapping, RENAME_MAX_DOCUMENTS, RENAME_MAX_REQUIREMENTS } from '@/d
 import { upperKey } from '@/domain/keys/validate';
 import { rewriteKeyLiterals } from '@/domain/ryql/rewrite';
 import { recordAuditEventIn } from './audit';
+import { SYSTEM, visibleRequirementIdsFor, type ReaderScope } from './visibility';
 import { prisma } from './client';
 import { writeDocumentVersion } from './documents';
 import { recordHistory, type HistoryEntry } from './history';
@@ -106,6 +107,7 @@ async function renameInTransaction(
   input: RenameInput,
   hooks: RenameHooks,
 ): Promise<RenameSummary> {
+  // X3-exempt: RD-063 — rename propagation must reach every document, seen or not; it shows no content.
   const summary = emptySummary();
   const check = async (): Promise<void> => {
     if (await hooks.cancelled?.()) throw new RenameCancelled();
@@ -139,7 +141,8 @@ async function renameInTransaction(
   for (const row of taken) {
     // A key being vacated by this same rename is free by the end of the transaction.
     if (!renaming.has(row.upperKey)) {
-      throw new ConflictError(`${row.upperKey} is already used by another requirement in this space.`);
+      // RD-063 — the same words for both collisions: the owner may be hidden from the renamer.
+      throw new ConflictError(`${row.upperKey} is not available in this space.`);
     }
   }
 
@@ -152,9 +155,7 @@ async function renameInTransaction(
   const renamingIds = new Set(rows.map((row) => row.id));
   for (const alias of claimed) {
     if (!renamingIds.has(alias.requirementId)) {
-      throw new ConflictError(
-        `${alias.upperKey} is the former key of another requirement, and reusing it would make old links point at the wrong one.`,
-      );
+      throw new ConflictError(`${alias.upperKey} is not available in this space.`);
     }
   }
 
@@ -311,6 +312,7 @@ async function rewriteDocuments(
   hooks: RenameHooks,
   check: () => Promise<void>,
 ): Promise<number> {
+  // X3-exempt: RD-063 — rename propagation must reach every document, seen or not; it shows no content.
   const documentIds = new Set<string>();
   for (const step of plan) {
     if (step.row.originVersion) documentIds.add(step.row.originVersion.documentId);
@@ -472,6 +474,7 @@ async function rewriteSavedQueries(
 export async function resolveKeyAlias(
   spaceId: string,
   key: string,
+  reader: ReaderScope,
 ): Promise<{ requirementId: string; currentKey: string; formerKey: string } | null> {
   const upper = upperKey(key);
 
@@ -489,6 +492,10 @@ export async function resolveKeyAlias(
     select: { key: true, requirement: { select: { id: true, key: true, baselineId: true } } },
   });
   if (!alias || alias.requirement.baselineId !== null) return null;
+  // RD-064 — redirecting a reader to a key they may not see would confirm it exists.
+  if (reader !== SYSTEM && !(await visibleRequirementIdsFor(reader, [alias.requirement.id])).has(alias.requirement.id)) {
+    return null;
+  }
   return { requirementId: alias.requirement.id, currentKey: alias.requirement.key, formerKey: alias.key };
 }
 
@@ -513,6 +520,7 @@ export async function aliasMapFor(
   spaceId: string,
   keys: readonly string[],
 ): Promise<Map<string, string>> {
+  // X3-exempt: keys only, to pair rows the diff already filtered; keys are not secret (rule X2).
   const uppers = [...new Set(keys.map((key) => key.toUpperCase()))];
   if (uppers.length === 0) return new Map();
 

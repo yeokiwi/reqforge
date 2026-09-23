@@ -33,6 +33,21 @@ or an explicitly granted group (research §2.8). See `RD-053`.
 A document may carry a restriction: `inherit` (default), or an explicit allow-list of
 users and groups for `view` and for `edit`.
 
+- **View restrictions inherit down the tree** (`RD-056`). A reader sees a document only if
+  its own view list *and* that of every restricted ancestor admit them. `inherit` means "no
+  list of its own", never "unrestricted".
+- **Edit restrictions do not inherit.** An edit list restricts its own document only, and
+  never widens the view list. With no edit grants, every viewer with space EDIT may edit.
+- **Who restricts** (`RD-057`): anyone who may currently edit the document. A change that
+  would remove the actor's own view or edit access is refused, and so is an explicit
+  restriction with nobody on its view list.
+- **Administrators** (`RD-058`) have no read bypass. Space ADMIN gets a *Restricted
+  documents* screen listing restricted documents by title only, from which a restriction
+  can be removed. That is how a document orphaned by a leaver is recovered, and every
+  unlock is audited.
+- **Hidden reads as missing** (`RD-064`). A requirement or document the caller may not view
+  answers exactly like one that does not exist: a 404, never a 403.
+
 **Rule X1.** A restriction on a document propagates to **every requirement defined in
 it** and to that requirement's title, body and inline properties, everywhere they would
 otherwise appear: search results, matrices, coverage counts, reports, exports, the
@@ -52,10 +67,28 @@ test that greps for direct table access outside the repository.
 document's restrictions later does not retroactively expose baselined text; tightening
 them does apply to the baseline.
 
+Implementation (`RD-059`): the freeze copies the origin documents' gates and view grants
+into the baseline, and a frozen row must pass both the frozen gates and the current ones.
+
+**What "restricted" leaves visible.** A dependency on a hidden requirement keeps its key,
+because the existence of a link is not secret. Keys are never treated as secret: key
+uniqueness is space-wide. Titles, bodies, properties, citing documents and counts are what
+the predicate protects.
+
+**The X3 test.** `tests/architecture.test.ts` checks two things:
+- nothing outside `src/server/repositories/` reaches the Prisma client;
+- every repository function that reads requirement or document content either applies the
+  predicate or carries an `X3-exempt:` comment saying why it is a system read — an indexer
+  write, a key-uniqueness check, a job that shows nothing.
+
+`tests/restricted-content.test.ts` walks every list surface.
+
 ### 2.3 Classification labels
 
 Spaces and documents may carry a classification label (free text configured per
-installation, e.g. `Official (Closed)`). Labels are:
+installation, e.g. `Official (Closed)`). The installation's labels form an **ordered list**
+kept by instance administrators (`RD-060`), because "the highest" needs an order. Labels
+are:
 
 - displayed in the document header, on every exported file's header/footer, and in the
   xlsx export's first sheet;
@@ -65,6 +98,14 @@ installation, e.g. `Official (Closed)`). Labels are:
 
 Labels do not by themselves enforce access — restrictions do — but every export carries
 the label of the highest-classified content it contains.
+
+Precisely (`RD-060`):
+- **Requirement:** the higher of its space's and its origin document's label.
+- **Document:** the highest of its own, its space's, and the requirements its links,
+  reports and saved matrices render *for the reader looking at it*.
+- **Export:** the highest over the space and every row in the file, written into the first
+  row and the header and footer of every sheet.
+- **Baseline:** the highest over its members, captured at freeze.
 
 ## 3. Isolation
 
@@ -119,6 +160,20 @@ parameters. Audit rows are append-only and are never pruned by the history reten
 policy. Freeze, refreeze, rename, restriction change, permission change and export are
 the operations an auditor will ask about, and each must be reconstructable from the
 audit log alone.
+
+`RD-062` lists what is audited:
+- those six, with an export audited when queued and again when downloaded;
+- group membership, classification levels and labels;
+- requirement types and key-sequence resets;
+- history settings and prunes;
+- external property definitions;
+- document move and delete, and baseline rename and row discard.
+
+Document saves are not duplicated: they are immutable versions with an author. Space
+ADMIN reads the log on an *Audit log* screen.
+
+Only the person who queued an export may download it (`RD-062`), because the file holds
+what they could see.
 
 A rename therefore writes **one** row for the whole batch, with `objectType: 'Requirement'`
 and `parameters` carrying every `{from, to}` pair together with the counts of documents and

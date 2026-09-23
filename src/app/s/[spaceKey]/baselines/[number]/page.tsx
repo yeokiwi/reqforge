@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { Panel } from '@/app/_components/chrome';
 import { NotFoundError } from '@/domain/errors';
 import { requireSpace } from '@/server/authz';
-import { prisma } from '@/server/repositories/client';
 import { baselineDetailUseCase } from '@/server/usecases/baselines';
 import { RefreezeForm } from '../baseline-forms';
 
@@ -24,13 +23,8 @@ export default async function BaselinePage({
     throw error;
   }
 
-  const { baseline, memberCount, dangling, revisions, reportDocumentId } = detail;
-  const members = await prisma.requirement.findMany({
-    where: { baselineId: baseline.id },
-    orderBy: { upperKey: 'asc' },
-    take: 600,
-    select: { id: true, key: true, title: true, status: true },
-  });
+  // The members come through the repository, under rules X2 and X4, never from a page.
+  const { baseline, memberCount, members, dangling, revisions, reportDocumentId, classification } = detail;
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8">
@@ -44,6 +38,12 @@ export default async function BaselinePage({
         >
           {baseline.state}
         </span>
+        {classification ? (
+          // spec 07 §2.3 — a baseline carries the highest label among its members (RD-060).
+          <span data-testid="baseline-classification" className="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+            {classification}
+          </span>
+        ) : null}
         {revisions.length > 0 ? (
           // spec 05 §3.4 — "a refrozen baseline is visibly marked as revised".
           <span data-testid="revised" className="rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">

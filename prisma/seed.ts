@@ -23,20 +23,35 @@ async function main() {
     users[role] = row.id;
   }
 
+  // spec 07 §2.3 / RD-060 — the installation's ordered labels, least restrictive first.
+  // Seeded only when the instance has none, so an administrator's own order survives.
+  if ((await prisma.classificationLevel.count()) === 0) {
+    await prisma.classificationLevel.createMany({
+      data: [
+        { name: 'Official', rank: 10 },
+        { name: 'Official (Closed)', rank: 20 },
+        { name: 'Secret', rank: 30 },
+      ],
+    });
+  }
+  const levelId = async (name: string | null): Promise<string | null> =>
+    name === null ? null : (await prisma.classificationLevel.findUnique({ where: { name } }))?.id ?? null;
+
   const spaces = [
     { key: 'SJ', name: 'Sample Journey', isolated: false, classification: 'Official (Closed)' },
     { key: 'ISO', name: 'Isolated Programme', isolated: true, classification: null },
   ];
 
   for (const space of spaces) {
+    const classificationId = await levelId(space.classification);
     const row = await prisma.space.upsert({
       where: { key: space.key },
-      update: { name: space.name, isolated: space.isolated, classification: space.classification },
+      update: { name: space.name, isolated: space.isolated, classificationId },
       create: {
         key: space.key,
         name: space.name,
         isolated: space.isolated,
-        classification: space.classification,
+        classificationId,
       },
     });
 

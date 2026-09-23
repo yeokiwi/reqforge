@@ -1,8 +1,9 @@
 import { isPMNode, type PMNode } from '@/domain/doc';
-import { NotFoundError, ValidationError } from '@/domain/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { indexDocumentVersion, type Diagnostic } from '@/domain/indexer';
 import { templateDocument } from '@/domain/validation';
-import { applyIndexResult } from '@/server/repositories/requirements';
+import { applyIndexResult, listDocumentDiagnostics } from '@/server/repositories/requirements';
+import { labelDocument } from './classification';
 import {
   findTypeWithRules,
   listTypesWithRules,
@@ -10,6 +11,8 @@ import {
   templateColumnsOf,
 } from '@/server/repositories/requirement-types';
 import { requireSpace } from '@/server/authz';
+import { recordAuditEvent } from '@/server/repositories/audit';
+import { isDocumentEditable } from '@/server/repositories/visibility';
 import {
   createDocument,
   findDocument,
@@ -34,15 +37,50 @@ function cleanTitle(raw: unknown): string {
 }
 
 export async function getDocumentTree(spaceKey: string): Promise<DocumentTreeNode[]> {
-  const { space } = await requireSpace(spaceKey);
-  return listDocumentTree(space.id);
+  const { space, viewer } = await requireSpace(spaceKey);
+  return listDocumentTree(viewer, space.id);
 }
 
 export async function openDocument(spaceKey: string, documentId: string): Promise<DocumentWithVersion> {
-  const { space } = await requireSpace(spaceKey);
-  const document = await findDocument(space.id, documentId);
+  const { space, viewer } = await requireSpace(spaceKey);
+  // RD-064 — "no longer exists" for a hidden document too: the two must read the same.
+  const document = await findDocument(viewer, space.id, documentId);
   if (!document) throw new NotFoundError('That document no longer exists.');
   return document;
+}
+
+/** The document's diagnostics as this reader may see them (rule X2). */
+export async function documentDiagnosticsUseCase(spaceKey: string, documentId: string) {
+  const { space, viewer } = await requireSpace(spaceKey);
+  if (!(await findDocument(viewer, space.id, documentId))) throw new NotFoundError('That document no longer exists.');
+  return listDocumentDiagnostics(viewer, space.id, documentId);
+}
+
+/** spec 07 §2.3 — labelling a document is part of editing it. */
+export async function labelDocumentUseCase(spaceKey: string, documentId: string, levelId: string | null): Promise<void> {
+  const { space, user } = await requireEditableDocument(spaceKey, documentId);
+  await labelDocument({ spaceId: space.id, documentId, actorId: user.id, levelId });
+}
+
+/** Whether this reader may change the document, for the editor's read-only state. */
+export async function canEditDocument(spaceKey: string, documentId: string): Promise<boolean> {
+  const { viewer, can } = await requireSpace(spaceKey);
+  return can('EDIT') && (await isDocumentEditable(viewer, documentId));
+}
+
+/**
+ * Every change to a document needs space EDIT **and** the document's own edit list, where
+ * it has one (spec 07 §2.2). A document the reader cannot see answers "no longer exists"
+ * rather than "forbidden" (RD-064).
+ */
+async function requireEditableDocument(spaceKey: string, documentId: string) {
+  const context = await requireSpace(spaceKey, 'EDIT');
+  const document = await findDocument(context.viewer, context.space.id, documentId);
+  if (!document) throw new NotFoundError('That document no longer exists.');
+  if (!(await isDocumentEditable(context.viewer, documentId))) {
+    throw new ForbiddenError('This document is restricted: you may read it but not change it.');
+  }
+  return { ...context, document };
 }
 
 export async function createDocumentUseCase(input: {
@@ -52,7 +90,12 @@ export async function createDocumentUseCase(input: {
   /** spec 06 §3 — "a document skeleton with one correctly-shaped table". */
   typeId?: string | null;
 }): Promise<DocumentWithVersion> {
-  const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
+  const { space, user, viewer } = await requireSpace(input.spaceKey, 'EDIT');
+
+  // A child cannot be hung under a parent the author cannot see (RD-064).
+  if (input.parentId && !(await findDocument(viewer, space.id, input.parentId))) {
+    throw new NotFoundError('That parent document no longer exists.');
+  }
 
   const type = input.typeId ? await findTypeWithRules(space.id, input.typeId) : null;
   const columns = type ? templateColumnsOf(type) : [];
@@ -84,13 +127,11 @@ export async function saveDocumentUseCase(input: {
   content: unknown;
   message?: string | null;
 }): Promise<SaveOutcome> {
-  const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
-
   if (!isPMNode(input.content) || input.content.type !== 'doc') {
     throw new ValidationError('The document body must be a ProseMirror `doc` node.');
   }
-  const document = await findDocument(space.id, input.documentId);
-  if (!document) throw new NotFoundError('That document no longer exists.');
+  // spec 07 §2.2 — the document's own edit list applies on top of space EDIT.
+  const { space, user, document } = await requireEditableDocument(input.spaceKey, input.documentId);
 
   const content = input.content as PMNode;
   // With their rules: validation runs on every save (spec 06 §2.2 trigger 1) from data
@@ -143,7 +184,7 @@ export async function saveDocumentUseCase(input: {
 }
 
 export async function renameDocumentUseCase(spaceKey: string, documentId: string, title: unknown): Promise<void> {
-  const { space } = await requireSpace(spaceKey, 'EDIT');
+  const { space } = await requireEditableDocument(spaceKey, documentId);
   await renameDocument(space.id, documentId, cleanTitle(title));
 }
 
@@ -152,25 +193,45 @@ export async function moveDocumentUseCase(
   documentId: string,
   parentId: string | null,
 ): Promise<void> {
-  const { space } = await requireSpace(spaceKey, 'EDIT');
+  const { space, viewer, user } = await requireEditableDocument(spaceKey, documentId);
+  if (parentId && !(await findDocument(viewer, space.id, parentId))) {
+    throw new NotFoundError('That parent document no longer exists.');
+  }
   await moveDocument(space.id, documentId, parentId);
+  // spec 07 §6 / RD-062 — a move can change who may see a whole subtree.
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'Document',
+    objectId: documentId,
+    operation: 'move',
+    parameters: { parentId },
+  });
 }
 
 export async function deleteDocumentUseCase(spaceKey: string, documentId: string): Promise<void> {
-  const { space, user } = await requireSpace(spaceKey, 'EDIT');
+  const { space, user, document } = await requireEditableDocument(spaceKey, documentId);
   await softDeleteDocument(space.id, documentId, user.id);
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'Document',
+    objectId: documentId,
+    operation: 'delete',
+    parameters: { title: document.title },
+  });
 }
 
 export async function documentHistory(spaceKey: string, documentId: string) {
-  const { space } = await requireSpace(spaceKey);
-  const document = await findDocument(space.id, documentId);
+  const { space, viewer } = await requireSpace(spaceKey);
+  const document = await findDocument(viewer, space.id, documentId);
   if (!document) throw new NotFoundError('That document no longer exists.');
   return { document, versions: await listVersions(documentId) };
 }
 
 export async function documentVersion(spaceKey: string, documentId: string, number: number) {
-  const { space } = await requireSpace(spaceKey);
-  const document = await findDocument(space.id, documentId);
+  const { space, viewer } = await requireSpace(spaceKey);
+  const document = await findDocument(viewer, space.id, documentId);
   if (!document) throw new NotFoundError('That document no longer exists.');
   const version = await findVersion(documentId, number);
   if (!version) throw new NotFoundError(`Version ${number} does not exist.`);

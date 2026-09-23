@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { columnLabel, parseMatrixConfig, toSheetRows } from '@/domain/traceability/matrix';
 import { ensureStorageDir } from '../storage';
 import type { JobHandler } from '../runner';
+import { LabelTracker, stampWorkbook } from './classification';
 
 export type ExportMatrixPayload = {
   spaceKey: string;
@@ -37,6 +38,7 @@ export const exportMatrixHandler: JobHandler<ExportMatrixPayload> = async (paylo
 
   let written = 0;
   let offset = 0;
+  const label = new LabelTracker();
 
   for (;;) {
     if (await context.cancelled()) return { cancelled: true };
@@ -44,6 +46,7 @@ export const exportMatrixHandler: JobHandler<ExportMatrixPayload> = async (paylo
     const page = await context.fetchPage(offset);
     if (page.rows.length === 0) break;
 
+    label.see(page.label);
     // toSheetRows is the same shaping the screen renders, minus its header row.
     for (const row of toSheetRows(config, page.rows).slice(1)) sheet.addRow(row);
 
@@ -57,6 +60,8 @@ export const exportMatrixHandler: JobHandler<ExportMatrixPayload> = async (paylo
   sheet.columns.forEach((column) => {
     column.width = Math.min(Math.max(String(column.values?.[1] ?? '').length + 4, 14), 60);
   });
+
+  stampWorkbook(workbook, sheet, label.name(payload.classification), payload.classification);
 
   const directory = await ensureStorageDir('exports', context.jobId);
   const fileName = `${payload.name.replace(/[^A-Za-z0-9._-]+/g, '-') || 'matrix'}.xlsx`;

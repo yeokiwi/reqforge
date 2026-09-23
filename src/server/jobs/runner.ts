@@ -1,3 +1,4 @@
+import type { ClassificationLabel } from '@/domain/classification';
 import type { Job } from '@prisma/client';
 import type { MatrixRow } from '@/domain/traceability/matrix';
 import {
@@ -10,7 +11,8 @@ import {
 } from '@/server/repositories/jobs';
 
 /** What a traceability-matrix export pages over. */
-export type JobPage = { rows: MatrixRow[]; total: number };
+/** `label`: the highest classification among the page's rows (spec 07 §2.3, RD-060). */
+export type JobPage = { rows: MatrixRow[]; total: number; label?: ClassificationLabel | null };
 
 export type JobContext<TPage = JobPage> = {
   jobId: string;

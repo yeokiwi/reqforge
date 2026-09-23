@@ -8,7 +8,9 @@ import {
   type GridEdge,
 } from '@/domain/traceability/dependency-matrix';
 import { ensureStorageDir } from '../storage';
+import type { ClassificationLabel } from '@/domain/classification';
 import type { JobHandler } from '../runner';
+import { LabelTracker, stampWorkbook } from './classification';
 
 export type ExportDependencyMatrixPayload = {
   spaceKey: string;
@@ -25,6 +27,8 @@ export type DependencyExportPage = {
   edges: GridEdge[];
   documentTitles: Array<[string, string]>;
   total: number;
+  /** The highest label among the axis rows (spec 07 §2.3). */
+  label?: ClassificationLabel | null;
 };
 
 function baseUrl(): string {
@@ -56,6 +60,8 @@ export const exportDependencyMatrixHandler: JobHandler<ExportDependencyMatrixPay
   }
 
   const axis = first.axis;
+  const label = new LabelTracker();
+  label.see(first.label);
   const documentTitles = new Map(first.documentTitles);
   const relationships = new Set<string>();
 
@@ -117,6 +123,8 @@ export const exportDependencyMatrixHandler: JobHandler<ExportDependencyMatrixPay
   legend.columns.forEach((column) => {
     column.width = 32;
   });
+
+  stampWorkbook(workbook, matrix, label.name(payload.classification), payload.classification);
 
   const directory = await ensureStorageDir('exports', context.jobId);
   const fileName = `${payload.name.replace(/[^A-Za-z0-9._-]+/g, '-') || 'dependency-matrix'}.xlsx`;

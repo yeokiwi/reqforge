@@ -39,8 +39,9 @@ the documents themselves.
 | 13 | Baselines: drafts, the batched freeze job, pinning, materialised images, refreeze |
 | 14 | Diff over two queries, `isModified()`, `baseline was`, per-requirement history |
 | 15 | Single and batch rename with the live prefix/middle/suffix transform, propagation into documents and saved queries, the transactional job, the `renamedFrom` chain |
+| 16 | Document restrictions inherited down the tree, rule X4 on baselines, the X3 architecture rule, ordered classification labels on every export, permission and group administration, the audit log |
 
-Not built yet: the hardening slices (16–18).
+Not built yet: the REST API and webhooks (slice 17), performance and limits (slice 18).
 
 Known gaps inside what is built, each waiting on the slice that owns it:
 computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is

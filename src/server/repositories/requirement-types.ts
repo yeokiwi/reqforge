@@ -2,6 +2,8 @@ import type { Prisma, RequirementType, RequirementTypeRule, TemplateColumn as Te
 import { numberOf, parsePattern } from '@/domain/keys/pattern';
 import { parseRules, parseTemplateColumns, type Rule, type TemplateColumn } from '@/domain/validation';
 import { prisma } from './client';
+import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
+import { requirementVisibility, SYSTEM, type ReaderScope } from './visibility';
 
 export async function listRequirementTypes(spaceId: string): Promise<RequirementType[]> {
   return prisma.requirementType.findMany({ where: { spaceId }, orderBy: { keyPattern: 'asc' } });
@@ -17,6 +19,7 @@ export async function findRequirementType(spaceId: string, typeId: string): Prom
  * deleted, so deleted and baselined keys still count towards "highest existing number".
  */
 export async function listAllKeys(spaceId: string): Promise<string[]> {
+  // X3-exempt: keys only, for suggestion and uniqueness, which are space-wide.
   const rows = await prisma.requirement.findMany({
     where: { spaceId },
     select: { upperKey: true },
@@ -32,6 +35,7 @@ export async function listAllKeys(spaceId: string): Promise<string[]> {
  * spec: 03-authoring-and-indexing.md §4.2; RD-026
  */
 export async function listKeysExcludingDeleted(spaceId: string): Promise<string[]> {
+  // X3-exempt: keys only, for the sequence reset, which is space-wide.
   const rows = await prisma.requirement.findMany({
     where: { spaceId, OR: [{ baselineId: { not: null } }, { status: { not: 'DELETED' } }] },
     select: { upperKey: true },
@@ -69,6 +73,7 @@ export async function setNextSequence(typeId: string, nextSequence: number): Pro
 
 /** The keys used most recently in a document, newest occurrence first. */
 export async function keysUsedInDocument(spaceId: string, documentId: string): Promise<string[]> {
+  // X3-exempt: keys only, for suggestion and uniqueness, which are space-wide.
   const rows = await prisma.requirement.findMany({
     where: { spaceId, baselineId: null, originVersion: { documentId } },
     orderBy: { updatedAt: 'desc' },
@@ -209,6 +214,7 @@ export async function deleteType(spaceId: string, typeId: string): Promise<void>
 }
 
 /** One page of a type's live requirements, for the revalidation job. */
+/** X3-exempt: the revalidation job writes validation rows for every member; it shows none. */
 export async function requirementsOfType(
   typeId: string,
   offset: number,
@@ -223,6 +229,16 @@ export async function requirementsOfType(
   });
 }
 
-export async function countRequirementsOfType(typeId: string): Promise<number> {
-  return prisma.requirement.count({ where: { typeId, baselineId: null, status: { not: 'DELETED' } } });
+export async function countRequirementsOfType(typeId: string, reader: ReaderScope): Promise<number> {
+  if (reader === SYSTEM) {
+    return prisma.requirement.count({ where: { typeId, baselineId: null, status: { not: 'DELETED' } } });
+  }
+  // Rule X2 — the types screen counts only what this reader may see.
+  const { text, params } = render(sql`
+    SELECT count(*)::int AS n FROM "Requirement" r
+     WHERE r."typeId" = ${param(typeId)} AND r."baselineId" IS NULL AND r.status <> 'DELETED'
+       AND (${substituteAlias(requirementVisibility(reader), 'r')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(text, ...params);
+  return rows[0]?.n ?? 0;
 }

@@ -2,12 +2,15 @@ import type { Space, SpacePermission, User } from '@prisma/client';
 import { AuthenticationError, ForbiddenError, NotFoundError } from '@/domain/errors';
 import { currentUser } from '@/server/auth/session';
 import { effectivePermissions, findSpaceByKey } from '@/server/repositories/spaces';
+import { viewerFor, type Viewer } from '@/server/repositories/visibility';
 
 export type SpaceContext = {
   user: User;
   space: Space;
   permissions: SpacePermission[];
   can: (permission: SpacePermission) => boolean;
+  /** Who is reading, groups resolved once — what every rule-X3 read takes (spec 07 §2.2). */
+  viewer: Viewer;
 };
 
 export async function requireUser(): Promise<User> {
@@ -42,6 +45,7 @@ export async function requireSpace(spaceKey: string, permission: SpacePermission
     space,
     permissions,
     can: (p: SpacePermission) => permissions.includes(p),
+    viewer: await viewerFor(user.id),
   };
 }
 
@@ -50,10 +54,10 @@ export async function requireSpace(spaceKey: string, permission: SpacePermission
  * not a space administrator's to change — a space admin would otherwise be editing a list
  * every other space depends on. `RD-036`.
  */
-export async function requireInstanceAdmin(): Promise<User> {
+export async function requireInstanceAdmin(what = 'manage external property definitions'): Promise<User> {
   const user = await requireUser();
   if (!user.isAdmin) {
-    throw new ForbiddenError('Only an instance administrator can manage external property definitions.');
+    throw new ForbiddenError(`Only an instance administrator can ${what}.`);
   }
   return user;
 }

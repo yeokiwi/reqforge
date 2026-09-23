@@ -635,3 +635,165 @@ comment conflated them with `renamedFrom`. They are the forwarding pointers of a
 cross-space **move** — a different operation from a rename, which stays inside its space —
 so slice 15 does not touch them, and the comment now says which is which. Recorded so the
 next person to find them does not read them as an unfinished rename.
+
+### RD-056 — View restrictions inherit down the document tree; edit restrictions do not
+**accepted.** Spec `07` §2.2 gives a document `inherit` or an explicit allow-list but never
+says what `inherit` inherits. Until slice 16 it meant "unrestricted", so a page created
+under a restricted parent was public to the whole space — exactly the leak `RD-017` exists
+to close.
+
+Ours, Confluence's model, which RY users know:
+- A document is viewable only if its own view list **and** the list of every restricted
+  ancestor admit the reader.
+- An edit list restricts only its own document. It never widens a view list, because you
+  cannot edit what you cannot see.
+
+A view or edit list restricts only when the document is `EXPLICIT` and the list is
+non-empty. With no edit grants, every viewer who has space EDIT may edit.
+
+*Mechanism.* The ancestry is materialised in `DocumentViewGate(documentId,
+gateDocumentId)`: one row per restricted ancestor-or-self. The predicate stays a single
+indexed `NOT EXISTS` rather than a recursive walk per requirement row. It is derived data,
+rebuilt for the subtree whenever a restriction changes or a document is created or moved,
+because those are the only events that change a document's ancestry or its ancestors'
+lists. The migration backfills it, and this is the moment a child of an already-restricted
+page stops being public.
+
+### RD-057 — Editors set restrictions, but cannot lock themselves out
+**accepted.** Spec `07` §2.2 does not say who controls a restriction, and RY has no
+equivalent because it ignores restrictions.
+
+Ours:
+- Anyone who may currently edit the document may change its restrictions: space EDIT plus
+  the document's own edit list.
+- A change that would remove the actor's own view or edit access is **refused**, not warned
+  about, because nobody but an administrator might be able to undo it.
+- An explicit restriction with nobody on the view list is refused for the same reason.
+
+*Why not ADMIN only:* an author who cannot protect their own draft without asking an
+administrator will not use restrictions at all.
+
+### RD-058 — ADMIN cannot read restricted content, but can unlock it
+**accepted.** Rule X1 says a restriction applies "everywhere", and a read bypass for
+administrators would make it advisory for them. There is none: space ADMIN gets a 404 on a
+restricted document like anyone else.
+
+What ADMIN gets instead is a **Restricted documents** screen that lists restricted documents
+*by title only*, with a *Remove restriction* action. That is how a document restricted to
+someone who has since left is recovered. Every unlock is audited.
+
+The title is shown because it is the minimum needed to recognise the document, and
+because the tree shows the same title to anyone the document admits. Unlocking only
+accepts a document that *is* restricted in the space, so the action cannot be used to
+probe for document ids.
+
+### RD-059 — Rule X4 is an intersection of the frozen and the current gates
+**accepted.** Rule X4 says a baseline "captures the restriction state at freeze time":
+loosening later must not expose baselined text, while tightening must apply. Before this
+slice frozen rows were checked against their origin document's *current* restriction, so
+loosening exposed them.
+
+Ours:
+- At freeze, the gates of each member's origin document, and those gates' view grants,
+  are copied into `BaselineViewGate` / `BaselineGateGrant`.
+- A frozen row is visible only if it passes **both** the frozen gates and the current ones.
+  That is exactly X4: loosening changes only the current half, and tightening fails it.
+- The copy is taken as the freeze job completes, before the baseline is marked frozen. A
+  refreeze replaces it, because a refreeze is a new freeze.
+- Baselines frozen before this slice are backfilled from the restriction state of the
+  migration, which is what they were being checked against anyway.
+
+A freeze still closes over parents the person freezing cannot see, as `closeOverParents`
+requires. The captured rows are protected by their frozen gates, and every member count is
+per viewer.
+
+### RD-060 — Classification labels are an ordered, instance-wide list
+**accepted.** Spec `07` §2.3 calls labels "free text configured per installation" and
+then needs "the highest" of several, which free text cannot provide.
+
+Ours is `ClassificationLevel(name, rank)`, owned by instance administrators. Space and
+document labels are chosen from the list, so a typo cannot create an unranked label. The
+migration turns existing free text into levels in first-seen order, for an administrator
+to reorder. A label name may not contain `&`, which is ExcelJS's header/footer control
+character.
+
+Effective labels:
+- **Requirement:** the higher of its space's and its origin document's ("inherited by
+  requirements").
+- **Document:** the highest of its own, its space's, and the requirements its links, reports
+  and saved matrices render **for this reader** ("propagated upward"). What an embedded
+  query shows depends on who reads it, so its label does too.
+- **Export:** the highest over the space and every row in the file, written into the first
+  row and into the header and footer of **every** sheet. The label is known only after the
+  last page, so the workbook is stamped last.
+- **Baseline:** the highest over its members, captured at freeze.
+
+### RD-061 — Permission administration
+**accepted.** Before slice 16 space permissions came only from the seed.
+
+Ours:
+- Space ADMIN grants and revokes VIEW/EDIT/EXPORT/ADMIN to a person (by email) or a group on
+  a Permissions screen.
+- Any permission implies VIEW, because `requireSpace` checks VIEW first and "EDIT only"
+  would silently do nothing.
+- A change that leaves the space with no effective administrator is refused. An ADMIN group
+  counts only through its members. The check and the write share one serializable
+  transaction, so two administrators demoting each other at once cannot both pass.
+- Instance administrators manage groups and their members. Deleting a group takes its
+  memberships and restriction grants with it.
+- Every change is audited.
+
+### RD-062 — What the audit log covers
+**accepted.** Spec `07` §6 says every state-changing operation writes an audit row, and
+names six an auditor will ask about.
+
+**Audited:**
+- The six named ones: freeze, refreeze, rename, restriction change, permission change, and
+  export. An export is audited when queued *and* when downloaded.
+- Group changes and classification levels and labels.
+- Requirement type create, update and delete, and key-sequence resets.
+- History settings and prunes.
+- External property definitions.
+- Document move and delete, and baseline rename and row discard.
+
+Instance-wide changes carry no space.
+
+**Not duplicated:**
+- Document saves, which are already immutable versions with an author.
+- External value edits, which history records per requirement.
+
+A read-only **Audit log** screen serves space ADMIN, filterable by operation, actor and
+date. Rows hold identifiers and parameters, never requirement text, so reading them needs
+ADMIN rather than visibility of everything they mention.
+
+Only the person who queued an export may download it. The file holds what *they* could
+see, which another EXPORT holder may not be allowed to. Before this slice any EXPORT holder
+could fetch any export by its job id.
+
+### RD-063 — Rename propagation reaches documents the renamer cannot see
+**accepted.** A rename (ADMIN) must still rewrite a link inside a restricted document, or
+`RD-050` breaks: that document's next save would resurrect the old key.
+
+The rewrite is a system propagation. Nothing of the document is shown to the renamer, and
+the new version's message names the rename. What the renamer may *select* is limited to
+requirements they can see.
+
+Collision messages read "this key is not available in this space", both for a live key and
+for a former key. Naming which would confirm that a hidden requirement exists.
+
+### RD-064 — A hidden requirement or document answers 404, never 403
+**accepted.** Rule X2 says hidden content is "omitted, not redacted". A 403 would confirm
+existence, which is itself a redaction.
+
+So the following all read exactly like a key or document that does not exist:
+- the requirement page, the popup and the alias redirect;
+- a hidden document's page, history and versions;
+- the changes attempted against a hidden document.
+
+A dependency on a hidden requirement keeps its **key** and shows `restricted` in place of
+its title and status, with no link. This matches the matrix column and reports: "the
+existence of a link is not itself secret, its target's content is."
+
+Keys are not treated as secret anywhere: key uniqueness is space-wide, and the indexer
+still resolves a link to a hidden key. Titles, bodies, properties, citing documents and
+counts are what the predicate protects.

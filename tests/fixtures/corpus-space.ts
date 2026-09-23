@@ -1,3 +1,4 @@
+import { setRestriction } from '@/server/repositories/restrictions';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { emptyDocument } from '@/domain/doc';
 
@@ -137,10 +138,14 @@ export async function createCorpusSpace(prisma: PrismaClient, tag = uniqueTag())
   }
 
   // The annex is restricted to `user`; `stranger` may not see its requirements (rule X1).
-  await prisma.document.update({ where: { id: documents[2]! }, data: { restrictionMode: 'EXPLICIT' } });
-  await prisma.documentRestriction.create({
-    data: { documentId: documents[2]!, userId: user.id, canView: true, canEdit: true },
-  });
+  // Through the real writer, so the inherited gates (RD-056) are built as they are in use.
+  await prisma.$transaction((tx) =>
+    setRestriction(tx, {
+      documentId: documents[2]!,
+      mode: 'EXPLICIT',
+      grants: [{ userId: user.id, canView: true, canEdit: true }],
+    }),
+  );
 
   const baseline = await prisma.baseline.create({
     data: { spaceId: space.id, number: 1, name: 'Release 1', state: 'FROZEN', sourceQuery: "key ~ 'FN-%'", frozenAt: new Date() },

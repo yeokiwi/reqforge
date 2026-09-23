@@ -2,6 +2,8 @@ import type { Prisma, ValidationStatus } from '@prisma/client';
 import type { Diagnostic } from '@/domain/indexer';
 import { messagesOf } from '@/domain/validation';
 import { prisma } from './client';
+import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
+import { requirementVisibility, type Viewer } from './visibility';
 
 /**
  * Cached validation results, which RQL's `ruleStatus` field reads.
@@ -48,42 +50,26 @@ export async function clearValidations(requirementIds: readonly string[]): Promi
 
 export type StatusCounts = { TRUE: number; FALSE: number; WARNING: number };
 
-/** The per-type summary the types screen shows beside each type. */
-export async function countByStatus(typeId: string): Promise<StatusCounts> {
-  const rows = await prisma.requirementValidation.groupBy({
-    by: ['status'],
-    where: { typeId, requirement: { baselineId: null, status: { not: 'DELETED' } } },
-    _count: { _all: true },
-  });
-
-  const counts: StatusCounts = { TRUE: 0, FALSE: 0, WARNING: 0 };
-  for (const row of rows) counts[row.status] = row._count._all;
-  return counts;
-}
-
 /** Counts for every type of a space in one query — the screen lists them all. */
-export async function countByStatusForSpace(spaceId: string): Promise<Map<string, StatusCounts>> {
-  const rows = await prisma.requirementValidation.groupBy({
-    by: ['typeId', 'status'],
-    where: { requirement: { spaceId, baselineId: null, status: { not: 'DELETED' } } },
-    _count: { _all: true },
-  });
+/** The types screen's rule-status figures, counted over what this reader may see (rule X2). */
+export async function countByStatusForSpace(viewer: Viewer, spaceId: string): Promise<Map<string, StatusCounts>> {
+  const { text, params } = render(sql`
+    SELECT v."typeId" AS "typeId", v.status::text AS status, count(*)::int AS n
+      FROM "RequirementValidation" v
+      JOIN "Requirement" r ON r.id = v."requirementId"
+     WHERE r."spaceId" = ${param(spaceId)} AND r."baselineId" IS NULL AND r.status <> 'DELETED'
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+     GROUP BY v."typeId", v.status
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ typeId: string; status: keyof StatusCounts; n: number }>>(text, ...params);
 
   const counts = new Map<string, StatusCounts>();
   for (const row of rows) {
     const current = counts.get(row.typeId) ?? { TRUE: 0, FALSE: 0, WARNING: 0 };
-    current[row.status] = row._count._all;
+    current[row.status] = row.n;
     counts.set(row.typeId, current);
   }
   return counts;
-}
-
-/** The stored messages of one requirement, for the requirement page and the popup. */
-export async function validationOf(requirementId: string) {
-  return prisma.requirementValidation.findFirst({
-    where: { requirementId },
-    include: { type: { select: { id: true, name: true, keyPattern: true, colour: true } } },
-  });
 }
 
 /**
@@ -133,6 +119,7 @@ export type ValidationSubject = {
 export async function fetchValidationSubjects(
   rows: ReadonlyArray<{ id: string; key: string; anchorPath: string }>,
 ): Promise<ValidationSubject[]> {
+  // X3-exempt: the revalidation job writes statuses; it shows nothing.
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
 

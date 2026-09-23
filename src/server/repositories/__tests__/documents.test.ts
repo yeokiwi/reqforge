@@ -11,6 +11,7 @@ import {
   softDeleteDocument,
 } from '../documents';
 import { hashPassword } from '@/server/auth/password';
+import { SYSTEM } from '../visibility';
 
 const richDocument: PMNode = {
   type: 'doc',
@@ -94,7 +95,7 @@ describe('documents and versions', () => {
     const versions = await listVersions(document.id);
     expect(versions.map((v) => v.number)).toEqual([3, 2, 1]);
 
-    const reloaded = await findDocument(spaceId, document.id);
+    const reloaded = await findDocument(SYSTEM, spaceId, document.id);
     expect(reloaded?.currentVersion?.number).toBe(3);
     // Acceptance: "write a document with tables and lists, reload, see it unchanged".
     expect(reloaded?.currentVersion?.content).toEqual(richDocument);
@@ -108,7 +109,7 @@ describe('documents and versions', () => {
     const child = await createDocument({ spaceId, title: 'Child', parentId: parent.id, authorId: userId });
     const grandchild = await createDocument({ spaceId, title: 'Grandchild', parentId: child.id, authorId: userId });
 
-    const tree = await listDocumentTree(spaceId);
+    const tree = await listDocumentTree(SYSTEM, spaceId);
     const parentNode = tree.find((node) => node.id === parent.id);
     expect(parentNode?.children.map((node) => node.id)).toEqual([child.id]);
     expect(parentNode?.children[0]?.children.map((node) => node.id)).toEqual([grandchild.id]);
@@ -120,6 +121,6 @@ describe('documents and versions', () => {
 
     // Soft delete: the versions survive, because a baseline may pin one (invariant D1).
     expect(await prisma.documentVersion.count({ where: { documentId: parent.id } })).toBe(1);
-    expect(await findDocument(spaceId, parent.id)).toBeNull();
+    expect(await findDocument(SYSTEM, spaceId, parent.id)).toBeNull();
   });
 });

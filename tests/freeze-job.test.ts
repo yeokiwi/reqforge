@@ -10,6 +10,7 @@ import { applyIndexResult } from '@/server/repositories/requirements';
 import { countMembers, createDraft, findBaseline } from '@/server/repositories/baselines';
 import { enqueueJob, findJob, requestCancel } from '@/server/repositories/jobs';
 import { FREEZE_BATCH_SIZE } from '@/server/usecases/baselines';
+import { SYSTEM } from '@/server/repositories/visibility';
 
 /**
  * The freeze as a job: batching, progress, cancel and the run-time permission re-check.
@@ -147,7 +148,7 @@ describe('the freeze job (spec 05 §3.2)', () => {
     expect(finished?.progress).toBe(100);
     expect(finished?.message).toContain(`${COUNT} requirements`);
 
-    expect(await countMembers(baseline.id)).toBe(COUNT);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(COUNT);
     expect((await findBaseline(baseline.id))?.state).toBe('FROZEN');
   }, 180_000);
 
@@ -165,7 +166,7 @@ describe('the freeze job (spec 05 §3.2)', () => {
     const finished = await findJob(job.id);
     expect(finished?.state).toBe('CANCELLED');
     // Invariant B1 — a draft owns no requirement rows, whatever happened on the way.
-    expect(await countMembers(baseline.id)).toBe(0);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(0);
     expect((await findBaseline(baseline.id))?.state).toBe('DRAFT');
   }, 180_000);
 
@@ -174,11 +175,11 @@ describe('the freeze job (spec 05 §3.2)', () => {
 
     const first = await queueFreeze(baseline.id);
     await runJobNow(first.id);
-    expect(await countMembers(baseline.id)).toBe(COUNT);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(COUNT);
 
     const second = await queueFreeze(baseline.id);
     await runJobNow(second.id);
-    expect(await countMembers(baseline.id)).toBe(COUNT);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(COUNT);
   }, 180_000);
 
   it('refuses to run as someone who no longer administers the space (spec 07 §2.1)', async () => {
@@ -189,6 +190,6 @@ describe('the freeze job (spec 05 §3.2)', () => {
     const finished = await findJob(job.id);
     expect(finished?.state).toBe('FAILED');
     expect(finished?.error).toContain('no longer has ADMIN');
-    expect(await countMembers(baseline.id)).toBe(0);
+    expect(await countMembers(baseline.id, SYSTEM)).toBe(0);
   }, 180_000);
 });

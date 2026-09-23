@@ -2,7 +2,9 @@ import { join } from 'node:path';
 import ExcelJS from 'exceljs';
 import { dependencyLines, propertyLines, setDiff, type DiffRow } from '@/domain/diff';
 import { ensureStorageDir } from '../storage';
+import type { ClassificationLabel } from '@/domain/classification';
 import type { JobHandler } from '../runner';
+import { LabelTracker, stampWorkbook } from './classification';
 
 export type ExportDiffPayload = {
   spaceKey: string;
@@ -18,6 +20,8 @@ export type DiffExportPage = {
   rows: DiffRow[];
   total: number;
   summary: Record<string, number>;
+  /** The highest label over both sides of the comparison (spec 07 §2.3). */
+  label?: ClassificationLabel | null;
 };
 
 /**
@@ -44,6 +48,7 @@ export const exportDiffHandler: JobHandler<ExportDiffPayload, DiffExportPage> = 
 
   let written = 0;
   let offset = 0;
+  const label = new LabelTracker();
 
   for (;;) {
     if (await context.cancelled()) return { cancelled: true };
@@ -51,6 +56,7 @@ export const exportDiffHandler: JobHandler<ExportDiffPayload, DiffExportPage> = 
     const page = await context.fetchPage(offset);
     if (page.rows.length === 0) break;
 
+    label.see(page.label);
     for (const row of page.rows) {
       sheet.addRow([
         row.key,
@@ -72,6 +78,8 @@ export const exportDiffHandler: JobHandler<ExportDiffPayload, DiffExportPage> = 
   const summary = workbook.addWorksheet('Summary');
   summary.addRow(['Class', 'Count']).font = { bold: true };
   for (const [kind, count] of Object.entries(page0(payload))) summary.addRow([kind, count]);
+
+  stampWorkbook(workbook, sheet, label.name(payload.classification), payload.classification);
 
   const directory = await ensureStorageDir('diffs');
   const name = `diff-${Date.now()}.xlsx`;

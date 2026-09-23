@@ -6,6 +6,7 @@ import { prisma } from '@/server/repositories/client';
 import { createDocument, saveDocumentVersion } from '@/server/repositories/documents';
 import { applyIndexResult } from '@/server/repositories/requirements';
 import { formerKeys, renameRequirements, resolveKeyAlias } from '@/server/repositories/rename';
+import { SYSTEM } from '@/server/repositories/visibility';
 
 /**
  * Renaming: propagation, the alias chain, and what it refuses.
@@ -165,7 +166,7 @@ describe('renaming (spec 03 §5)', () => {
   });
 
   it('records the former key so an old reference still resolves (RD-051)', async () => {
-    const resolved = await resolveKeyAlias(spaceId, K(1));
+    const resolved = await resolveKeyAlias(spaceId, K(1), SYSTEM);
     expect(resolved?.currentKey).toBe(`${spaceKey}X-1`);
     expect(resolved?.formerKey).toBe(K(1));
   });
@@ -173,8 +174,8 @@ describe('renaming (spec 03 §5)', () => {
   it('keeps every hop of the chain resolving after a second rename', async () => {
     await rename([{ from: `${spaceKey}X-1`, to: `${spaceKey}Y-1` }]);
 
-    const first = await resolveKeyAlias(spaceId, K(1));
-    const second = await resolveKeyAlias(spaceId, `${spaceKey}X-1`);
+    const first = await resolveKeyAlias(spaceId, K(1), SYSTEM);
+    const second = await resolveKeyAlias(spaceId, `${spaceKey}X-1`, SYSTEM);
     expect(first?.currentKey).toBe(`${spaceKey}Y-1`);
     expect(second?.currentKey).toBe(`${spaceKey}Y-1`);
 
@@ -254,13 +255,13 @@ describe('renaming (spec 03 §5)', () => {
   });
 
   it('refuses a key another live requirement already has', async () => {
-    await expect(rename([{ from: K(3), to: `${spaceKey}Y-1` }])).rejects.toThrow(/already used/i);
+    await expect(rename([{ from: K(3), to: `${spaceKey}Y-1` }])).rejects.toThrow(/not available/i);
   });
 
   it('refuses a key that is still another requirement`s former key (RD-051)', async () => {
     // K(1) is the former key of ...Y-1; handing it to a different requirement would make
     // every link written before that rename point at the wrong thing.
-    await expect(rename([{ from: K(3), to: K(1) }])).rejects.toThrow(/former key/i);
+    await expect(rename([{ from: K(3), to: K(1) }])).rejects.toThrow(/not available/i);
   });
 
   it('refuses a key that is not a live requirement of this space', async () => {

@@ -1,4 +1,4 @@
-import { Prisma, type Requirement } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { Diagnostic, IndexResult } from '@/domain/indexer';
 import { validateRequirement, type Rule, type Subject } from '@/domain/validation';
 import {
@@ -10,6 +10,8 @@ import {
 import { advanceSequencesForKeys } from './requirement-types';
 import { writeValidations, type ValidationRow } from './validations';
 import { prisma } from './client';
+import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
+import { requirementVisibility, visibleDocumentIds, visibleRequirementIdsFor, type Viewer } from './visibility';
 
 export type ApplyIndexInput = {
   spaceId: string;
@@ -53,6 +55,7 @@ export async function applyIndexResult(
   tx: Prisma.TransactionClient,
   input: ApplyIndexInput,
 ): Promise<ApplyIndexOutcome> {
+  // X3-exempt: the indexer writes what a save projects; it shows nothing (contract I2).
   const { result } = input;
   const diagnostics: Diagnostic[] = [...result.diagnostics];
 
@@ -168,6 +171,7 @@ async function rewriteDerivedRows(
   definedHere: Map<string, string>,
   diagnostics: Diagnostic[],
 ): Promise<void> {
+  // X3-exempt: the indexer rewrites derived rows; it shows nothing.
   const ids = [...definedHere.values()];
 
   if (ids.length > 0) {
@@ -254,6 +258,7 @@ async function writeDependencies(
   definedHere: Map<string, string>,
   diagnostics: Diagnostic[],
 ): Promise<void> {
+  // X3-exempt: the indexer writes edges; it shows nothing.
   const declared = input.result.dependencies.filter((dependency) =>
     definedHere.has(dependency.childKey.toUpperCase()),
   );
@@ -369,6 +374,7 @@ async function promoteResolvedDependencies(
   input: ApplyIndexInput,
   definedHere: Map<string, string>,
 ): Promise<void> {
+  // X3-exempt: the indexer resolves edges; it shows nothing.
   if (definedHere.size === 0) return;
 
   const waiting = await tx.unresolvedDependency.findMany({
@@ -437,16 +443,6 @@ async function rewriteDiagnostics(
   }
 }
 
-export async function findRequirementByKey(
-  spaceId: string,
-  key: string,
-  baselineId: string | null = null,
-): Promise<Requirement | null> {
-  return prisma.requirement.findFirst({
-    where: { spaceId, upperKey: key.toUpperCase(), baselineId },
-  });
-}
-
 export type RequirementDetail = Prisma.RequirementGetPayload<{
   include: {
     properties: true;
@@ -458,12 +454,28 @@ export type RequirementDetail = Prisma.RequirementGetPayload<{
   };
 }>;
 
+/** A requirement as one reader may see it: hidden edge ends and citing documents masked. */
+export type VisibleRequirementDetail = RequirementDetail & {
+  /** Ids at the other end of an edge that this reader may not see (rule X2). */
+  restrictedIds: ReadonlySet<string>;
+};
+
+/**
+ * One requirement, as `viewer` may see it — or `null`, exactly as if the key did not
+ * exist, when they may not (rule X1; RD-064: a hidden requirement answers 404, never 403).
+ *
+ * The edge ends and the citing documents go through the same predicate: a dependency on a
+ * hidden requirement keeps its key but loses its title and body, and a document the reader
+ * cannot open is not named as a place the requirement is cited (rule X2).
+ * spec: 07-permissions-and-limits.md §2.2
+ */
 export async function findRequirementDetail(
+  viewer: Viewer,
   spaceId: string,
   key: string,
   baselineId: string | null = null,
-): Promise<RequirementDetail | null> {
-  return prisma.requirement.findFirst({
+): Promise<VisibleRequirementDetail | null> {
+  const found = await prisma.requirement.findFirst({
     where: { spaceId, upperKey: key.toUpperCase(), baselineId },
     include: {
       properties: { orderBy: [{ valueOrdinal: 'asc' }, { valueIndex: 'asc' }] },
@@ -476,26 +488,46 @@ export async function findRequirementDetail(
       unresolved: true,
     },
   });
+  if (!found) return null;
+
+  const others = [...found.parentEdges.map((edge) => edge.parentId), ...found.childEdges.map((edge) => edge.childId)];
+  const [visible, visibleDocuments] = await Promise.all([
+    visibleRequirementIdsFor(viewer, [found.id, ...others]),
+    visibleDocumentIds(viewer, found.links.map((link) => link.version.documentId)),
+  ]);
+  if (!visible.has(found.id)) return null;
+
+  const restrictedIds = new Set(others.filter((id) => !visible.has(id)));
+  // Defence in depth: the masked content is not in the object at all, so a caller that
+  // forgets `restrictedIds` still cannot render it.
+  const mask = <T extends { id: string; title: string; bodyHtml: string; bodySearch: string }>(row: T): T =>
+    restrictedIds.has(row.id) ? { ...row, title: '', bodyHtml: '', bodySearch: '' } : row;
+
+  return {
+    ...found,
+    links: found.links.filter((link) => visibleDocuments.has(link.version.documentId)),
+    parentEdges: found.parentEdges.map((edge) => ({ ...edge, parent: mask(edge.parent) })),
+    childEdges: found.childEdges.map((edge) => ({ ...edge, child: mask(edge.child) })),
+    restrictedIds,
+  };
 }
 
-export async function listRequirements(
-  spaceId: string,
-  options: { status?: 'ACTIVE' | 'DELETED'; take?: number } = {},
-): Promise<Requirement[]> {
-  return prisma.requirement.findMany({
-    where: { spaceId, baselineId: null, ...(options.status ? { status: options.status } : {}) },
-    orderBy: { upperKey: 'asc' },
-    take: options.take ?? 200,
-  });
-}
-
-/** Everything the Broken links screen shows for a space (invariant P2, rule S3). */
-export async function listBrokenLinks(spaceId: string) {
-  const unresolved = await prisma.unresolvedDependency.findMany({
+/**
+ * Everything the Broken links screen shows for a space (invariant P2, rule S3), as this
+ * reader may see it (rule X2):
+ *   - a pending link is listed only if the requirement declaring it is visible;
+ *   - a key conflict is listed only if its own document is visible, and the other
+ *     document is named only if that one is visible too;
+ *   - a link to a deleted target is listed only if its declaring requirement is visible,
+ *     and a hidden target keeps its key but not its status (RD-064).
+ */
+export async function listBrokenLinks(viewer: Viewer, spaceId: string) {
+  const unresolvedAll = await prisma.unresolvedDependency.findMany({
     where: { child: { spaceId, baselineId: null } },
     include: {
       child: {
         select: {
+          id: true,
           key: true,
           upperKey: true,
           status: true,
@@ -506,7 +538,7 @@ export async function listBrokenLinks(spaceId: string) {
     orderBy: [{ targetKey: 'asc' }],
   });
 
-  const conflicts = await prisma.indexDiagnostic.findMany({
+  const conflictsAll = await prisma.indexDiagnostic.findMany({
     where: { code: 'KEY_CONFLICT', document: { spaceId, deletedAt: null } },
     include: {
       document: { select: { id: true, title: true } },
@@ -517,23 +549,63 @@ export async function listBrokenLinks(spaceId: string) {
 
   // Dependencies whose target exists but is no longer ACTIVE: the edge is intact
   // (invariant P2) and the target is gone, which is exactly what a reviewer must see.
-  const toDeleted = await prisma.dependency.findMany({
+  const toDeletedAll = await prisma.dependency.findMany({
     where: { child: { spaceId, baselineId: null }, parent: { status: { not: 'ACTIVE' } } },
     include: {
-      parent: { select: { key: true, status: true } },
-      child: { select: { key: true } },
+      parent: { select: { id: true, key: true, status: true } },
+      child: { select: { id: true, key: true } },
     },
     orderBy: [{ relationship: 'asc' }],
   });
 
+  const [requirements, documents] = await Promise.all([
+    visibleRequirementIdsFor(viewer, [
+      ...unresolvedAll.map((row) => row.child.id),
+      ...toDeletedAll.flatMap((row) => [row.child.id, row.parent.id]),
+    ]),
+    visibleDocumentIds(viewer, [
+      ...conflictsAll.map((row) => row.document.id),
+      ...conflictsAll.flatMap((row) => (row.relatedDocument ? [row.relatedDocument.id] : [])),
+    ]),
+  ]);
+
+  const unresolved = unresolvedAll.filter((row) => requirements.has(row.child.id));
+  const conflicts = conflictsAll
+    .filter((row) => documents.has(row.document.id))
+    .map((row) => ({
+      ...row,
+      relatedDocument:
+        row.relatedDocument && documents.has(row.relatedDocument.id)
+          ? row.relatedDocument
+          : row.relatedDocument
+            ? { id: '', title: 'a document you cannot see' }
+            : null,
+    }));
+  const toDeleted = toDeletedAll
+    .filter((row) => requirements.has(row.child.id))
+    .map((row) =>
+      requirements.has(row.parent.id) ? row : { ...row, parent: { ...row.parent, status: 'RESTRICTED' as const } },
+    );
+
   return { unresolved, conflicts, toDeleted };
 }
 
-export async function listDocumentDiagnostics(documentId: string) {
-  return prisma.indexDiagnostic.findMany({
-    where: { OR: [{ documentId }, { relatedDocumentId: documentId }] },
+/**
+ * A document's diagnostics, scoped to its space, as this reader may see them. A key
+ * conflict is written against both documents involved; the half that lives on a document
+ * this reader cannot open is dropped rather than shown (rule X2), and the message on this
+ * document's own half names no other document.
+ */
+export async function listDocumentDiagnostics(viewer: Viewer, spaceId: string, documentId: string) {
+  const rows = await prisma.indexDiagnostic.findMany({
+    where: {
+      document: { spaceId },
+      OR: [{ documentId }, { relatedDocumentId: documentId }],
+    },
     orderBy: [{ severity: 'asc' }, { path: 'asc' }],
   });
+  const visible = await visibleDocumentIds(viewer, rows.map((row) => row.documentId));
+  return rows.filter((row) => visible.has(row.documentId));
 }
 
 /**
@@ -550,6 +622,7 @@ export async function markRequirementsOfDocumentsDeleted(
   tx: Prisma.TransactionClient,
   input: { spaceId: string; documentIds: readonly string[]; actorId: string | null },
 ): Promise<string[]> {
+  // X3-exempt: a write (contract I3); the caller established edit rights.
   if (input.documentIds.length === 0) return [];
 
   const affected = await tx.requirement.findMany({
@@ -585,6 +658,7 @@ export async function validateDocumentRequirements(
   input: ApplyIndexInput,
   definedHere: Map<string, string>,
 ): Promise<Diagnostic[]> {
+  // X3-exempt: validation on save computes statuses; it shows nothing beyond the saver's own document.
   const ids = [...definedHere.values()];
   if (ids.length === 0) return [];
 
@@ -665,6 +739,7 @@ async function snapshotRequirements(
   tx: Prisma.TransactionClient,
   ids: readonly string[],
 ): Promise<Map<string, RequirementSnapshot>> {
+  // X3-exempt: the indexer's before-image for history; it shows nothing.
   if (ids.length === 0) return new Map();
 
   const rows = await tx.requirement.findMany({
@@ -756,6 +831,7 @@ export async function listLiveKeys(
   spaceId: string,
   keys: readonly string[],
 ): Promise<{ live: Set<string>; aliased: Set<string> }> {
+  // X3-exempt: keys only, for uniqueness, which is space-wide; RD-063 words the refusal generically.
   const uppers = keys.map((key) => key.toUpperCase());
   if (uppers.length === 0) return { live: new Set(), aliased: new Set() };
 
@@ -774,4 +850,21 @@ export async function listLiveKeys(
     live: new Set(live.map((row) => row.upperKey)),
     aliased: new Set(aliased.map((row) => row.upperKey)),
   };
+}
+
+/**
+ * Which of these keys are live requirements of the space **that this reader may see**,
+ * as upper-cased keys. A rename selects only among these (RD-063).
+ */
+export async function visibleLiveKeys(viewer: Viewer, spaceId: string, keys: readonly string[]): Promise<Set<string>> {
+  const uppers = [...new Set(keys.map((key) => key.toUpperCase()))];
+  if (uppers.length === 0) return new Set();
+  const { text, params } = render(sql`
+    SELECT r."upperKey" AS "upperKey" FROM "Requirement" r
+     WHERE r."spaceId" = ${param(spaceId)} AND r."baselineId" IS NULL
+       AND r."upperKey" = ANY(${param(uppers)})
+       AND (${substituteAlias(requirementVisibility(viewer), 'r')})
+  `);
+  const rows = await prisma.$queryRawUnsafe<Array<{ upperKey: string }>>(text, ...params);
+  return new Set(rows.map((row) => row.upperKey));
 }

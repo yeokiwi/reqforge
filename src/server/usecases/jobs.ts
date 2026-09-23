@@ -1,8 +1,10 @@
-import type { Job } from '@prisma/client';
-import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
+import type { Job, Prisma } from '@prisma/client';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { parseMatrixConfig } from '@/domain/traceability/matrix';
 import { parseDiffRequest } from '@/domain/diff';
 import { requireSpace } from '@/server/authz';
+import { recordAuditEvent } from '@/server/repositories/audit';
+import { spaceLabel } from '@/server/repositories/classification';
 import { registerJobHandlers } from '@/server/jobs/register';
 import { jobsRunInline, runJobNow } from '@/server/jobs/runner';
 import { enqueueJob, findJob, listJobs, requestCancel } from '@/server/repositories/jobs';
@@ -30,12 +32,13 @@ export async function exportMatrixUseCase(input: {
     payload: {
       spaceKey: space.key,
       spaceName: space.name,
-      classification: space.classification,
+      classification: (await spaceLabel(space.id))?.name ?? null,
       name: typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : 'Traceability matrix',
       config: { ...config },
       rowsPerPage: config.pageSize,
     },
   });
+  await auditExportQueued(job);
 
   if (jobsRunInline()) {
     // Dev and tests run the job to completion here, so behaviour is deterministic without
@@ -65,12 +68,13 @@ export async function exportDependencyMatrixUseCase(input: {
     actorId: user.id,
     payload: {
       spaceKey: space.key,
-      classification: space.classification,
+      classification: (await spaceLabel(space.id))?.name ?? null,
       name: 'Dependency matrix',
       query,
       pageSize: 200,
     },
   });
+  await auditExportQueued(job);
 
   if (jobsRunInline()) await runJobNow(job.id);
   else void runJobNow(job.id);
@@ -115,15 +119,57 @@ export async function exportDiffUseCase(input: { spaceKey: string; request: unkn
     payload: {
       spaceKey: space.key,
       spaceName: space.name,
-      classification: space.classification,
+      classification: (await spaceLabel(space.id))?.name ?? null,
       left: request.left,
       right: request.right,
       request: { ...request },
     },
   });
+  await auditExportQueued(job);
 
   if (jobsRunInline()) await runJobNow(job.id);
   else void runJobNow(job.id);
 
   return (await findJob(job.id)) ?? job;
+}
+
+
+/**
+ * A finished export, for its download route.
+ * spec 07 §2.1 — exports need EXPORT, re-checked here, so a download URL is not a way
+ * around the permission that produced the file. And only the person who **queued** the
+ * export may download it: the file holds what *they* could see (rule X3), which another
+ * EXPORT holder may not be allowed to (RD-064's "not found", so its existence is not
+ * confirmed either). spec 07 §6 — the download is audited.
+ */
+export async function downloadExportUseCase(spaceKey: string, jobId: string): Promise<{ resultRef: string }> {
+  const { space, user } = await requireSpace(spaceKey, 'EXPORT');
+  const job = await findJob(jobId);
+  if (!job || job.spaceId !== space.id || job.actorId !== user.id) {
+    throw new NotFoundError('No such export.');
+  }
+  if (job.state !== 'DONE' || !job.resultRef) {
+    throw new ConflictError(`That export is ${job.state.toLowerCase()}.`);
+  }
+  await recordAuditEvent({
+    actorId: user.id,
+    spaceId: space.id,
+    objectType: 'Export',
+    objectId: job.id,
+    operation: 'download',
+    parameters: { kind: job.kind, resultRef: job.resultRef },
+  });
+  return { resultRef: job.resultRef };
+}
+
+/** spec 07 §6 — "export" is one of the operations an auditor will ask about. */
+async function auditExportQueued(job: Job): Promise<void> {
+  await recordAuditEvent({
+    actorId: job.actorId,
+    spaceId: job.spaceId,
+    objectType: 'Export',
+    objectId: job.id,
+    operation: 'queue',
+    parameters: { kind: job.kind, payload: job.payload ?? {} } as Prisma.InputJsonValue,
+  });
 }

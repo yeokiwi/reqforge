@@ -23,6 +23,8 @@ import {
   frozenMemberKeys,
   listBaselines,
   listDangling,
+  listMembers,
+  upperKeysOf,
   listRevisions,
   loadEdges,
   recordAudit,
@@ -31,11 +33,13 @@ import {
   requireFrozen,
   type BaselineWithCounts,
 } from '@/server/repositories/baselines';
+import { levelById } from '@/server/repositories/classification';
+import { SYSTEM } from '@/server/repositories/visibility';
 import { createDocument } from '@/server/repositories/documents';
 import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { enqueueJob, findJob } from '@/server/repositories/jobs';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
-import { prisma } from '@/server/repositories/client';
+import { findDocument } from '@/server/repositories/documents';
 
 /**
  * Baselines.
@@ -107,12 +111,7 @@ export async function resolveMembers(input: {
     externalTypes,
   });
 
-  const rows = await prisma.requirement.findMany({
-    where: { id: { in: ids } },
-    orderBy: { upperKey: 'asc' },
-    select: { upperKey: true },
-  });
-  const seeds = rows.map((row) => row.upperKey);
+  const seeds = await upperKeysOf(ids);
 
   let keys = seeds;
   let addedByClosure = 0;
@@ -156,8 +155,8 @@ async function closeWithEdges(spaceId: string, seeds: readonly string[]) {
 }
 
 export async function listBaselinesUseCase(spaceKey: string): Promise<BaselineWithCounts[]> {
-  const { space } = await requireSpace(spaceKey);
-  return listBaselines(space.id);
+  const { space, viewer } = await requireSpace(spaceKey);
+  return listBaselines(viewer, space.id);
 }
 
 export async function previewUseCase(input: {
@@ -244,8 +243,16 @@ export async function createBaselineUseCase(input: CreateBaselineInput): Promise
 }
 
 export async function renameBaselineUseCase(spaceKey: string, id: string, name: unknown): Promise<Baseline> {
-  const { space } = await requireSpace(spaceKey, 'ADMIN');
-  return renameBaseline(space.id, id, cleanName(name));
+  const { space, user } = await requireSpace(spaceKey, 'ADMIN');
+  const renamed = await renameBaseline(space.id, id, cleanName(name));
+  await recordAudit({
+    actorId: user.id,
+    spaceId: space.id,
+    objectId: id,
+    operation: 'rename',
+    parameters: { number: renamed.number, name: renamed.name },
+  });
+  return renamed;
 }
 
 export async function deleteBaselineUseCase(spaceKey: string, id: string): Promise<void> {
@@ -260,7 +267,7 @@ export async function deleteBaselineUseCase(spaceKey: string, id: string): Promi
     spaceId: space.id,
     objectId: id,
     operation: 'delete',
-    parameters: { number: baseline.number, name: baseline.name, memberCount: await countMembers(id) },
+    parameters: { number: baseline.number, name: baseline.name, memberCount: await countMembers(id, SYSTEM) },
   });
   await deleteBaseline(space.id, id);
 }
@@ -306,11 +313,9 @@ export async function freezeUseCase(input: { spaceKey: string; id: string }) {
  * single document, with no report document. RY's fourth creation path (research §5.1).
  */
 export async function instantBaselineUseCase(input: { spaceKey: string; documentId: string; name: unknown }) {
-  const { space } = await requireSpace(input.spaceKey, 'ADMIN');
-  const document = await prisma.document.findFirst({
-    where: { id: input.documentId, spaceId: space.id, deletedAt: null },
-    select: { id: true, title: true },
-  });
+  const { space, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
+  // RD-064 — a document the administrator cannot see cannot be baselined by them either.
+  const document = await findDocument(viewer, space.id, input.documentId);
   if (!document) throw new NotFoundError('That document no longer exists.');
 
   const name = typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : document.title;
@@ -424,30 +429,52 @@ async function enqueueFreeze(input: {
 export type BaselineDetail = {
   baseline: Baseline;
   memberCount: number;
+  /** The members this reader may see, capped for the page (rules X2, X4). */
+  members: Awaited<ReturnType<typeof listMembers>>;
+  /** spec 07 §2.3 — the label captured at freeze (RD-060). */
+  classification: string | null;
   dangling: Awaited<ReturnType<typeof listDangling>>;
   revisions: Awaited<ReturnType<typeof listRevisions>>;
   reportDocumentId: string | null;
 };
 
 export async function baselineDetailUseCase(spaceKey: string, number: number): Promise<BaselineDetail> {
-  const { space } = await requireSpace(spaceKey);
+  const { space, viewer } = await requireSpace(spaceKey);
   const baseline = await findBaselineByNumber(space.id, number);
   if (!baseline) throw new NotFoundError(`Baseline ${number} does not exist in ${spaceKey}.`);
 
-  const [memberCount, dangling, revisions] = await Promise.all([
-    countMembers(baseline.id),
-    listDangling(baseline.id),
+  const [memberCount, members, dangling, revisions, label] = await Promise.all([
+    countMembers(baseline.id, viewer),
+    listMembers(viewer, baseline.id),
+    listDangling(viewer, baseline.id),
     listRevisions(baseline.id),
+    levelById(baseline.classificationId),
   ]);
 
-  return { baseline, memberCount, dangling, revisions, reportDocumentId: baseline.reportDocumentId };
+  return {
+    baseline,
+    memberCount,
+    members,
+    dangling,
+    revisions,
+    reportDocumentId: baseline.reportDocumentId,
+    classification: label?.name ?? null,
+  };
 }
 
 /** Abandoning a draft's partial rows, e.g. after a failed freeze. */
 export async function discardRowsUseCase(spaceKey: string, id: string): Promise<number> {
-  const { space } = await requireSpace(spaceKey, 'ADMIN');
+  const { space, user } = await requireSpace(spaceKey, 'ADMIN');
   const baseline = await findBaselineById(space.id, id);
   if (!baseline) throw new NotFoundError('That baseline no longer exists.');
   if (baseline.state === 'FROZEN') throw new ConflictError('A frozen baseline keeps its rows. Refreeze it instead.');
-  return clearBaselineRows(id);
+  const removed = await clearBaselineRows(id);
+  await recordAudit({
+    actorId: user.id,
+    spaceId: space.id,
+    objectId: id,
+    operation: 'discard-rows',
+    parameters: { number: baseline.number, removed },
+  });
+  return removed;
 }

@@ -40,6 +40,9 @@ import {
 } from './handlers/revalidate-type';
 import { findTypeWithRules, requirementsOfType, countRequirementsOfType, rulesOf } from '@/server/repositories/requirement-types';
 import { fetchValidationSubjects, writeValidationsOutsideTransaction } from '@/server/repositories/validations';
+import { captureBaselineLabel, labelForRequirements } from '@/server/repositories/classification';
+import { snapshotGatesForBaseline } from '@/server/repositories/restrictions';
+import { SYSTEM } from '@/server/repositories/visibility';
 import { registerJobHandler, type JobPage, type PageSource } from './runner';
 
 /**
@@ -66,7 +69,9 @@ const matrixPageSource: PageSource = async (job: Job, offset: number): Promise<J
   });
 
   if (!result.ok) throw new Error(result.errors[0]?.message ?? 'The matrix query is no longer valid.');
-  return { rows: result.page.rows, total: result.page.total };
+  // spec 07 §2.3 — the export carries the label of the highest-classified row in it.
+  const label = await labelForRequirements(result.page.rows.map((row) => row.id));
+  return { rows: result.page.rows, total: result.page.total, label };
 };
 
 /**
@@ -108,9 +113,11 @@ const dependencyMatrixPageSource: PageSource<DependencyExportPage> = async (
   const page = await dependencyMatrixForUser({ ...context, offset, limit: payload.pageSize });
   const ids = page.rows.map((row) => row.id);
   // Edges from this page of rows to *any* column of the axis, not just to this page.
-  const [edges, documents] = await Promise.all([
+  const [edges, documents, label] = await Promise.all([
     fetchEdgesBetween(ids, axisIds),
     fetchDefiningDocuments(ids),
+    // The axis is every row in the file, so its label is the file's (spec 07 §2.3).
+    labelForRequirements(axisIds),
   ]);
 
   return {
@@ -122,6 +129,7 @@ const dependencyMatrixPageSource: PageSource<DependencyExportPage> = async (
       .map((row): [string, string] => [row.key, documents.get(row.id)?.documentTitle ?? ''])
       .filter(([, title]) => title.length > 0),
     total: page.total,
+    label,
   };
 };
 
@@ -145,7 +153,7 @@ const revalidatePageSource: PageSource<RevalidatePage> = async (job, offset): Pr
 
   const [rows, total] = await Promise.all([
     requirementsOfType(payload.typeId, offset, payload.pageSize),
-    countRequirementsOfType(payload.typeId),
+    countRequirementsOfType(payload.typeId, SYSTEM),
   ]);
 
   const subjects = await fetchValidationSubjects(rows);
@@ -209,7 +217,9 @@ const diffPageSource: PageSource<DiffExportPage> = async (job, offset): Promise<
   if (!result.ok) throw new Error(result.errors[0]?.message ?? 'That comparison is no longer valid.');
 
   const rows = result.outcome.rows.slice(offset, offset + 500);
-  return { rows, total: result.outcome.rows.length, summary: result.outcome.summary };
+  // Both sides, not only the rows that changed: an unchanged row is still in the file.
+  const label = offset === 0 ? await labelForRequirements(result.ids) : null;
+  return { rows, total: result.outcome.rows.length, summary: result.outcome.summary, label };
 };
 
 import { renameHandler, setRenameWriter, type RenamePayload } from './handlers/rename';
@@ -254,6 +264,11 @@ export function registerJobHandlers(): void {
     writeEdges: writeInternalEdges,
     writeDangling,
     markFrozen: async (baselineId, actorId) => {
+      // Rule X4 (RD-059) and spec 07 §2.3 (RD-060): the restriction state and the label
+      // are captured before the baseline is marked frozen, so a frozen baseline is never
+      // visible without its frozen gates.
+      await snapshotGatesForBaseline(baselineId);
+      await captureBaselineLabel(baselineId);
       await markFrozen(baselineId, actorId);
     },
     clear: clearBaselineRows,

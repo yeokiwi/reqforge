@@ -68,13 +68,16 @@ model ApiToken {
 // ---------------------------------------------------------------- space
 
 model Space {
-  id                   String  @id @default(cuid())
-  key                  String  @unique // [A-Z][A-Z0-9]{1,15}
+  id                   String               @id @default(cuid())
+  key                  String               @unique // [A-Z][A-Z0-9]{1,15}
   name                 String
-  isolated             Boolean @default(false) // research §6.6
-  globalKeys           Boolean @default(false) // research §2.2
-  classification       String? // e.g. "Official (Closed)" — spec 07 §2.3
-  historyEnabled       Boolean @default(false) // research §2.7 — off by default
+  isolated             Boolean              @default(false) // research §6.6
+  globalKeys           Boolean              @default(false) // research §2.2
+  /// spec 07 §2.3 — a level from the instance's ordered list (RD-060), never free text,
+  /// so "the highest label" is always defined.
+  classificationId     String?
+  classification       ClassificationLevel? @relation("SpaceClassification", fields: [classificationId], references: [id], onDelete: SetNull)
+  historyEnabled       Boolean              @default(false) // research §2.7 — off by default
   /// Null keeps history for ever. Pruning never removes a row dated at or before the
   /// freeze of a baseline that contains the requirement — spec 05 §6, RD-049.
   historyRetentionDays Int?
@@ -82,7 +85,7 @@ model Space {
   /// Monotonic. Invariant B2: a baseline number is never reused, including after
   /// deletion, so it comes from a counter that only moves forward — never from
   /// max(number) over the rows that happen to remain.
-  nextBaselineNumber   Int     @default(1)
+  nextBaselineNumber   Int                  @default(1)
 
   documents       Document[]
   requirements    Requirement[]
@@ -126,11 +129,15 @@ model Document {
   children          Document[]            @relation("DocTree")
   title             String
   ordinal           Int                   @default(0)
-  classification    String?
+  classificationId  String?
+  classification    ClassificationLevel?  @relation("DocumentClassification", fields: [classificationId], references: [id], onDelete: SetNull)
+  /// INHERIT: no list of its own, but every restricted ancestor still gates it (RD-056).
   restrictionMode   RestrictionMode       @default(INHERIT) // spec 07 §2.2
   currentVersionId  String?               @unique
   versions          DocumentVersion[]     @relation("DocVersions")
   restrictions      DocumentRestriction[]
+  viewGates         DocumentViewGate[]    @relation("GatedDocument")
+  gatesFor          DocumentViewGate[]    @relation("GateDocument")
   diagnostics       IndexDiagnostic[]     @relation("DiagnosticDocument")
   causedDiagnostics IndexDiagnostic[]     @relation("DiagnosticRelated")
   createdAt         DateTime              @default(now())
@@ -154,6 +161,23 @@ model DocumentRestriction {
   canEdit    Boolean  @default(false)
 
   @@unique([documentId, userId, groupId])
+  @@index([documentId, canView])
+  @@index([documentId, canEdit])
+}
+
+/// Rule X1 with inheritance (RD-056): one row per restricted ancestor-or-self of a
+/// document. A reader sees the document only if every gate's own view list admits them,
+/// so the visibility predicate stays one indexed NOT EXISTS instead of a recursive walk.
+/// Derived data: rebuilt for a subtree whenever a restriction changes or a document is
+/// created or moved (`repositories/restrictions.ts#rebuildGates`).
+model DocumentViewGate {
+  documentId     String
+  document       Document @relation("GatedDocument", fields: [documentId], references: [id], onDelete: Cascade)
+  gateDocumentId String
+  gateDocument   Document @relation("GateDocument", fields: [gateDocumentId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, gateDocumentId])
+  @@index([gateDocumentId])
 }
 
 /// Immutable. Never deleted while `pinned` (invariant D1, spec 05 §3.2 step 6).
@@ -397,27 +421,57 @@ enum BaselineState {
 }
 
 model Baseline {
-  id                   String        @id @default(cuid())
+  id                   String               @id @default(cuid())
   spaceId              String
-  space                Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space                Space                @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   number               Int // sequential, immutable, never reused (invariant B2)
   name                 String
-  state                BaselineState @default(DRAFT)
+  state                BaselineState        @default(DRAFT)
   sourceQuery          String
-  includedDependencies Boolean       @default(false)
-  includedExternal     Boolean       @default(false) // RD-010
+  includedDependencies Boolean              @default(false)
+  includedExternal     Boolean              @default(false) // RD-010
   reportDocumentId     String?
   frozenAt             DateTime?
   frozenById           String?
-  createdAt            DateTime      @default(now())
+  createdAt            DateTime             @default(now())
   createdById          String?
+  /// spec 07 §2.3 — the highest label among the members, captured at freeze (RD-060).
+  classificationId     String?
+  classification       ClassificationLevel? @relation("BaselineClassification", fields: [classificationId], references: [id], onDelete: SetNull)
 
   requirements Requirement[]
   revisions    BaselineRevision[]
   dangling     BaselineDanglingDependency[]
+  viewGates    BaselineViewGate[]
+  gateGrants   BaselineGateGrant[]
 
   @@unique([spaceId, number])
   @@index([spaceId, state])
+}
+
+/// Rule X4 (RD-059): the gates of each member's origin document as they stood at freeze.
+/// A frozen row must pass these *and* the current gates, so loosening a document later
+/// never exposes baselined text, while tightening it applies at once.
+model BaselineViewGate {
+  baselineId     String
+  baseline       Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  documentId     String
+  gateDocumentId String
+
+  @@id([baselineId, documentId, gateDocumentId])
+  @@index([baselineId, documentId])
+}
+
+/// The view grants of a frozen gate, as they stood at freeze (RD-059).
+model BaselineGateGrant {
+  id             String   @id @default(cuid())
+  baselineId     String
+  baseline       Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  gateDocumentId String
+  userId         String?
+  groupId        String?
+
+  @@index([baselineId, gateDocumentId])
 }
 
 model BaselineRevision {
@@ -628,4 +682,17 @@ model AuditEvent {
 
   @@index([spaceId, at])
   @@index([objectType, objectId, at])
+}
+
+/// spec 07 §2.3 — "free text configured per installation", ordered so that "the highest
+/// label" is defined (RD-060). Higher `rank` is more restrictive. Instance admins own it.
+model ClassificationLevel {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  rank      Int      @unique
+  createdAt DateTime @default(now())
+
+  spaces    Space[]    @relation("SpaceClassification")
+  documents Document[] @relation("DocumentClassification")
+  baselines Baseline[] @relation("BaselineClassification")
 }

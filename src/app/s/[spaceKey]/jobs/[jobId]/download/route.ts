@@ -2,14 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { NextResponse } from 'next/server';
 import { isAppError } from '@/domain/errors';
-import { requireSpace } from '@/server/authz';
 import { resolveStoredPath } from '@/server/jobs/storage';
-import { findJob } from '@/server/repositories/jobs';
+import { downloadExportUseCase } from '@/server/usecases/jobs';
 
 /**
  * Serves a finished export.
  * spec: 07-permissions-and-limits.md §2.1 — exports need EXPORT, re-checked here, so a
- * download URL is not a way around the permission that produced the file.
+ * download URL is not a way around the permission that produced the file; and only the
+ * person who queued the export may fetch it, because it holds what *they* could see.
  */
 export async function GET(
   _request: Request,
@@ -18,17 +18,9 @@ export async function GET(
   const { spaceKey, jobId } = await params;
 
   try {
-    const { space } = await requireSpace(spaceKey, 'EXPORT');
-    const job = await findJob(jobId);
-
-    if (!job || job.spaceId !== space.id) {
-      return NextResponse.json({ error: 'No such export.' }, { status: 404 });
-    }
-    if (job.state !== 'DONE' || !job.resultRef) {
-      return NextResponse.json({ error: `That export is ${job.state.toLowerCase()}.` }, { status: 409 });
-    }
-
-    const path = resolveStoredPath(job.resultRef);
+    // EXPORT, the person who queued it, DONE, and an audit row: all in the use case.
+    const { resultRef } = await downloadExportUseCase(spaceKey, jobId);
+    const path = resolveStoredPath(resultRef);
     if (!path) return NextResponse.json({ error: 'No such export.' }, { status: 404 });
 
     const file = await readFile(path);

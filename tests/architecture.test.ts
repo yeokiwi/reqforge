@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { x3Offenders } from './support/x3-scan';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -63,6 +64,51 @@ describe('architecture', () => {
       expect(file, `${name} should exist`).toBeDefined();
       expect(/"Requirement"|"Property"|"Dependency"/.test(file!.text), `${name} mentions a table`).toBe(false);
     }
+  });
+
+  it('reaches the Prisma client only inside the repository layer (spec 07 rule X3)', () => {
+    // The raw-SQL rule above is not enough on its own: `prisma.requirement.findMany` from a
+    // use case or a page reads requirements without the predicate just as surely.
+    const offenders = files
+      .filter((file) => /from\s+'@\/server\/repositories\/client'/.test(file.text))
+      .map((file) => file.path)
+      .filter((path) => !path.startsWith('src/server/repositories/'));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('applies the visibility predicate in every repository read of requirement content, or says why not (rule X3)', () => {
+    const repositories = files.filter((file) => file.path.startsWith('src/server/repositories/'));
+    expect(x3Offenders(repositories)).toEqual([]);
+  });
+
+  it('the rule X3 scanner bites: an unscoped read with no exemption is reported', () => {
+    const bad = {
+      path: 'src/server/repositories/leak.ts',
+      text: [
+        'export async function leak(spaceId: string) {',
+        '  return prisma.requirement.findMany({ where: { spaceId } });',
+        '}',
+        '',
+        '/** X3-exempt: a job that writes, and shows nothing. */',
+        'export async function system(spaceId: string) {',
+        '  return prisma.requirement.findMany({ where: { spaceId } });',
+        '}',
+        '',
+        'export async function scoped(viewer: Viewer, spaceId: string) {',
+        '  const rows = await prisma.requirement.findMany({ where: { spaceId } });',
+        '  return visibleRequirementIdsFor(viewer, rows.map((row) => row.id));',
+        '}',
+        '',
+        'export async function raw() {',
+        '  return prisma.$queryRaw`SELECT * FROM "Requirement" r`;',
+        '}',
+      ].join('\n'),
+    };
+    expect(x3Offenders([bad])).toEqual([
+      { file: 'src/server/repositories/leak.ts', fn: 'leak' },
+      { file: 'src/server/repositories/leak.ts', fn: 'raw' },
+    ]);
   });
 
   it('imports Prisma at runtime only inside the repository layer', () => {

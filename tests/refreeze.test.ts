@@ -17,6 +17,7 @@ import {
 } from '@/server/repositories/baselines';
 import { enqueueJob } from '@/server/repositories/jobs';
 import { FREEZE_BATCH_SIZE } from '@/server/usecases/baselines';
+import { SYSTEM } from '@/server/repositories/visibility';
 
 /**
  * Refreeze — spec 05 §3.4, `RD-044`. "Add, remove or update members of an existing frozen
@@ -135,7 +136,7 @@ describe('refreeze (spec 05 §3.4)', () => {
 
   it('freezes two members to begin with', async () => {
     await freezeWith([key(1), key(2)].map((k) => k.toUpperCase()));
-    expect(await countMembers(baselineId)).toBe(2);
+    expect(await countMembers(baselineId, SYSTEM)).toBe(2);
     expect(await frozenMemberKeys(baselineId)).toEqual([key(1).toUpperCase(), key(2).toUpperCase()]);
   });
 
@@ -157,7 +158,7 @@ describe('refreeze (spec 05 §3.4)', () => {
     await freezeWith(after);
 
     expect(await frozenMemberKeys(baselineId)).toEqual(after);
-    expect(await countMembers(baselineId)).toBe(3);
+    expect(await countMembers(baselineId, SYSTEM)).toBe(3);
   });
 
   it('records who, when, why and the before/after counts (spec 05 §3.4)', async () => {

@@ -1,10 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { isAppError, ValidationError } from '@/domain/errors';
-import { requireSpace } from '@/server/authz';
-import { prisma } from '@/server/repositories/client';
-import { pruneHistory } from '@/server/repositories/history';
+import { isAppError } from '@/domain/errors';
+import { pruneHistoryUseCase, saveHistorySettingsUseCase } from '@/server/usecases/history';
 
 export type HistorySettingsState = { message: string | null; error: string | null };
 
@@ -15,17 +13,9 @@ export async function saveHistorySettingsAction(
   formData: FormData,
 ): Promise<HistorySettingsState> {
   try {
-    const { space } = await requireSpace(spaceKey, 'ADMIN');
-
-    const raw = formData.get('retentionDays');
-    const days = typeof raw === 'string' && raw.trim().length > 0 ? Number(raw) : null;
-    if (days !== null && (!Number.isInteger(days) || days < 1)) {
-      throw new ValidationError('Retention is a whole number of days, or blank to keep history for ever.');
-    }
-
-    await prisma.space.update({
-      where: { id: space.id },
-      data: { historyEnabled: formData.get('historyEnabled') === 'on', historyRetentionDays: days },
+    await saveHistorySettingsUseCase(spaceKey, {
+      enabled: formData.get('historyEnabled') === 'on',
+      retentionDays: formData.get('retentionDays'),
     });
 
     revalidatePath(`/s/${spaceKey}/admin/history`);
@@ -43,12 +33,7 @@ export async function pruneHistoryAction(
   _formData: FormData,
 ): Promise<HistorySettingsState> {
   try {
-    const { space } = await requireSpace(spaceKey, 'ADMIN');
-    if (!space.historyRetentionDays) {
-      throw new ValidationError('Set a retention period first; without one, history is kept for ever.');
-    }
-
-    const outcome = await pruneHistory(space.id, space.historyRetentionDays);
+    const outcome = await pruneHistoryUseCase(spaceKey);
     revalidatePath(`/s/${spaceKey}/admin/history`);
     return {
       message:

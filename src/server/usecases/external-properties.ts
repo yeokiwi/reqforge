@@ -7,6 +7,7 @@ import {
 } from '@/domain/properties/external';
 import { parseAndAnalyse } from '@/domain/ryql';
 import { requireInstanceAdmin, requireSpace } from '@/server/authz';
+import { recordAuditEvent } from '@/server/repositories/audit';
 import {
   countValues,
   countValuesByDefinition,
@@ -88,17 +89,19 @@ function cleanDefinition(input: DefinitionInput): {
 }
 
 export async function createDefinitionUseCase(input: DefinitionInput): Promise<ExternalDefinition> {
-  await requireInstanceAdmin();
+  const user = await requireInstanceAdmin();
   const cleaned = cleanDefinition(input);
 
   const existing = await findDefinitionByName(cleaned.name);
   if (existing) throw new ConflictError(`A property called "${existing.name}" already exists.`);
 
-  return createDefinition(cleaned);
+  const created = await createDefinition(cleaned);
+  await auditDefinition(user.id, created.id, 'create', cleaned);
+  return created;
 }
 
 export async function updateDefinitionUseCase(id: string, input: DefinitionInput): Promise<ExternalDefinition> {
-  await requireInstanceAdmin();
+  const user = await requireInstanceAdmin();
   const cleaned = cleanDefinition(input);
 
   const current = await findDefinition(id);
@@ -132,12 +135,28 @@ export async function updateDefinitionUseCase(id: string, input: DefinitionInput
     }
   }
 
-  return updateDefinition(id, cleaned);
+  const updated = await updateDefinition(id, cleaned);
+  await auditDefinition(user.id, id, 'update', { from: current, to: cleaned });
+  return updated;
 }
 
 export async function deleteDefinitionUseCase(id: string): Promise<void> {
-  await requireInstanceAdmin();
+  const user = await requireInstanceAdmin();
+  const current = await findDefinition(id);
   await deleteDefinition(id);
+  await auditDefinition(user.id, id, 'delete', { name: current?.name ?? id });
+}
+
+/** RD-062 — instance-wide, so the row carries no space. */
+async function auditDefinition(actorId: string, id: string, operation: string, parameters: unknown): Promise<void> {
+  await recordAuditEvent({
+    actorId,
+    spaceId: null,
+    objectType: 'ExternalPropertyDefinition',
+    objectId: id,
+    operation,
+    parameters: JSON.parse(JSON.stringify(parameters)),
+  });
 }
 
 /** Every definition, for the screens that only display and edit values. */
