@@ -1,3 +1,5 @@
+import { limitExceeded, type Limits } from '@/domain/limits';
+import { limitsForSpaceId, limitsOf } from '@/server/limits';
 import { ValidationError } from '@/domain/errors';
 import type { ExternalDefinition } from '@/domain/properties/external';
 import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
@@ -62,7 +64,9 @@ export async function runMatrixForUser(input: {
 }): Promise<MatrixSuccess | MatrixFailure> {
   const space = input.space;
   const user = { id: input.userId };
-  const config = parseMatrixConfig(input.config);
+  // A stored config from before a space lowered its limit is clamped, not refused: it was
+  // valid when saved. A new request over the limit is refused by the use cases below.
+  const config = parseMatrixConfig(input.config, (await limitsForSpaceId(space.id)).matrixPageSizeMax);
 
   if (config.query.trim().length === 0) {
     return {
@@ -98,6 +102,7 @@ export async function runMatrixForUser(input: {
     const { rows, total } = await runSearch(analysed.query.expr, {
       visibility,
       externalTypes,
+      knownSpaces: { [space.key]: space.id },
       // `$currentBaseline` resolves to the baseline this document reports on, and to the
       // live set when it reports on none (RD-031).
       currentBaselineId: baseline?.id ?? null,
@@ -149,8 +154,17 @@ export async function runMatrixForUser(input: {
   }
 }
 
+/** spec 07 §4 — asking for a page above the limit is an error naming it, not a silent clamp. */
+function refuseOversizedPage(config: unknown, limits: Limits): void {
+  const requested = typeof config === 'object' && config !== null ? (config as { pageSize?: unknown }).pageSize : undefined;
+  if (typeof requested === 'number' && requested > limits.matrixPageSizeMax) {
+    throw limitExceeded('matrixPageSizeMax', limits.matrixPageSizeMax, requested, `a page of ${requested} rows was requested`);
+  }
+}
+
 export async function runMatrixUseCase(input: RunMatrixInput): Promise<MatrixSuccess | MatrixFailure> {
   const { space, user } = await requireSpace(input.spaceKey);
+  refuseOversizedPage(input.config, limitsOf(space));
   return runMatrixForUser({
     space: { id: space.id, key: space.key, isolated: space.isolated },
     userId: user.id,
@@ -174,6 +188,7 @@ export async function saveMatrixUseCase(input: {
   visibility?: string;
 }) {
   const { space, user } = await requireSpace(input.spaceKey, 'EDIT');
+  refuseOversizedPage(input.config, limitsOf(space));
   const config = parseMatrixConfig(input.config);
 
   const name = typeof input.name === 'string' ? input.name.trim() : '';

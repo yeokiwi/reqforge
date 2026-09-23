@@ -118,24 +118,50 @@ appear in another space's picker.
 Configured per installation with per-space overrides. Defaults are RY's documented
 numbers where they exist, because they were derived from real deployments.
 
-| Limit | Default | Source |
-|---|---|---|
-| Requirements per space | 12,000 | RY global limit (research §6.7) |
-| Requirements per baseline | 12,000 | RY |
-| Requirements per document | 400 hard, 150 warning | RY |
-| Diff rows (interactive) | 600 | RY |
-| Matrix page size | 100 default, 600 max | RY |
-| Dependency matrix web cells | 40,000 | RY |
-| Dependency matrix export axis | 5,000 | RY's tested size (research §4.3) |
-| Traversal depth (`->`) | 4 | ours (`02` §5.1) |
-| Requirements per rename | 2,000 | ours (`RD-054`) |
-| Documents rewritten per rename | 1,000 | ours (`RD-054`) |
-| Rules per requirement type | 40 | ours |
-| Types applying to one document | 20 | RY |
-| Import rows per file | 5,000 | ours — RY's docs conflict (2,000 vs 12,000) |
+| Limit | Id | Default | Override | Source |
+|---|---|---|---|---|
+| Requirements per space | `requirementsPerSpace` | 12,000 | any | RY global limit (research §6.7) |
+| Requirements per baseline | `requirementsPerBaseline` | 12,000 | any | RY |
+| Requirements per document | `requirementsPerDocument` | 400 | any | RY |
+| Requirements per document (warning) | `requirementsPerDocumentWarning` | 150 | any | RY |
+| Diff rows (interactive) | `diffRows` | 600 | lower-only | RY |
+| Requirements compared interactively | `diffInteractiveMax` | 2,000 | lower-only | ours (`05` §5.4) |
+| Matrix page size | `matrixPageSizeMax` | 600 | lower-only | RY (100 is the default page) |
+| Dependency matrix web cells | `dependencyMatrixCells` | 40,000 | lower-only | RY |
+| Dependency matrix export axis | `dependencyExportAxis` | 5,000 | lower-only | RY's tested size (research §4.3) |
+| Traversal depth (->) | `traversalDepth` | 4 | fixed | ours (`02` §5.1) |
+| Requirements per rename | `renameRequirements` | 2,000 | any | ours (`RD-054`) |
+| Documents rewritten per rename | `renameDocuments` | 1,000 | any | ours (`RD-054`) |
+| Rules per requirement type | `rulesPerType` | 40 | any | ours |
+| Types applying to one document | `typesPerDocument` | 20 | any | RY |
+| Import rows per file | `importRows` | 5,000 | fixed | ours — RY's docs conflict (2,000 vs 12,000) |
 
 Exceeding a hard limit is an error with the limit named in the message. Exceeding a
 warning threshold is a diagnostic, not a block.
+
+- **Where values come from (`RD-071`):**
+  - the spec default above;
+  - then the installation's `REQFORGE_LIMITS` environment variable, a JSON object of ids to
+    numbers;
+  - then the space's overrides, which only an instance administrator sets, on
+    `/admin/limits`, audited.
+- **Override classes:**
+  - `any` limits move either way;
+  - `lower-only` limits guard a code path sized for the default, such as the compiler's
+    600-row page and the 200 × 200 grid, so they may be tightened but never raised;
+  - `fixed` limits are part of a contract that needs a decision-log entry to change.
+  - A warning threshold must stay below its hard limit.
+- **The error:** `LimitExceededError`, `422`, code `LIMIT_EXCEEDED`. Its message reads
+  `"<Limit>" limit exceeded: <what>; the limit is <n>.` The problem details carry
+  `limitName` (the id), `limit` and `actual`.
+- **Where each document and space limit is checked (`RD-072`):**
+  - Requirements per document and types per document are checked on save and reindex,
+    **before anything is written**. The save is refused, and the editor keeps the unsaved
+    content.
+  - Crossing the warning threshold saves normally, with a `DOCUMENT_LARGE` warning.
+  - Requirements per space is checked inside the save's transaction. Only a save that
+    *adds* live requirements is refused, so a space already over a lowered limit can still
+    be edited and shrunk.
 
 ## 5. Performance budget
 
@@ -152,6 +178,23 @@ RY's stated cost at 50,000 requirements is ~20 ms per requirement on save and on
 | Freeze 5,000 requirements | < 60 s, streaming |
 
 CI fails on a >25% regression against the recorded baseline for any of these.
+
+How it is measured (`RD-073`):
+
+- **Fixture.** `tests/perf/scale-fixture.ts` builds 50,000 live requirements in five
+  spaces of 10,000, with ~10 properties and ~3 dependencies each, in documents of 100, two
+  of them restricted per space.
+- **Method.**
+  - Each operation is measured through its use case, as the perf user.
+  - Budgets are judged on p95.
+  - The regression is judged on the median against the recorded baseline's median. p95
+    moves too much between identical runs to hold a 25% line.
+- **Running it.**
+  - `pnpm perf` builds or reuses the fixture, measures and gates. It is not part of
+    `pnpm verify`, and CI runs it as its own job.
+  - `pnpm perf:record` records the current environment's baseline in
+    `tests/perf/baseline.json`, keyed by `PERF_ENV`, default `local`. An environment with no
+    baseline is gated on the budgets alone.
 
 ## 6. Auditability
 

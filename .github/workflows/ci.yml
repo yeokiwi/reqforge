@@ -75,3 +75,48 @@ jobs:
       - run: pnpm db:seed
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
+
+  # spec 07 §5 — the performance budgets, and >25% against the recorded baseline (RD-073).
+  # Its own job so nothing else shares the database while it measures. The first run on a
+  # runner type has no "github-actions" baseline and gates on the budgets only; commit the
+  # uploaded perf-results.json medians with `PERF_ENV=github-actions pnpm perf:record`.
+  perf:
+    runs-on: ubuntu-latest
+    needs: verify
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reqforge
+          POSTGRES_PASSWORD: reqforge
+          POSTGRES_DB: reqforge
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reqforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://reqforge:reqforge@localhost:5432/reqforge?schema=public
+      SESSION_SECRET: ci-session-secret-ci-session-secret
+      PERF_ENV: github-actions
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm exec prisma migrate deploy
+      - run: pnpm perf
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf-results.json
+          if-no-files-found: ignore

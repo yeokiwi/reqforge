@@ -1,4 +1,4 @@
-import type { Space, SpacePermission } from '@prisma/client';
+import { Prisma, type Space, type SpacePermission } from '@prisma/client';
 import { prisma } from './client';
 import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
 import { documentVisibility, requirementVisibility, type Viewer } from './visibility';
@@ -97,4 +97,16 @@ export async function setHistorySettings(
     where: { id: spaceId },
     data: { historyEnabled: input.enabled, historyRetentionDays: input.retentionDays },
   });
+}
+
+/** spec 07 §4 — per-space overrides; validated by the caller against `resolveLimits`. */
+export async function setSpaceLimits(spaceId: string, overrides: Readonly<Record<string, number>>): Promise<void> {
+  await prisma.space.update({
+    where: { id: spaceId },
+    data: { limits: Object.keys(overrides).length > 0 ? { ...overrides } : Prisma.DbNull },
+  });
+}
+
+export async function listAllSpaces(): Promise<Array<Pick<Space, 'id' | 'key' | 'name' | 'limits'>>> {
+  return prisma.space.findMany({ orderBy: { key: 'asc' }, select: { id: true, key: true, name: true, limits: true } });
 }

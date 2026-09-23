@@ -954,3 +954,127 @@ it writes.
 - The job runs as the person who queued it, and their rights are checked again when it
   runs, as every job here does.
 - It emits the same webhook events a save does.
+
+### RD-071 — One limits registry: installation defaults, per-space overrides, one named error
+**accepted.** Spec `07` §4 says limits are "configured per installation with per-space
+overrides" and that a hard limit is "an error with the limit named in the message". Before
+slice 18, three limits were not enforced, none could be configured, and five different error
+shapes were in use.
+
+- **One registry.** `src/domain/limits.ts` holds every limit of the §4 table, with its
+  label, default, kind (hard or warning), override class and source. A unit test parses the
+  §4 table and fails if the registry and the spec disagree.
+- **Layers.**
+  - Values start from the spec defaults.
+  - Next come the installation's `REQFORGE_LIMITS` environment variable, a JSON object of
+    ids to numbers.
+  - Last come the space's overrides in `Space.limits`.
+  - A malformed or unknown entry is refused loudly rather than ignored: a mistyped name
+    silently doing nothing is how a limit gets lost.
+- **Override classes.**
+  - `any` limits move either way.
+  - `lower-only` limits guard a code path sized for the default, so they may be tightened
+    but never raised: the compiler caps a page at 600, the grid is 200 × 200, and the
+    interactive diff is bounded.
+  - `fixed` limits are contracts: traversal depth (`RD-021`), and import rows until import
+    exists.
+  - A warning threshold must stay below its hard limit.
+- **Who sets them.** Only an instance administrator, from a session, on `/admin/limits`,
+  and every change is audited (`limits.update`, before and after). A space administrator
+  raising their own space's limit would defeat having one.
+- **One error.** Every hard limit throws `LimitExceededError` (422, `LIMIT_EXCEEDED`).
+  - Its message reads `"<Label>" limit exceeded: <what>; the limit is <n>.`
+  - The problem details carry `limitName`, `limit` and `actual`, so the API reports it the
+    same way.
+  - The dependency grid's refusal stays a value the screen renders next to its Export
+    button, but it now names the limit and reads the resolved value.
+- **A spec row added.** "Requirements compared interactively" (2,000) was enforced by
+  spec `05` §5.4 but missing from `07` §4, so the registry could not name it. It is now a
+  row. The "matrix page size 100 default, 600 max" row became the limit (600), with the
+  default page noted.
+
+### RD-072 — Document and space limits refuse the save; the warning is a diagnostic
+**accepted.** Spec `07` §4 lists requirements per space (12,000), per document (400 hard,
+150 warning) and types per document (20), but not *where* a save meets them.
+
+- **Per document and types per document.** These are checked by the save and reindex use
+  cases on the index result, **before anything is written**.
+  - Over the limit, the save is refused with the named error and no version is written.
+  - The editor keeps the unsaved content and shows the message.
+  - Types are the distinct non-null `typeId`s of the document's requirements.
+- **Warning.** Above 150 the save goes ahead with a `DOCUMENT_LARGE` warning diagnostic,
+  stored and shown like any other ("a diagnostic, not a block").
+- **Per space.** This is checked inside the save's transaction, after the rows are written,
+  so it counts what the save actually did.
+  - Only a save that *grows* the live set (created + revived − removed > 0) is refused, and
+    the throw rolls back the version too.
+  - A space already over a lowered limit can therefore still be edited and shrunk; refusing
+    every save there would leave no way back under the limit.
+- **Unchanged.** The check is a pure function (`checkDocumentLimits`) over the indexer's
+  output, applied by the use case. The indexer contract (document → requirements) is
+  unchanged. The one addition is the `DOCUMENT_LARGE` code, which is output of the limit
+  check, not of the indexer.
+- **Editor fix.** The editor used to hide every refused save behind "Unsaved changes": the
+  document stays dirty, and dirty outranked the status. A refusal now outranks it until the
+  next edit, so a named limit reaches the author.
+
+### RD-073 — The performance fixture, the statistics, and the regression gate
+**accepted.** Spec `07` §5 gives six budgets "measured on the fixture dataset in CI" and
+says "CI fails on a >25% regression against the recorded baseline". It names neither the
+fixture nor the statistic of the regression.
+
+- **Fixture.** Five spaces of 10,000 live requirements, 50,000 in all: the scale research
+  §6.7 states RY's cost at, with each space inside the 12,000 limit.
+  - Each requirement has about 10 properties and 3 dependencies, within RY's stated
+    expectations.
+  - Documents hold 100 requirements, and two per space are restricted so rule X3 has gates
+    to evaluate.
+  - The fixture is built in set-based SQL in about 25 s.
+  - It is reused while its version marker matches, and rebuilt with `PERF_FRESH=1`.
+- **Measurement.**
+  - Each operation is measured through its **use case**, so authorisation, the visibility
+    predicate and type loading are inside the number.
+  - Runs: 5 warm-ups then 30 measured runs; 20 for indexing and coverage; one freeze of
+    5,000.
+  - Before measuring, the previous run's deletions are vacuumed. Left to autovacuum, they
+    landed mid-run and moved a median by 70%.
+- **Statistics.** Budgets are judged on **p95**, as the spec states them. The >25%
+  regression is judged on the **median** against the recorded baseline's median.
+  - A p95 of 30 runs is one or two GC pauses. Between identical runs it moved by up to 40%,
+    which a 25% line cannot hold.
+  - The median moved by under 10%.
+- **Baselines.** They are committed in `tests/perf/baseline.json`, keyed by environment
+  (`PERF_ENV`), because a time from one machine says nothing about another.
+  - With no baseline for an environment, only the budgets apply.
+  - `pnpm perf:record` records one.
+  - The `local` baseline comes from this project's development container. CI runs as
+    `github-actions`: a separate job, with nothing else on the database, uploading
+    `perf-results.json`.
+- **Outside `pnpm verify`.** A budget measured while forty other test files share the
+  database measures them too.
+- **What the first measurement found, and what changed.** Three budgets failed on the
+  fixture: indexing 367 ms, simple search 335 ms, traversal 630 ms.
+  1. *Prepared-statement plans.* After five executions Postgres may switch a prepared
+     statement to a generic plan, built without its values. RQL's selectivity is all in
+     the values, and the generic plan was 2.3× slower. Compiled RQL now runs with
+     `SET LOCAL plan_cache_mode = force_custom_plan`.
+  2. *The space scope.* `spaceKey = 'SJ'` compiled to a semi-join on `"Space"`, through
+     which the planner assumes an average-sized space: about 12 rows in a database with
+     many small spaces. A caller that already holds the space passes it as
+     `knownSpaces`, and the predicate compiles to `"spaceId" = $id`. It returns the same
+     rows, which a corpus test checks for six scope shapes and two readers.
+  3. *A property index* on `("requirementId", "searchName", value)`, so a traversal's
+     per-edge property check is one probe.
+  4. *Set-based writes in `applyIndexResult`.* It wrote one `UPDATE` or `INSERT` per
+     requirement: 134 round trips for a 100-requirement save. It now issues one
+     `UPDATE … FROM unnest(…)` and one `createManyAndReturn`, 26 round trips.
+- **Result, as medians.** Indexing 111 ms, simple search 55 ms, traversal 264 ms, matrix
+  page 30 ms, coverage over 5,000 111 ms, freeze of 5,000 10.5 s. Every p95 is inside its
+  budget.
+- **Rejected.** Compiling `status = 'ACTIVE'` to the enum column gave the planner accurate
+  estimates. It then chose hash joins that made the traversal 2× slower, so the text form
+  stays.
+- **Also fixed.** Slice 17 added `id` to the search ordering (`RD-068`). That had stopped
+  the planner reading the live-key index in order; it scanned and sorted all matches
+  before `LIMIT`. With the space id known it reads the index in order again, and a page
+  costs 3 ms instead of 72 ms.

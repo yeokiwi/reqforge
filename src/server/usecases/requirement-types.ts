@@ -1,8 +1,9 @@
+import { DEFAULT_LIMITS, limitExceeded } from '@/domain/limits';
+import { limitsOf } from '@/server/limits';
 import { ConflictError, NotFoundError, ValidationError } from '@/domain/errors';
 import { parsePattern } from '@/domain/keys/pattern';
 import {
   compilePattern,
-  MAX_RULES_PER_TYPE,
   parseRule,
   parseTemplateColumns,
   type Rule,
@@ -101,7 +102,7 @@ function cleanType(form: {
   preventReusingDeletedKeys: unknown;
   rules: unknown;
   templateColumns: unknown;
-}): TypeInput {
+}, maxRules: number = DEFAULT_LIMITS.rulesPerType): TypeInput {
   const keyPattern = typeof form.keyPattern === 'string' ? form.keyPattern.trim() : '';
   const parsed = parsePattern(keyPattern);
   if (!parsed.ok) throw new ValidationError(`That key pattern is not usable: ${parsed.message}`);
@@ -123,8 +124,8 @@ function cleanType(form: {
     : [];
 
   // spec 06 §2.3 — the limit is named in the message (spec 07 §4).
-  if (rules.length > MAX_RULES_PER_TYPE) {
-    throw new ValidationError(`A type may have at most ${MAX_RULES_PER_TYPE} rules; this one has ${rules.length}.`);
+  if (rules.length > maxRules) {
+    throw limitExceeded('rulesPerType', maxRules, rules.length, `this type has ${rules.length} rules`);
   }
 
   return {
@@ -140,7 +141,7 @@ function cleanType(form: {
 
 export async function createTypeUseCase(spaceKey: string, form: Parameters<typeof cleanType>[0]) {
   const { space, user } = await requireSpace(spaceKey, 'ADMIN');
-  const input = cleanType(form);
+  const input = cleanType(form, limitsOf(space).rulesPerType);
 
   const existing = await listTypesWithRules(space.id);
   if (existing.some((type) => type.keyPattern === input.keyPattern)) {
@@ -161,7 +162,7 @@ export async function createTypeUseCase(spaceKey: string, form: Parameters<typeo
 
 export async function updateTypeUseCase(spaceKey: string, typeId: string, form: Parameters<typeof cleanType>[0]) {
   const { space, user } = await requireSpace(spaceKey, 'ADMIN');
-  const input = cleanType(form);
+  const input = cleanType(form, limitsOf(space).rulesPerType);
 
   const current = await findTypeWithRules(space.id, typeId);
   if (!current) throw new NotFoundError('That requirement type no longer exists.');

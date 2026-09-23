@@ -270,6 +270,7 @@ describe('renaming (spec 03 §5)', () => {
 
   it('refuses a batch beyond the limit (RD-054)', async () => {
     const pairs = Array.from({ length: 2_001 }, (_, index) => ({ from: `A-${index}`, to: `B-${index}` }));
-    await expect(rename(pairs)).rejects.toThrow(/at most 2,000/);
+    // spec 07 §4 — the named limit error (RD-071).
+    await expect(rename(pairs)).rejects.toThrow(/"Requirements per rename" limit exceeded: .*the limit is 2,000/);
   });
 });

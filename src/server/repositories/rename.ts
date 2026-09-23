@@ -1,10 +1,11 @@
 import { Prisma } from '@prisma/client';
-import { ConflictError, NotFoundError, ValidationError } from '@/domain/errors';
+import { ConflictError, NotFoundError } from '@/domain/errors';
 import { rewriteKeys } from '@/domain/doc/rewrite-keys';
 import type { PMNode } from '@/domain/doc';
 import { indexDocumentVersion } from '@/domain/indexer';
 import { buildMapping, RENAME_MAX_DOCUMENTS, RENAME_MAX_REQUIREMENTS } from '@/domain/keys/rename';
 import { upperKey } from '@/domain/keys/validate';
+import { limitExceeded } from '@/domain/limits';
 import { rewriteKeyLiterals } from '@/domain/ryql/rewrite';
 import { recordAuditEventIn } from './audit';
 import { emitEvents } from './webhooks';
@@ -53,6 +54,9 @@ export type RenameInput = {
   jobId?: string;
   pairs: readonly RenamePair[];
   historyEnabled?: boolean;
+  /** spec 07 §4 — the space's resolved rename limits; the spec defaults when absent. */
+  maxRequirements?: number;
+  maxDocuments?: number;
 };
 
 /** Thrown to unwind the transaction on cancellation; never surfaces to the caller. */
@@ -79,10 +83,9 @@ export async function renameRequirements(
   hooks: RenameHooks = {},
 ): Promise<RenameSummary> {
   if (input.pairs.length === 0) return emptySummary();
-  if (input.pairs.length > RENAME_MAX_REQUIREMENTS) {
-    throw new ValidationError(
-      `A rename covers at most ${RENAME_MAX_REQUIREMENTS.toLocaleString()} requirements at a time; this one covers ${input.pairs.length.toLocaleString()}.`,
-    );
+  const maxRequirements = input.maxRequirements ?? RENAME_MAX_REQUIREMENTS;
+  if (input.pairs.length > maxRequirements) {
+    throw limitExceeded('renameRequirements', maxRequirements, input.pairs.length, `this rename covers ${input.pairs.length.toLocaleString('en-US')} requirements`);
   }
 
   try {
@@ -352,10 +355,9 @@ async function rewriteDocuments(
     for (const row of mentions) documentIds.add(row.id);
   }
 
-  if (documentIds.size > RENAME_MAX_DOCUMENTS) {
-    throw new ValidationError(
-      `A rename rewrites at most ${RENAME_MAX_DOCUMENTS.toLocaleString()} documents at a time; this one reaches ${documentIds.size.toLocaleString()}.`,
-    );
+  const maxDocuments = input.maxDocuments ?? RENAME_MAX_DOCUMENTS;
+  if (documentIds.size > maxDocuments) {
+    throw limitExceeded('renameDocuments', maxDocuments, documentIds.size, `this rename reaches ${documentIds.size.toLocaleString('en-US')} documents`);
   }
 
   const pairs = plan.map((step) => ({ from: step.from, to: step.to }));

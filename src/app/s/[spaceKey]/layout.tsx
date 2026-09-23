@@ -56,6 +56,7 @@ export default async function SpaceLayout({
         { href: '/admin/properties', label: 'External properties' },
         { href: '/admin/groups', label: 'Groups' },
         { href: '/admin/classifications', label: 'Labels' },
+        { href: '/admin/limits', label: 'Limits' },
       ]
     : [];
 

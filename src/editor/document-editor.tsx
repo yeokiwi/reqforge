@@ -52,6 +52,7 @@ export function DocumentEditor({
   const [status, setStatus] = useState<string>(`Version ${currentVersion}`);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>(initialDiagnostics);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [focusSignal, setFocusSignal] = useState(0);
   const [reportCount, setReportCount] = useState(0);
@@ -69,6 +70,7 @@ export function DocumentEditor({
     immediatelyRender: false,
     onUpdate: ({ editor: current }) => {
       setDirty(true);
+      setSaveError(null);
       // spec 04 §5 — RY's docs name more than five reports on a page as a common cause
       // of slow pages, so the editor says so before the document gets there.
       let reports = 0;
@@ -86,9 +88,12 @@ export function DocumentEditor({
     const result = await onSave(documentId, JSON.stringify(editor.getJSON()));
     setSaving(false);
     if ('error' in result) {
-      setStatus(result.error);
+      // The document stays dirty — nothing was saved — so the refusal must outrank
+      // "Unsaved changes" or it is never seen (spec 07 §4: a limit is named to the author).
+      setSaveError(result.error);
       return;
     }
+    setSaveError(null);
     setDirty(false);
     setDiagnostics(result.diagnostics);
     const { created, updated, deleted } = result.requirements;
@@ -135,8 +140,12 @@ export function DocumentEditor({
                     + Report
                   </button>
                 ) : null}
-                <span data-testid="editor-status" className="text-xs text-[var(--rf-muted)]">
-                  {dirty ? 'Unsaved changes' : status}
+                <span
+                  data-testid="editor-status"
+                  role={saveError ? 'alert' : undefined}
+                  className={saveError ? 'text-xs text-red-700' : 'text-xs text-[var(--rf-muted)]'}
+                >
+                  {saveError ?? (dirty ? 'Unsaved changes' : status)}
                 </span>
                 <button
                   type="button"

@@ -45,16 +45,23 @@ export function cellKey(fromKey: string, toKey: string): string {
  * offers the export instead." The refusal is a value, not an exception: the screen shows
  * it next to an Export button.
  */
-export function capRefusalFor(population: number): CapRefusal | null {
-  if (population <= AXIS_CAP) return null;
+export function capRefusalFor(population: number, cellCap: number = CELL_CAP): CapRefusal | null {
+  // spec 07 §4 — the limit is stated in cells; the grid is square, so its axis is the root.
+  const axisCap = axisCapFor(cellCap);
+  if (population <= axisCap) return null;
   return {
     refused: true,
     reason: 'over-cap',
     population,
-    axisCap: AXIS_CAP,
-    cellCap: CELL_CAP,
-    message: `That query matches ${population} requirements, which would be ${population * population} cells. The grid is capped at ${CELL_CAP} (${AXIS_CAP} × ${AXIS_CAP}). Narrow the query, or export the full matrix.`,
+    axisCap,
+    cellCap,
+    message: `"Dependency matrix web cells" limit: that query matches ${population} requirements, which would be ${population * population} cells. The grid is capped at ${cellCap} (${axisCap} × ${axisCap}). Narrow the query, or export the full matrix.`,
   };
+}
+
+/** The largest square axis inside a cell budget: 40,000 cells is 200 × 200. */
+export function axisCapFor(cellCap: number): number {
+  return Math.floor(Math.sqrt(cellCap));
 }
 
 export function emptyQueryRefusal(): CapRefusal {

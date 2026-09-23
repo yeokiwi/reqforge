@@ -17,7 +17,9 @@ export type DiagnosticCode =
   // RD-041 — spec 06 §4's fix table names PROPERTY_NOT_IN_VALUES, and a failing
   // PROPERTY_MATCHES rule had no code at all. Both are errors (spec 06 §2.1).
   | 'PROPERTY_NOT_IN_VALUES'
-  | 'PROPERTY_DOES_NOT_MATCH';
+  | 'PROPERTY_DOES_NOT_MATCH'
+  // spec 07 §4 — "Exceeding a warning threshold is a diagnostic, not a block." RD-072.
+  | 'DOCUMENT_LARGE';
 
 export type DiagnosticSeverity = 'error' | 'warning';
 

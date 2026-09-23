@@ -40,6 +40,8 @@ import { createDocument } from '@/server/repositories/documents';
 import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { enqueueJob, findJob } from '@/server/repositories/jobs';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
+import { limitExceeded } from '@/domain/limits';
+import { limitsOf } from '@/server/limits';
 import { findDocument } from '@/server/repositories/documents';
 
 /**
@@ -71,6 +73,20 @@ export type PreviewFailure = { ok: false; errors: RqlDiagnostic[] };
  * The draft preview and the freeze share this, so what you see before pressing Freeze is
  * what gets frozen.
  */
+/** spec 07 §4 — the size refusal is the named limit error; the empty one stays a validation. */
+function refuseUnlessFreezeable(checked: ReturnType<typeof checkFreezeable>): void {
+  if (checked.ok) return;
+  if (checked.overLimit) {
+    throw limitExceeded(
+      'requirementsPerBaseline',
+      checked.overLimit.limit,
+      checked.overLimit.actual,
+      `that query selects more than ${checked.overLimit.limit.toLocaleString('en-US')} requirements`,
+    );
+  }
+  throw new ValidationError(checked.message);
+}
+
 export async function resolveMembers(input: {
   spaceId: string;
   spaceKey: string;
@@ -78,6 +94,8 @@ export async function resolveMembers(input: {
   userId: string;
   query: string;
   includeParentDependencies: boolean;
+  /** spec 07 §4 — the space's "requirements per baseline"; resolution stops one past it. */
+  maxMembers?: number;
 }): Promise<PreviewSuccess | PreviewFailure> {
   const query = input.query.trim();
   if (query.length === 0) {
@@ -107,10 +125,15 @@ export async function resolveMembers(input: {
 
   // Resolved under the visibility predicate: a baseline can only hold what the person
   // freezing it could have listed for themselves (rule X3).
-  const ids = await runSearchIds(analysed.query.expr, {
-    visibility: visibilityPredicate(input.userId, await groupIdsOf(input.userId)),
-    externalTypes,
-  });
+  const ids = await runSearchIds(
+    analysed.query.expr,
+    {
+      visibility: visibilityPredicate(input.userId, await groupIdsOf(input.userId)),
+      externalTypes,
+      knownSpaces: { [input.spaceKey]: input.spaceId },
+    },
+    input.maxMembers === undefined ? undefined : input.maxMembers + 1,
+  );
 
   const seeds = await upperKeysOf(ids);
 
@@ -173,6 +196,7 @@ export async function previewUseCase(input: {
     userId: user.id,
     query: input.query,
     includeParentDependencies: input.includeParentDependencies,
+    maxMembers: limitsOf(space).requirementsPerBaseline,
   });
 }
 
@@ -298,13 +322,13 @@ export async function freezeUseCase(input: { spaceKey: string; id: string }) {
     userId: user.id,
     query: baseline.sourceQuery,
     includeParentDependencies: baseline.includedDependencies,
+    maxMembers: limitsOf(space).requirementsPerBaseline,
   });
   if (!members.ok) {
     throw new ValidationError(`That baseline's query no longer runs: ${members.errors[0]?.message ?? ''}`);
   }
 
-  const checked = checkFreezeable(members.preview.keys);
-  if (!checked.ok) throw new ValidationError(checked.message);
+  refuseUnlessFreezeable(checkFreezeable(members.preview.keys, limitsOf(space).requirementsPerBaseline));
 
   return enqueueFreeze({
     spaceId: space.id,
@@ -314,7 +338,7 @@ export async function freezeUseCase(input: { spaceKey: string; id: string }) {
     memberKeys: members.preview.keys,
     includedExternal: baseline.includedExternal,
     operation: 'freeze',
-    parameters: { number: baseline.number, members: checked.count, dangling: members.preview.danglingCount },
+    parameters: { number: baseline.number, members: members.preview.keys.length, dangling: members.preview.danglingCount },
   });
 }
 
@@ -369,13 +393,13 @@ export async function refreezeUseCase(input: { spaceKey: string; id: string; rea
     userId: user.id,
     query: newQuery ?? baseline.sourceQuery,
     includeParentDependencies: baseline.includedDependencies,
+    maxMembers: limitsOf(space).requirementsPerBaseline,
   });
   if (!members.ok) {
     throw new ValidationError(`That baseline's query no longer runs: ${members.errors[0]?.message ?? ''}`);
   }
 
-  const checked = checkFreezeable(members.preview.keys);
-  if (!checked.ok) throw new ValidationError(checked.message);
+  refuseUnlessFreezeable(checkFreezeable(members.preview.keys, limitsOf(space).requirementsPerBaseline));
 
   if (newQuery !== null && newQuery !== baseline.sourceQuery) {
     await setSourceQuery(baseline.id, newQuery);

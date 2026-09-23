@@ -106,7 +106,7 @@ describe('the dependency matrix export', () => {
           fetchPage: async () => page,
         },
       ),
-    ).rejects.toThrow(new RegExp(`${EXPORT_AXIS_CAP}`));
+    ).rejects.toThrow(new RegExp(`"Dependency matrix export axis" limit exceeded: .*the limit is ${EXPORT_AXIS_CAP.toLocaleString('en-US')}`));
   });
 
   it('stops on a cancel request', async () => {

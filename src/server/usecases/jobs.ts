@@ -1,3 +1,4 @@
+import { limitsOf } from '@/server/limits';
 import type { Job, Prisma } from '@prisma/client';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { parseMatrixConfig } from '@/domain/traceability/matrix';
@@ -73,6 +74,7 @@ export async function exportDependencyMatrixUseCase(input: {
       name: 'Dependency matrix',
       query,
       pageSize: 200,
+      axisCap: limitsOf(space).dependencyExportAxis,
     },
   });
   await auditExportQueued(job);

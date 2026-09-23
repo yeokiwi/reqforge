@@ -145,3 +145,20 @@ describe('the full query', () => {
     expect(() => compile(analysed("hasTest('%ok%')").expr, context)).toThrowError();
   });
 });
+
+describe('knownSpaces (RD-073)', () => {
+  const withKnown = { visibility: raw('TRUE'), knownSpaces: { SJ: 'space-sj-id' } };
+
+  it('compiles equality with a known space key to a parameterised id', () => {
+    const { text, params } = render(compilePredicate(parse("spaceKey = 'SJ'"), 'r', withKnown));
+    expect(text).toBe('(r."spaceId" = $1)');
+    expect(params).toEqual(['space-sj-id']);
+  });
+
+  it('leaves every other space predicate as the semi-join', () => {
+    for (const query of ["spaceKey = 'ISO'", "spaceKey ~ 'S%'", "spaceKey = 'sj'"]) {
+      expect(render(compilePredicate(parse(query), 'r', withKnown)).text).toContain('EXISTS (SELECT 1 FROM "Space" s');
+    }
+    expect(render(compilePredicate(parse("spaceKey = 'SJ'"), 'r', context)).text).toContain('EXISTS (SELECT 1 FROM "Space" s');
+  });
+});

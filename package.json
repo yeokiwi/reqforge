@@ -18,7 +18,9 @@
     "db:reset": "prisma migrate reset --force --skip-seed && pnpm db:seed",
     "setup": "pnpm install && prisma generate && prisma migrate deploy && pnpm db:seed",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && prisma validate",
-    "worker": "tsx scripts/worker.ts"
+    "worker": "tsx scripts/worker.ts",
+    "perf": "vitest run -c vitest.perf.config.ts && tsx scripts/perf-gate.ts",
+    "perf:record": "vitest run -c vitest.perf.config.ts && tsx scripts/perf-gate.ts --record"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

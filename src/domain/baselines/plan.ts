@@ -106,7 +106,12 @@ export function partitionDependencies(edges: readonly Edge[], memberKeys: readon
   return { internal, dangling };
 }
 
-export type FreezeRefusal = { ok: false; message: string };
+export type FreezeRefusal = {
+  ok: false;
+  message: string;
+  /** Set when the refusal is the baseline-size limit (spec 07 §4), so it can be named. */
+  overLimit?: { limit: number; actual: number };
+};
 export type FreezeCheck = { ok: true; count: number } | FreezeRefusal;
 
 /**
@@ -121,9 +126,12 @@ export function checkFreezeable(memberKeys: readonly string[], limit = MAX_MEMBE
     };
   }
   if (memberKeys.length > limit) {
+    // Member resolution stops at limit + 1, so "more than" is all that is known — and all
+    // that matters.
     return {
       ok: false,
-      message: `That query selects ${memberKeys.length} requirements; a baseline may hold at most ${limit}.`,
+      message: `That query selects more than ${limit} requirements; a baseline may hold at most ${limit}.`,
+      overLimit: { limit, actual: memberKeys.length },
     };
   }
   return { ok: true, count: memberKeys.length };

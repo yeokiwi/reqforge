@@ -122,7 +122,8 @@ describe('checkFreezeable (spec 05 §3.2 step 1)', () => {
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.message).toContain('at most 10');
-      expect(outcome.message).toContain('11 requirements');
+      expect(outcome.message).toContain('more than 10 requirements');
+      expect(outcome.overLimit).toEqual({ limit: 10, actual: 11 });
     }
   });
 

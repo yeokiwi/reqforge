@@ -1,3 +1,4 @@
+import { limitsForSpaceId } from '@/server/limits';
 import type { Job } from '@prisma/client';
 import { effectivePermissions, findSpaceById, findSpaceByKey } from '@/server/repositories/spaces';
 import { runMatrixForUser } from '@/server/usecases/matrix';
@@ -232,6 +233,11 @@ import { findSpaceById as findSpaceForRename } from '@/server/repositories/space
 let registered = false;
 
 /** Idempotent: both the web process and `pnpm worker` call this before running anything. */
+async function renameLimits(spaceId: string): Promise<{ maxRequirements: number; maxDocuments: number }> {
+  const limits = await limitsForSpaceId(spaceId);
+  return { maxRequirements: limits.renameRequirements, maxDocuments: limits.renameDocuments };
+}
+
 export function registerJobHandlers(): void {
   if (registered) return;
   registerJobHandler<ExportMatrixPayload>('export-matrix', exportMatrixHandler, matrixPageSource);
@@ -302,6 +308,8 @@ export function registerJobHandlers(): void {
             jobId,
             pairs: payload.pairs,
             historyEnabled: space?.historyEnabled ?? false,
+            // Resolved when the job runs: a limit lowered since it was queued still applies.
+            ...(await renameLimits(payload.spaceId)),
           },
           hooks,
         );

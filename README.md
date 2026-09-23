@@ -41,11 +41,12 @@ the documents themselves.
 | 15 | Single and batch rename with the live prefix/middle/suffix transform, propagation into documents and saved queries, the transactional job, the `renamedFrom` chain |
 | 16 | Document restrictions inherited down the tree, rule X4 on baselines, the X3 architecture rule, ordered classification labels on every export, permission and group administration, the audit log |
 | 17 | `/api/v1` over every use case, scoped API tokens, OpenAPI 3.1 generated from the routes, keyset cursors, jobs endpoints, HMAC-signed webhooks with an outbox, retries and a dead-letter view |
+| 18 | Every limit of spec 07 §4 in one registry, configurable per installation and per space, refused with the limit named; the 50,000-requirement fixture, the six budgets measured through the use cases, the >25% regression gate |
 
-Not built yet: performance and limits (slice 18).
+All eighteen slices of the plan are built. The backlog (Word and Excel import, ReqIF, the GitHub and Jira integrations, test sessions, variants) is in `PLAN.md`, phase 7.
 
-Known gaps inside what is built, each waiting on the slice that owns it:
-computed columns (`RD-004`) come after coverage; `public-link` matrix visibility is
+Known gaps inside what is built, which no slice of the plan schedules:
+computed matrix columns (`RD-004`; coverage percentages are built); `public-link` matrix visibility is
 deferred (`RD-030`: a public link has no reader for rule X3 to filter by); a link's `displayProperty` is stored but
 not yet rendered live.
 
@@ -70,6 +71,25 @@ curl http://localhost:3000/api/v1/openapi.json   # the full surface, generated f
 Webhooks are managed per space under **Admin → Webhooks**. Payloads carry identifiers
 only (`RD-066`). Verify `X-Reqforge-Signature` as
 `v1=hex(HMAC-SHA256(secret, X-Reqforge-Timestamp + "." + body))`.
+
+## Limits and performance
+
+Limits (spec 07 §4) default to the spec's numbers. An installation changes them with
+`REQFORGE_LIMITS`, a JSON object of limit ids to numbers, and an instance administrator
+overrides them per space on **Admin → Limits**. Going over a hard limit is refused with the
+limit named.
+
+```bash
+REQFORGE_LIMITS='{"requirementsPerSpace": 20000}' pnpm start
+```
+
+The performance budgets (spec 07 §5) run on their own, on a 50,000-requirement fixture that
+is built on first use (about 25 s) and then reused:
+
+```bash
+pnpm perf           # measure, then fail on a blown budget or a >25% regression
+pnpm perf:record    # record this machine's baseline (PERF_ENV, default "local")
+```
 
 ## Background jobs
 

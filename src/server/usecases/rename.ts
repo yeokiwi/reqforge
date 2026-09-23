@@ -4,11 +4,12 @@ import {
   decompose,
   planRename,
   previewRows,
-  RENAME_MAX_REQUIREMENTS,
   type RenamePlan,
   type RenameRow,
 } from '@/domain/keys/rename';
 import { requireSpace } from '@/server/authz';
+import { limitExceeded } from '@/domain/limits';
+import { limitsOf } from '@/server/limits';
 import { registerJobHandlers } from '@/server/jobs/register';
 import { jobsRunInline, runJobNow } from '@/server/jobs/runner';
 import { acknowledgeJob, enqueueJob, findJob } from '@/server/repositories/jobs';
@@ -34,15 +35,13 @@ export type RenamePreview = {
   runnable: number;
 };
 
-function cleanKeys(input: unknown): string[] {
+function cleanKeys(input: unknown, max: number): string[] {
   if (!Array.isArray(input)) throw new ValidationError('Select the requirements to rename first.');
   const keys = input.filter((value): value is string => typeof value === 'string').map((value) => value.trim());
   const unique = [...new Set(keys.filter((key) => key.length > 0))];
   if (unique.length === 0) throw new ValidationError('Select the requirements to rename first.');
-  if (unique.length > RENAME_MAX_REQUIREMENTS) {
-    throw new ValidationError(
-      `A rename covers at most ${RENAME_MAX_REQUIREMENTS.toLocaleString()} requirements at a time; ${unique.length.toLocaleString()} are selected.`,
-    );
+  if (unique.length > max) {
+    throw limitExceeded('renameRequirements', max, unique.length, `${unique.length.toLocaleString('en-US')} requirements are selected`);
   }
   return unique;
 }
@@ -52,8 +51,8 @@ export async function renameSelectionUseCase(spaceKey: string, keys: unknown): P
   keys: string[];
   decomposition: { prefix: string; middles: string[]; suffix: string };
 }> {
-  await requireSpace(spaceKey, 'ADMIN');
-  const clean = cleanKeys(keys);
+  const { space } = await requireSpace(spaceKey, 'ADMIN');
+  const clean = cleanKeys(keys, limitsOf(space).renameRequirements);
   return { keys: clean, decomposition: decompose(clean) };
 }
 
@@ -67,7 +66,7 @@ export async function previewRenameUseCase(input: {
   pairs: unknown;
 }): Promise<RenamePreview> {
   const { space, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
-  const pairs = cleanPairs(input.pairs);
+  const pairs = cleanPairs(input.pairs, limitsOf(space).renameRequirements);
   await requireVisibleSources(viewer, space.id, pairs.map((pair) => pair.from));
 
   const plan = planRename({ pairs, lockedPatterns: await lockedPatternsOf(space.id) });
@@ -83,7 +82,7 @@ export async function previewRenameUseCase(input: {
   };
 }
 
-function cleanPairs(input: unknown): Array<{ from: string; to: string }> {
+function cleanPairs(input: unknown, max: number): Array<{ from: string; to: string }> {
   if (!Array.isArray(input)) throw new ValidationError('Nothing was selected to rename.');
   const pairs = input.flatMap((value) => {
     if (typeof value !== 'object' || value === null) return [];
@@ -93,10 +92,8 @@ function cleanPairs(input: unknown): Array<{ from: string; to: string }> {
     return trimmed.from.length > 0 ? [trimmed] : [];
   });
   if (pairs.length === 0) throw new ValidationError('Nothing was selected to rename.');
-  if (pairs.length > RENAME_MAX_REQUIREMENTS) {
-    throw new ValidationError(
-      `A rename covers at most ${RENAME_MAX_REQUIREMENTS.toLocaleString()} requirements at a time; this one covers ${pairs.length.toLocaleString()}.`,
-    );
+  if (pairs.length > max) {
+    throw limitExceeded('renameRequirements', max, pairs.length, `this rename covers ${pairs.length.toLocaleString('en-US')} requirements`);
   }
   return pairs;
 }
@@ -140,7 +137,7 @@ async function requireVisibleSources(viewer: Viewer, spaceId: string, keys: read
 /** spec 03 §5 — one job, one transaction, progress with cancel. */
 export async function startRenameUseCase(input: { spaceKey: string; pairs: unknown }): Promise<Job> {
   const { space, user, viewer } = await requireSpace(input.spaceKey, 'ADMIN');
-  const pairs = cleanPairs(input.pairs);
+  const pairs = cleanPairs(input.pairs, limitsOf(space).renameRequirements);
   // RD-063 — the *selection* is limited to what the renamer can see: a key they cannot see
   // is refused exactly as a key that does not exist. Propagation into documents they
   // cannot see still happens, because a stale link would otherwise break (RD-050).

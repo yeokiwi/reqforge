@@ -11,3 +11,4 @@ next-env.d.ts
 .env.local
 .DS_Store
 .storage/
+perf-results.json

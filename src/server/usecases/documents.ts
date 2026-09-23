@@ -2,6 +2,8 @@ import { isPMNode, type PMNode } from '@/domain/doc';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import { indexDocumentVersion, type Diagnostic } from '@/domain/indexer';
 import { templateDocument } from '@/domain/validation';
+import { checkDocumentLimits } from '@/domain/limits';
+import { limitsOf } from '@/server/limits';
 import { applyIndexResult, listDocumentDiagnostics } from '@/server/repositories/requirements';
 import { labelDocument } from './classification';
 import {
@@ -143,6 +145,9 @@ export async function saveDocumentUseCase(input: {
   // With their rules: validation runs on every save (spec 06 §2.2 trigger 1) from data
   // already in hand, so it costs no query per requirement.
   const { types, indexed } = await indexFor(space, content);
+  // spec 07 §4 / RD-072 — a document over its limits is refused before anything is written.
+  const limits = limitsOf(space);
+  withinDocumentLimits(indexed, limits);
 
   let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: indexed.diagnostics };
 
@@ -162,6 +167,7 @@ export async function saveDocumentUseCase(input: {
         result: indexed,
         types: types.map((type) => ({ id: type.id, rules: rulesOf(type) })),
         historyEnabled: space.historyEnabled,
+        maxRequirementsInSpace: limits.requirementsPerSpace,
       });
     },
   });
@@ -232,6 +238,19 @@ export async function documentVersion(spaceKey: string, documentId: string, numb
   return { document, version };
 }
 
+/**
+ * Throws the named limit error, or appends the warning diagnostic (spec 07 §4 — "Exceeding
+ * a warning threshold is a diagnostic, not a block"). The warning rides on the index
+ * result, so it is stored and shown like every other diagnostic.
+ */
+function withinDocumentLimits(indexed: { requirements: IndexResultRequirements; diagnostics: Diagnostic[] }, limits: ReturnType<typeof limitsOf>): void {
+  const { violation, warnings } = checkDocumentLimits(indexed, limits);
+  if (violation) throw violation;
+  indexed.diagnostics.push(...warnings);
+}
+
+type IndexResultRequirements = ReturnType<typeof indexDocumentVersion>['requirements'];
+
 async function indexFor(space: { id: string; key: string }, content: PMNode) {
   const types = await listTypesWithRules(space.id);
   const indexed = indexDocumentVersion({
@@ -274,9 +293,11 @@ export async function reindexDocumentUseCase(spaceKey: string, documentId: strin
 export async function runReindex(input: { spaceKey: string; documentId: string; actorId: string }) {
   return runWithPrincipal({ kind: 'session', user: await findUserOrThrow(input.actorId) }, async () => {
     const { space } = await requireEditableDocument(input.spaceKey, input.documentId);
+    const limits = limitsOf(space);
     let outcome = { created: [] as string[], updated: [] as string[], deleted: [] as string[], diagnostics: [] as Diagnostic[] };
     await reindexCurrentVersion(input.documentId, async (tx, version) => {
       const { types, indexed } = await indexFor(space, version.content as unknown as PMNode);
+      withinDocumentLimits(indexed, limits);
       outcome = await applyIndexResult(tx, {
         spaceId: space.id,
         spaceKey: space.key,
@@ -287,6 +308,7 @@ export async function runReindex(input: { spaceKey: string; documentId: string; 
         result: indexed,
         types: types.map((type) => ({ id: type.id, rules: rulesOf(type) })),
         historyEnabled: space.historyEnabled,
+        maxRequirementsInSpace: limits.requirementsPerSpace,
       });
     });
     return outcome;

@@ -137,7 +137,8 @@ export function parseMatrixColumns(value: unknown): MatrixColumn[] {
   return columns.length > 0 ? columns : [...DEFAULT_COLUMNS];
 }
 
-export function parseMatrixConfig(value: unknown): MatrixConfig {
+/** `maxPageSize` is the space's resolved "matrix page size" limit (spec 07 §4). */
+export function parseMatrixConfig(value: unknown, maxPageSize: number = PAGE_SIZE_MAX): MatrixConfig {
   const record = asRecord(value) ?? {};
   const pageSize =
     typeof record.pageSize === 'number' && Number.isFinite(record.pageSize)
@@ -147,7 +148,7 @@ export function parseMatrixConfig(value: unknown): MatrixConfig {
   return {
     query: asString(record.query) ?? '',
     columns: parseMatrixColumns(record.columns),
-    pageSize: Math.min(Math.max(pageSize, 1), PAGE_SIZE_MAX),
+    pageSize: Math.min(Math.max(pageSize, 1), maxPageSize),
     treeView: record.treeView === true,
   };
 }

@@ -15,7 +15,11 @@ import {
 
 let fixture: CoverageFixture;
 
-/** Coverage end to end, with no session in the way: population, counts, arithmetic. */
+/**
+ * Coverage end to end over 5,000 requirements, with no session in the way: population,
+ * counts, arithmetic. Its timing moved to the perf suite (`pnpm perf`, RD-073), which
+ * measures it through the use case on the scale fixture.
+ */
 async function coverage() {
   const analysed = parseAndAnalyse("key ~ '%'", { spaceKey: fixture.spaceKey, isolated: false });
   if (!analysed.ok) throw new Error('the fixture query does not parse');
@@ -62,20 +66,4 @@ describe('coverage at the size spec 07 §5 names', () => {
     // The synthetic row counts a requirement once however many relationships it has.
     expect(result.rows[0]).toMatchObject({ relationship: null, direction: 'to', covered: REFINES_COVERED });
   }, 120_000);
-
-  it.skipIf(process.env.SKIP_PERF === '1')('stays under 2 s at p95', async () => {
-    for (let warmup = 0; warmup < 2; warmup += 1) await coverage();
-
-    const timings: number[] = [];
-    for (let run = 0; run < 10; run += 1) {
-      const started = performance.now();
-      await coverage();
-      timings.push(performance.now() - started);
-    }
-
-    timings.sort((a, b) => a - b);
-    const measured = timings[Math.max(Math.ceil(timings.length * 0.95) - 1, 0)]!;
-    console.log(`  p95 ${measured.toFixed(1)}ms of 2000ms — coverage over ${COVERAGE_TOTAL} requirements`);
-    expect(measured).toBeLessThan(2000);
-  }, 300_000);
 });

@@ -61,6 +61,7 @@ export async function searchUseCase(options: SearchOptions): Promise<SearchSucce
       {
         visibility,
         externalTypes,
+        knownSpaces: { [space.key]: space.id },
         limit: options.limit ?? 100,
         offset: options.offset ?? 0,
         ...(options.after ? { after: options.after } : {}),

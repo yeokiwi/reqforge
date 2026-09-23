@@ -51,17 +51,14 @@ export async function runSearch(
 ): Promise<SearchOutcome> {
   const compiled = compile(expr, context);
 
-  const rows = await prisma.$queryRawUnsafe<SearchRow[]>(compiled.text, ...compiled.params);
   // RD-068 — the API pages by cursor and reports `hasMore`; a count can cost as much as the
   // search, so it is only run when a screen shows it.
-  if (options.count === false) return { rows, total: -1, sql: compiled.text };
-
-  const counted = await prisma.$queryRawUnsafe<Array<{ count: number }>>(
-    compiled.countText,
-    ...compiled.countParams,
-  );
-
-  return { rows, total: counted[0]?.count ?? 0, sql: compiled.text };
+  if (options.count === false) {
+    const [rows] = await withCustomPlans([compiled.text, compiled.params]);
+    return { rows: rows as SearchRow[], total: -1, sql: compiled.text };
+  }
+  const [rows, counted] = await withCustomPlans([compiled.text, compiled.params], [compiled.countText, compiled.countParams]);
+  return { rows: rows as SearchRow[], total: (counted as Array<{ count: number }>)[0]?.count ?? 0, sql: compiled.text };
 }
 
 /**
@@ -71,7 +68,7 @@ export async function runSearch(
  */
 export const POPULATION_MAX = 20_000;
 
-export async function runSearchIds(expr: Expr, context: CompileContext): Promise<string[]> {
+export async function runSearchIds(expr: Expr, context: CompileContext, max: number = POPULATION_MAX): Promise<string[]> {
   const where = compilePredicate(expr, 'r', context);
   const visibility = substituteAlias(context.visibility, 'r');
 
@@ -80,15 +77,28 @@ export async function runSearchIds(expr: Expr, context: CompileContext): Promise
     FROM "Requirement" r
     WHERE (${where}) AND (${visibility})
     ORDER BY r."upperKey" ASC
-    LIMIT ${param(POPULATION_MAX)}
+    LIMIT ${param(max)}
   `;
 
   const { text, params } = render(statement);
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(text, ...params);
-  return rows.map((row) => row.id);
+  const [rows] = await withCustomPlans([text, params]);
+  return (rows as Array<{ id: string }>).map((row) => row.id);
 }
 
-
+/**
+ * Runs compiled RQL with a plan made for *these* values. After five executions of a
+ * prepared statement Postgres may switch to a generic plan, built without the parameter
+ * values; for RQL, whose selectivity is all in the values (a space id, a property value),
+ * that plan was measured 2.3× slower on the 50,000-requirement fixture (spec 07 §5,
+ * RD-073). `SET LOCAL` confines the setting to this transaction.
+ */
+async function withCustomPlans(...statements: Array<readonly [string, readonly unknown[]]>): Promise<unknown[][]> {
+  const results = await prisma.$transaction([
+    prisma.$executeRawUnsafe('SET LOCAL plan_cache_mode = force_custom_plan'),
+    ...statements.map(([text, params]) => prisma.$queryRawUnsafe<unknown[]>(text, ...params)),
+  ]);
+  return results.slice(1) as unknown[][];
+}
 
 export async function listSavedSearches(spaceId: string, userId: string): Promise<SavedSearch[]> {
   return prisma.savedSearch.findMany({
@@ -136,3 +146,4 @@ export async function visibleRequirementIds(
   const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(text, ...params);
   return rows.map((row) => row.id);
 }
+

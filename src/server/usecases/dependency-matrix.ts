@@ -1,7 +1,8 @@
+import { limitsOf } from '@/server/limits';
 import { NotFoundError } from '@/domain/errors';
 import { parseAndAnalyse, type RqlDiagnostic } from '@/domain/ryql';
 import {
-  AXIS_CAP,
+  axisCapFor,
   buildGrid,
   capRefusalFor,
   emptyQueryRefusal,
@@ -38,6 +39,7 @@ export async function runDependencyMatrixUseCase(input: {
   query: unknown;
 }): Promise<GridResult> {
   const { space, user } = await requireSpace(input.spaceKey, 'EXPORT');
+  const limits = limitsOf(space);
   const query = typeof input.query === 'string' ? input.query.trim() : '';
 
   if (query.length === 0) return { ok: false, refusal: emptyQueryRefusal() };
@@ -58,11 +60,12 @@ export async function runDependencyMatrixUseCase(input: {
   const { rows, total } = await runSearch(analysed.query.expr, {
     visibility,
     externalTypes,
-    limit: AXIS_CAP,
+    knownSpaces: { [space.key]: space.id },
+    limit: axisCapFor(limits.dependencyMatrixCells),
     offset: 0,
   });
 
-  const refusal = capRefusalFor(total);
+  const refusal = capRefusalFor(total, limits.dependencyMatrixCells);
   if (refusal) return { ok: false, refusal };
 
   const ids = rows.map((row) => row.id);

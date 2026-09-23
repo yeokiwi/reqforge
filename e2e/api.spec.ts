@@ -17,7 +17,7 @@ async function signIn(page: Page, who: 'admin' | 'author') {
  */
 test('token, headless upload, webhook delivery, revoke', async ({ browser, playwright, baseURL }) => {
   const stamp = `${Date.now() % 100000}`;
-  const key = `API${stamp}-001`;
+  const keyOf = (n: number) => `API${stamp}-00${n}`;
 
   // --- the administrator subscribes a receiver that cannot be reached (`.invalid`, RFC 6761).
   const admin = await browser.newPage();
@@ -46,15 +46,6 @@ test('token, headless upload, webhook delivery, revoke', async ({ browser, playw
     extraHTTPHeaders: { Authorization: `Bearer ${token}` },
   });
 
-  const list = await ci.get('/api/v1/spaces/SJ/requirements', { params: { limit: '2' } });
-  expect(list.status()).toBe(200);
-  const page1 = (await list.json()) as { items: Array<{ key: string }>; hasMore: boolean; nextCursor: string | null };
-  expect(page1.items).toHaveLength(2);
-  expect(page1.hasMore).toBe(true);
-  const next = await ci.get('/api/v1/spaces/SJ/requirements', { params: { limit: '2', cursor: page1.nextCursor ?? '' } });
-  const page2 = (await next.json()) as { items: Array<{ key: string }> };
-  expect(page2.items[0]!.key > page1.items[1]!.key).toBe(true);
-
   // A space outside the token's list does not exist, as far as the token knows.
   expect((await ci.get('/api/v1/spaces/ISO/requirements')).status()).toBe(404);
 
@@ -67,7 +58,10 @@ test('token, headless upload, webhook delivery, revoke', async ({ browser, playw
       content: {
         type: 'doc',
         content: [
-          { type: 'paragraph', content: [{ type: 'text', text: 'The build shall pass. ' }, { type: 'requirement', attrs: { key, uid: `uid-${stamp}` } }] },
+          ...[1, 2, 3].map((n) => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text: `The build shall pass check ${n}. ` }, { type: 'requirement', attrs: { key: keyOf(n), uid: `uid-${stamp}-${n}` } }],
+          })),
           { type: 'paragraph', content: [{ type: 'text', text: 'Not a key. ' }, { type: 'requirement', attrs: { key: 'x', uid: `bad-${stamp}` } }] },
         ],
       },
@@ -76,12 +70,24 @@ test('token, headless upload, webhook delivery, revoke', async ({ browser, playw
   });
   expect(put.status()).toBe(200);
   const verdict = (await put.json()) as { valid: boolean; requirements: { created: number }; diagnostics: Array<{ code: string }> };
-  expect(verdict.requirements.created).toBe(1);
+  expect(verdict.requirements.created).toBe(3);
   expect(verdict.valid).toBe(false);
   expect(verdict.diagnostics.map((entry) => entry.code)).toContain('KEY_INVALID');
 
-  const one = await ci.get(`/api/v1/spaces/SJ/requirements/${key}`);
+  const one = await ci.get(`/api/v1/spaces/SJ/requirements/${keyOf(1)}`);
   expect(one.status()).toBe(200);
+
+  // Paging by cursor over what the upload made (spec 08 §1, RD-068).
+  const q = `key ~ 'API${stamp}-%'`;
+  const list = await ci.get('/api/v1/spaces/SJ/requirements', { params: { q, limit: '2' } });
+  expect(list.status()).toBe(200);
+  const page1 = (await list.json()) as { items: Array<{ key: string }>; hasMore: boolean; nextCursor: string | null };
+  expect(page1.items.map((item) => item.key)).toEqual([keyOf(1), keyOf(2)]);
+  expect(page1.hasMore).toBe(true);
+  const next = await ci.get('/api/v1/spaces/SJ/requirements', { params: { q, limit: '2', cursor: page1.nextCursor ?? '' } });
+  const page2 = (await next.json()) as { items: Array<{ key: string }>; hasMore: boolean };
+  expect(page2.items.map((item) => item.key)).toEqual([keyOf(3)]);
+  expect(page2.hasMore).toBe(false);
 
   // --- the upload fired `document.indexed`; the receiver is unreachable, so the delivery
   // fails and waits for its retry (RD-067), naming why.

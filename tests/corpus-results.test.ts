@@ -18,7 +18,7 @@ import {
 let fixture: FixtureHandles;
 
 /** Corpus item 6 (spec 02 §10): expected result-key sets over the fixture database. */
-async function keysFor(query: string, options: { as?: 'user' | 'stranger'; crossSpace?: boolean } = {}) {
+async function keysFor(query: string, options: { as?: 'user' | 'stranger'; crossSpace?: boolean; knownSpace?: boolean } = {}) {
   const analysed = parseAndAnalyse(query, {
     spaceKey: fixture.spaceKey,
     isolated: false,
@@ -30,6 +30,7 @@ async function keysFor(query: string, options: { as?: 'user' | 'stranger'; cross
   const { rows, total } = await runSearch(analysed.query.expr, {
     visibility: visibilityPredicate(userId, []),
     limit: 600,
+    ...(options.knownSpace ? { knownSpaces: { [fixture.spaceKey]: fixture.spaceId } } : {}),
   });
   return { keys: rows.map((row) => row.key), total };
 }
@@ -206,5 +207,28 @@ describe('visibility is not optional (rule X1–X3, RD-017)', () => {
     // Exactly the restricted, non-deleted rows are missing.
     const restrictedActive = expectedKeys((index) => isRestricted(index) && !isDeleted(index)).length;
     expect(asOwner.total - asStranger.total).toBe(restrictedActive);
+  });
+});
+
+/**
+ * RD-073 — a space key the caller already resolved compiles to `"spaceId" = $id`, for the
+ * planner's sake. It must change nothing else: the same rows and the same total, for every
+ * shape of scope, including a query that names another space or none.
+ */
+describe('a known space id returns exactly what the semi-join returns', () => {
+  it.each([
+    "key ~ '%'",
+    "@Category = 'Safety'",
+    "to -> @Category = 'Safety'",
+    "NOT (@Priority = 'High')",
+    `spaceKey = '${'$'}{other}'`,
+    "spaceKey ~ '%'",
+  ])('%s', async (template) => {
+    const query = template.replace('${other}', fixture.otherSpaceKey);
+    for (const as of ['user', 'stranger'] as const) {
+      const plain = await keysFor(query, { as, crossSpace: query.includes('spaceKey') });
+      const known = await keysFor(query, { as, crossSpace: query.includes('spaceKey'), knownSpace: true });
+      expect(known).toEqual(plain);
+    }
   });
 });

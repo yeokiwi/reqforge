@@ -106,6 +106,7 @@ export async function renderReportUseCase(input: {
   const { rows, total } = await runSearch(analysed.query.expr, {
     visibility,
     externalTypes,
+    knownSpaces: { [space.key]: space.id },
     // `countOnly` needs the total, which runSearch reports regardless of the page size.
     limit: input.config.countOnly ? 1 : REPORT_ROW_LIMIT,
     offset: 0,

@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { Diagnostic, IndexResult } from '@/domain/indexer';
+import type { Diagnostic, IndexedRequirement, IndexResult } from '@/domain/indexer';
 import { validateRequirement, type Rule, type Subject } from '@/domain/validation';
 import {
   changesBetween,
@@ -11,6 +11,7 @@ import { advanceSequencesForKeys } from './requirement-types';
 import { writeValidations, type ValidationRow } from './validations';
 import { prisma } from './client';
 import { emitEvents, hasSubscribers, type EventInput } from './webhooks';
+import { limitExceeded } from '@/domain/limits';
 import { param, render, sql, substituteAlias } from '@/domain/ryql/sql';
 import { requirementVisibility, visibleDocumentIds, visibleRequirementIdsFor, type Viewer } from './visibility';
 
@@ -30,6 +31,8 @@ export type ApplyIndexInput = {
   types?: readonly { id: string; rules: readonly Rule[] }[];
   /** spec 05 §6 — history is off by default per space (research §2.7). */
   historyEnabled?: boolean;
+  /** spec 07 §4 — the space's resolved "requirements per space"; unchecked when absent. */
+  maxRequirementsInSpace?: number;
 };
 
 export type ApplyIndexOutcome = {
@@ -82,7 +85,7 @@ export async function applyIndexResult(
   const liveWithSameKey = indexedKeys.length
     ? await tx.requirement.findMany({
         where: { spaceId: input.spaceId, baselineId: null, upperKey: { in: indexedKeys } },
-        select: { id: true, upperKey: true, originVersion: { select: { documentId: true } } },
+        select: { id: true, upperKey: true, status: true, originVersion: { select: { documentId: true } } },
       })
     : [];
 
@@ -91,7 +94,11 @@ export async function applyIndexResult(
 
   const created: string[] = [];
   const updated: string[] = [];
+  let revived = 0;
   const definedHere = new Map<string, string>(); // upperKey -> requirement id
+  type RowData = Pick<IndexedRequirement, 'key' | 'upperKey' | 'uid' | 'title' | 'bodyHtml' | 'bodySearch' | 'anchorPath' | 'typeId'>;
+  const toUpdate = new Map<string, RowData & { id: string; revived: boolean }>();
+  const toCreate = new Map<string, RowData>();
 
   for (const requirement of result.requirements) {
     const owner = ownerByKey.get(requirement.upperKey);
@@ -110,7 +117,7 @@ export async function applyIndexResult(
       continue;
     }
 
-    const data = {
+    const row = {
       key: requirement.key,
       upperKey: requirement.upperKey,
       uid: requirement.uid,
@@ -119,21 +126,48 @@ export async function applyIndexResult(
       bodySearch: requirement.bodySearch,
       anchorPath: requirement.anchorPath,
       typeId: requirement.typeId,
-      originVersionId: input.versionId,
-      status: 'ACTIVE' as const,
-      updatedById: input.actorId,
     };
+    // Last definition of a key wins, as it did when each row was written in turn.
+    if (owner) toUpdate.set(requirement.upperKey, { ...row, id: owner.id, revived: owner.status === 'DELETED' });
+    else toCreate.set(requirement.upperKey, row);
+  }
 
-    if (owner) {
-      const row = await tx.requirement.update({ where: { id: owner.id }, data });
+  // spec 07 §5 — set-based, not one statement per requirement: a 100-requirement save was
+  // 100 round trips here, most of its time (RD-073).
+  if (toUpdate.size > 0) {
+    const rows = [...toUpdate.values()];
+    revived = rows.filter((row) => row.revived).length;
+    await tx.$executeRaw`
+      UPDATE "Requirement" AS r SET
+        key = v.key, "upperKey" = v."upperKey", uid = v.uid, title = v.title, "bodyHtml" = v."bodyHtml",
+        "bodySearch" = v."bodySearch", "anchorPath" = v."anchorPath", "typeId" = v."typeId",
+        "originVersionId" = ${input.versionId}, status = 'ACTIVE', "updatedById" = ${input.actorId}, "updatedAt" = now()
+      FROM unnest(
+        ${rows.map((row) => row.id)}::text[], ${rows.map((row) => row.key)}::text[], ${rows.map((row) => row.upperKey)}::text[],
+        ${rows.map((row) => row.uid)}::text[], ${rows.map((row) => row.title)}::text[], ${rows.map((row) => row.bodyHtml)}::text[],
+        ${rows.map((row) => row.bodySearch)}::text[], ${rows.map((row) => row.anchorPath)}::text[], ${rows.map((row) => row.typeId)}::text[]
+      ) AS v(id, key, "upperKey", uid, title, "bodyHtml", "bodySearch", "anchorPath", "typeId")
+      WHERE r.id = v.id`;
+    for (const row of rows) {
       updated.push(row.id);
-      definedHere.set(requirement.upperKey, row.id);
-    } else {
-      const row = await tx.requirement.create({
-        data: { ...data, spaceId: input.spaceId, createdById: input.actorId },
-      });
+      definedHere.set(row.upperKey, row.id);
+    }
+  }
+  if (toCreate.size > 0) {
+    const rows = await tx.requirement.createManyAndReturn({
+      data: [...toCreate.values()].map((row) => ({
+        ...row,
+        originVersionId: input.versionId,
+        status: 'ACTIVE' as const,
+        updatedById: input.actorId,
+        spaceId: input.spaceId,
+        createdById: input.actorId,
+      })),
+      select: { id: true, upperKey: true },
+    });
+    for (const row of rows) {
       created.push(row.id);
-      definedHere.set(requirement.upperKey, row.id);
+      definedHere.set(row.upperKey, row.id);
     }
   }
 
@@ -147,6 +181,19 @@ export async function applyIndexResult(
       where: { id: { in: removed.map((row) => row.id) }, baselineId: null },
       data: { status: 'DELETED', updatedById: input.actorId },
     });
+  }
+
+  // spec 07 §4 / RD-072 — requirements per space. Only a save that *adds* live requirements
+  // is refused, so a space already over a lowered limit can still be edited and shrunk.
+  // Throwing here rolls the whole save back, version included.
+  const growth = created.length + revived - removed.length;
+  if (input.maxRequirementsInSpace !== undefined && growth > 0) {
+    // X3-exempt: a count for the limit check, across the space regardless of reader; only
+    // the number leaves, in the error.
+    const live = await tx.requirement.count({ where: { spaceId: input.spaceId, baselineId: null, status: { not: 'DELETED' } } });
+    if (live > input.maxRequirementsInSpace) {
+      throw limitExceeded('requirementsPerSpace', input.maxRequirementsInSpace, live, `this save would bring the space to ${live} requirements`);
+    }
   }
 
   // spec 03 §4.2 step 3 — using a key advances its type's sequence and never rewinds it.

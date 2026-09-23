@@ -79,13 +79,18 @@ export class ConflictError extends AppError {
   readonly status = 409;
 }
 
-/** spec: 07-permissions-and-limits.md §4 — "an error with the limit named in the message". */
+/**
+ * spec: 07-permissions-and-limits.md §4 — "an error with the limit named in the message".
+ * Built through `limitExceeded()` in `domain/limits.ts`, which supplies the label, so every
+ * limit reads the same way: `"Requirements per document" limit exceeded: this document has
+ * 412 requirements; the limit is 400.` RD-071.
+ */
 export class LimitExceededError extends AppError {
   readonly code = 'LIMIT_EXCEEDED';
   readonly status = 422;
 
-  constructor(limitName: string, limit: number, actual: number) {
-    super(`Limit "${limitName}" exceeded: ${actual} exceeds the maximum of ${limit}.`, {
+  constructor(limitName: string, label: string, limit: number, actual: number, what: string) {
+    super(`"${label}" limit exceeded: ${what}; the limit is ${limit.toLocaleString('en-US')}.`, {
       limitName,
       limit,
       actual,

@@ -245,6 +245,7 @@ export async function setValueInBulkUseCase(input: {
   const ids = await runSearchIds(analysed.query.expr, {
     visibility: visibilityPredicate(user.id, await groupIdsOf(user.id)),
     externalTypes,
+    knownSpaces: { [space.key]: space.id },
   });
 
   const written = await setValueForRequirements({

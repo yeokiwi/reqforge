@@ -1,7 +1,5 @@
-import { ValidationError } from '@/domain/errors';
 import {
   diffSides,
-  EXPORT_REQUIRED_ABOVE,
   parseDiffRequest,
   type DiffOutcome,
   type DiffRequest,
@@ -12,6 +10,8 @@ import { loadExternalTypes } from '@/server/repositories/external-properties';
 import { loadComparable } from '@/server/repositories/diff';
 import { aliasMapFor } from '@/server/repositories/rename';
 import { groupIdsOf, runSearchIds, visibilityPredicate } from '@/server/repositories/search';
+import { limitExceeded } from '@/domain/limits';
+import { limitsForSpaceId } from '@/server/limits';
 
 /**
  * The diff.
@@ -63,7 +63,8 @@ export async function runDiffForUser(input: {
 }): Promise<DiffSuccess | DiffFailure> {
   const space = input.space;
   const user = { id: input.userId };
-  const request = parseDiffRequest(input.request);
+  const limits = await limitsForSpaceId(space.id);
+  const request = parseDiffRequest(input.request, { rows: limits.diffRows, max: limits.diffInteractiveMax });
 
   if (request.left.length === 0 || request.right.length === 0) {
     return {
@@ -96,7 +97,7 @@ export async function runDiffForUser(input: {
     if (!analysed.ok) return { ok: false, errors: analysed.errors, side };
 
     return {
-      ids: await runSearchIds(analysed.query.expr, { visibility, externalTypes }),
+      ids: await runSearchIds(analysed.query.expr, { visibility, externalTypes, knownSpaces: { [space.key]: space.id } }),
       warnings: analysed.warnings,
     };
   };
@@ -108,9 +109,12 @@ export async function runDiffForUser(input: {
   const total = left.ids.length + right.ids.length;
 
   // spec 05 §5.4 — beyond this the UI requires the export path.
-  if (input.maxRows === undefined && total > EXPORT_REQUIRED_ABOVE) {
-    throw new ValidationError(
-      `That comparison covers ${total} requirements; above ${EXPORT_REQUIRED_ABOVE} the diff runs as an export.`,
+  if (input.maxRows === undefined && total > limits.diffInteractiveMax) {
+    throw limitExceeded(
+      'diffInteractiveMax',
+      limits.diffInteractiveMax,
+      total,
+      `that comparison covers ${total} requirements, so it runs as an export`,
     );
   }
 

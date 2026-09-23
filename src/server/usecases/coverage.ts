@@ -57,7 +57,7 @@ export async function runCoverageUseCase(input: {
   const visibility = visibilityPredicate(user.id, await groupIdsOf(user.id));
 
   // The denominator is what this reader can see — the predicate does that (rule X2).
-  const ids = await runSearchIds(analysed.query.expr, { visibility, externalTypes });
+  const ids = await runSearchIds(analysed.query.expr, { visibility, externalTypes, knownSpaces: { [space.key]: space.id } });
   const [{ perRelationship, anyTo, anyFrom }, targets] = await Promise.all([
     fetchCoverageCounts(ids),
     listCoverageTargets(space.id),

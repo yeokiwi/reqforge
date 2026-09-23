@@ -27,6 +27,14 @@ export type CompileContext = {
    * compares in that type rather than guessing from the shape of the literal (RD-037).
    */
   externalTypes?: ExternalTypeMap;
+  /**
+   * Space ids the caller already holds, by key. `spaceKey = 'SJ'` for one of them compiles
+   * to `"spaceId" = $id` instead of a semi-join on "Space": the same rows, but the planner
+   * can read that value's statistics, where through the join it assumes an average-sized
+   * space and picks plans that do not survive a 10,000-requirement one (spec 07 §5,
+   * RD-073). Absent, the output is exactly as before.
+   */
+  knownSpaces?: Readonly<Record<string, string>>;
 };
 
 export type CompiledQuery = RenderedSql & { countText: string; countParams: unknown[] };
@@ -133,8 +141,10 @@ function compileComparison(
       return textCompare(sql`${raw(alias)}."upperKey"`, operator, upperValue(value), { collate: false });
     case 'key_case_sensitive':
       return textCompare(sql`${raw(alias)}."key"`, operator, literal(value), { collate: true });
-    case 'spacekey':
-      return existsSpace(alias, operator, value);
+    case 'spacekey': {
+      const known = operator === '=' && value.kind === 'string' ? context.knownSpaces?.[value.value] : undefined;
+      return known !== undefined ? sql`(${raw(alias)}."spaceId" = ${param(known)})` : existsSpace(alias, operator, value);
+    }
     case 'status':
       return textCompare(sql`${raw(alias)}."status"::text`, operator, upperValue(value), { collate: false });
     case 'text':

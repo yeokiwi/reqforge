@@ -343,6 +343,7 @@ model Property {
   definition    ExternalPropertyDefinition? @relation(fields: [definitionId], references: [id])
 
   @@index([requirementId, kind])
+  @@index([requirementId, searchName, value]) // spec 07 §5 — traversal targets, RD-073
   @@index([searchName, value])
   /// "is this definition still in use?" — deletion is refused while values exist.
   @@index([definitionId])

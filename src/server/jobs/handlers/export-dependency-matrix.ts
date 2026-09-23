@@ -1,3 +1,4 @@
+import { limitExceeded } from '@/domain/limits';
 import { join } from 'node:path';
 import ExcelJS from 'exceljs';
 import {
@@ -18,6 +19,8 @@ export type ExportDependencyMatrixPayload = {
   name: string;
   query: string;
   pageSize: number;
+  /** spec 07 §4 — the space's resolved export axis, fixed when the job was queued. */
+  axisCap?: number;
 };
 
 /** One page of the export: rows of the grid, plus the axis and the edges they need. */
@@ -52,11 +55,10 @@ export const exportDependencyMatrixHandler: JobHandler<ExportDependencyMatrixPay
   const legend = workbook.addWorksheet('Legend');
 
   const first = await context.fetchPage(0);
-  if (first.total > EXPORT_AXIS_CAP) {
+  const axisCap = payload.axisCap ?? EXPORT_AXIS_CAP;
+  if (first.total > axisCap) {
     // spec 07 §4 — a hard limit is an error naming the limit.
-    throw new Error(
-      `That query matches ${first.total} requirements; the dependency matrix export is limited to ${EXPORT_AXIS_CAP}.`,
-    );
+    throw limitExceeded('dependencyExportAxis', axisCap, first.total, `that query matches ${first.total} requirements`);
   }
 
   const axis = first.axis;

@@ -84,7 +84,14 @@ function asString(value: unknown): string {
 }
 
 /** Narrows an untrusted request, as `parseMatrixConfig` does for the matrix. */
-export function parseDiffRequest(value: unknown): DiffRequest {
+/**
+ * `bounds` are the space's resolved limits (spec 07 §4): `rows` is the default page, `max`
+ * the most an interactive diff may cover before it must run as an export (05 §5.4).
+ */
+export function parseDiffRequest(
+  value: unknown,
+  bounds: { rows: number; max: number } = { rows: DEFAULT_LIMIT, max: EXPORT_REQUIRED_ABOVE },
+): DiffRequest {
   const record = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
   const compare = (record.compare ?? {}) as Record<string, unknown>;
   const ignore = (record.ignore ?? {}) as Record<string, unknown>;
@@ -95,8 +102,8 @@ export function parseDiffRequest(value: unknown): DiffRequest {
 
   const limit =
     typeof record.limit === 'number' && Number.isFinite(record.limit)
-      ? Math.min(Math.max(Math.trunc(record.limit), 1), EXPORT_REQUIRED_ABOVE)
-      : DEFAULT_LIMIT;
+      ? Math.min(Math.max(Math.trunc(record.limit), 1), bounds.max)
+      : bounds.rows;
 
   return {
     left: asString(record.left),
