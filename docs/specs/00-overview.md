@@ -26,15 +26,12 @@ part we can test exhaustively and cheaply, so as much logic as possible lives th
 src/
   app/                       # routes; thin — parse, authorise, call a use case, render
     (auth)/
-    s/[spaceKey]/            # space-scoped screens
-      documents/[docId]/
-      search/
-      traceability/
-      dependencies/
-      coverage/
-      baselines/
-      diff/
-      admin/
+    requirements/[spaceKey]/ # the Requirements screen and its tabs (10 §3)
+      [key]/                 # requirement detail, incl. @baseline
+      views/[id]/            # saved searches and matrices
+    spaces/[spaceKey]/pages/ # page view and the editor (10 §4–5)
+      [pageId]/edit/
+    admin/
     api/                     # REST surface (see 08-api-surface.md)
   server/
     usecases/                # one file per use case, transaction boundary lives here

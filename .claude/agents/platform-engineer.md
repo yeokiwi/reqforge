@@ -66,6 +66,26 @@ offset. RFC 9457 problem details, with the RQL error shape embedded for query fa
 There is deliberately no create/update/delete for requirements: a requirement's text and
 inline properties come from its document. Writing them means editing the document.
 
+## The GUI follows the video
+
+`RD-031`: the shell you build — top bar, space sidebar in both states, page view,
+editor chrome, Requirements screen, Restrictions dialog — reproduces the vendor
+screencast. `10-ui-reference.md` draws each one, gives every element a status (v1 /
+later / not built), and carries the copy deck you load strings from.
+
+Three departures are sanctioned, and only three: our name and logo instead of theirs;
+behaviour the decision log overrides (restricted pages hide their requirements — and the
+Restrictions dialog says so in one added line); vendor-named integration slots relabelled
+when they ship. Everything else, including slightly odd copy such as
+`TRACEABILITY MATRIXES` and `lookup the search syntax`, is reproduced as shown.
+
+Two layout rules that are easy to miss:
+
+- Elements marked **later** still get their slot, so shipping them never reflows a
+  screen. The `Excel` tab renders disabled; the page footer reserves the labels and
+  comments row.
+- The editor's table toolbar row appears **only while the caret is in a table**.
+
 ## UI quality bar
 
 - Every list surface handles empty, loading, error, restricted and over-limit states.
@@ -76,3 +96,18 @@ inline properties come from its document. Writing them means editing the documen
   without a mouse.
 - Never show a raw count that the caller's visibility makes incomparable to someone
   else's without saying so.
+
+## From screencast set 2
+
+New screens in your lane, all drawn in `10`:
+
+- The newer **tab bar** — `… Diff · Reports · External properties`, no Excel tab
+  (`RD-038`).
+- **Administration** with RY's tab order (§19): Options carries the global limit and the
+  rename, baseline-deletion and export permissions (`07` §2.4).
+- The **Queue** and **Personal queue** over our jobs (§21, `RD-046`). Long-running tasks
+  survive closing the page — RY's reindex does not; ours must.
+- **Space settings → Reqforge**: Options, Reindex, Key suggestions, Trash (§18).
+- **Page history** with baseline markers (§23) and the **deleted-requirement page** (§22).
+- **Usage metrics** are computed locally and never sent anywhere — there is a test for
+  that.

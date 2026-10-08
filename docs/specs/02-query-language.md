@@ -97,11 +97,29 @@ The analyser emits a **warning** (not an error) for an un-parenthesised mix of `
 implied parentheses shown. Silent precedence surprises are the top support cost of
 query languages.
 
+### 3.2 Free-text queries
+
+A bare word is a valid query. The vendor screencast types `KEY` into the search box and
+gets *"Requirements containing 'KEY' and in space 'TEAM' and with status 'ACTIVE'"*
+(videos-2 §4.5). Rule:
+
+1. If the input **contains no operator, parenthesis, `@` or quote** and does not parse as
+   a field predicate, it is **free text**.
+2. Free text `T` compiles to `(key ~ '%T%' OR text ~ '%T%')`, case-insensitive, with `T`
+   taken as one phrase — `login page` matches the phrase, not either word.
+3. The analyser marks the AST node `FreeText`, so `describe()` renders it as
+   *containing 'T'* rather than as the expanded OR.
+4. A single quoted string on its own (`'login page'`) is also free text, which is the
+   escape hatch for phrases containing operator characters.
+
+This is `RD-039`. It is the form most first-time users type, and RY's own Cloud search
+offers it as a separate mode; one box that accepts both is simpler.
+
 ## 4. Fields
 
 | Field | Value | Maps to | Notes |
 |---|---|---|---|
-| `key` | string | `requirement.upperKey` | `~` is case-insensitive |
+| `key` | string | `requirement.upperKey` | `~` is case-insensitive, by **Unicode case folding** — keys may be CJK, Arabic, or contain ß/ı (`03` §4.1) |
 | `key_case_sensitive` | string | `requirement.key` | |
 | `spaceKey` | string | `space.key` | case-sensitive |
 | `status` | enum | `requirement.status` | `ACTIVE`\|`ARCHIVED`\|`MOVED`\|`DELETED` |
@@ -109,8 +127,8 @@ query languages.
 | `title` | string | `requirement.title` | **[decided]** addition; RY has no such field |
 | `baseline` | number \| name \| `$currentBaseline` | `requirement.baselineId` | |
 | `baseline was` | number \| name | previous version's baseline | |
-| `document` | id \| title | `DocumentLink` where `origin` | replaces RY's `page`; `page` is a **deprecated alias** |
-| `documentHistory` | id | all versions of that document | replaces `pageHistory` |
+| `page` | id \| title | `DocumentLink` where `origin` | the UI says "page" (`RD-032`), so the query language does too; `document` is accepted as an alias |
+| `pageHistory` | id | all versions of that page | `documentHistory` accepted as an alias |
 | `links` | id | any `DocumentLink` | |
 | `@<name>` | string \| number | `Property` kind `INLINE` | |
 | `ext@<name>` | typed | `Property` kind `EXTERNAL` | typed comparison, per Cloud |
@@ -184,6 +202,52 @@ Applied by the **analyser**, not the compiler, so it is visible in the AST and t
 **[decided]** The UI's baseline dropdown is a default, and an explicit `baseline` in the
 query overrides it — matching Cloud's documented rule.
 
+### 8.1 The effective-query echo — an analyser output, not a UI nicety
+
+The analyser exposes `describe(ast): string`, rendering the **effective** query in
+English, including every default it injected:
+
+Renderings confirmed by the screencasts are marked ✓; the rest extend their pattern.
+
+| Query | Echo |
+|---|---|
+| *(empty)* | ✓ Requirements - all of them and in space 'TEAM' and with status 'ACTIVE' |
+| `KEY` (free text) | ✓ Requirements containing 'KEY' and in space 'TEAM' and with status 'ACTIVE' |
+| `key ~ 'Business%'` | ✓ Requirements with key starting with 'Business' and in space 'TEAM' and with status 'ACTIVE' |
+| *(Show all versions)* | ✓ Requirements - all of them and in space 'TEAM' and with status 'ACTIVE' or with status 'ARCHIVED' |
+| `key ~ '%-01'` | Requirements with key ending with '-01' and … |
+| `text ~ '%login%'` | Requirements with text containing 'login' and … |
+| `key = 'IG-1'` | Requirements with key 'IG-1' and … |
+| `@Priority = 'High'` | Requirements with Priority 'High' and … |
+| `a AND b OR c` | Requirements (with … and with …) or with … and … — the parse made visible |
+
+Rules for `~` patterns: `X%` → *starting with*; `%X` → *ending with*; `%X%` →
+*containing*; anything else → *like 'X'*. Clauses join with ` and `; the leading
+`Requirements - all of them` appears only when the user's query is empty.
+
+The search screen renders this under the query box (`10-ui-reference.md` §9.2). It
+lives here, not in the UI layer, because it must be generated from the same AST the
+compiler consumes — a description produced by any other route will eventually lie.
+
+Two obligations it discharges:
+
+- **"Why is my requirement missing?"** The injected `status` and `baseline` scopes are
+  invisible in the query text and are the usual answer. The echo makes them visible.
+- **Precedence transparency** (`RD-018`). The echo renders the parse, so
+  `a AND b OR c` reads back as *"(a and b), or c"*, which is how a user discovers that
+  `AND` bound tighter than they expected.
+
+`describe()` is covered by its own corpus category: every query in §10 category 4 has a
+pinned English rendering.
+
+### 8.2 Completion
+
+The analyser also exposes `complete(source, offset)` returning candidate fields,
+operators, property names, relationship names and baseline names for the caret
+position. `Ctrl + Space` in the query box calls it. Like `describe()`, it is pure and
+AST-driven, and it is the difference between a query language people use and one they
+avoid.
+
 ## 9. Errors
 
 Every failure carries `{ code, message, offset, length, hint }` so the editor can
@@ -192,7 +256,7 @@ underline. Codes: `UNKNOWN_FIELD`, `UNKNOWN_FUNCTION`, `BAD_OPERATOR_FOR_FIELD`,
 (warning), `NOT_IMPLEMENTED`.
 
 `UNKNOWN_FIELD` suggests the nearest known field by edit distance, and specifically maps
-`page` → `document`, `pageHistory` → `documentHistory`, `jira` → "not supported".
+`jira`, `project`, `excel` → "not supported in Reqforge". (`page` and `pageHistory` are native fields, as in RY.)
 
 ## 10. Test corpus — non-negotiable
 
@@ -205,5 +269,13 @@ underline. Codes: `UNKNOWN_FIELD`, `UNKNOWN_FUNCTION`, `BAD_OPERATOR_FOR_FIELD`,
 5. NULL-semantics table from §7.
 6. A fixture database with ~500 requirements, where every corpus query has an expected
    result-key set. This is the test that catches compiler regressions.
+7. **Awkward keys.** The fixture set includes `日本語の文字-001`, `حروف عربية-001`,
+   `REQ-004(§2.5)`, `REQ 005`, `REQ-100%-A` and `O'Brien-01`. Each must be reachable by
+   `key =`, by `key ~` with a wildcard, and through a URL round-trip. These are the
+   cases that break a query engine written against ASCII assumptions, and the video
+   shows all of these shapes as valid keys.
+8. **Free text** (§3.2): `KEY`, `login page`, `'a = b'`, and inputs that look like free
+   text but are fields (`key`, `text`) — each with its expected classification, compiled
+   SQL and `describe()` rendering.
 
 A change to the grammar that does not change the corpus is a change that is not tested.

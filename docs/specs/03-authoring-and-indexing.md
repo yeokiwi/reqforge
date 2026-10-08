@@ -51,13 +51,22 @@ non-ignored column is the title (research §2.5).
 
 ## 2. Scope rules — what becomes a requirement
 
-Three layouts, exactly as RY supports (research §2.1):
+Four layouts. The first three are in the written docs (research §2.1); **headings** are
+shown in the screencast (video §5) and are not in the prose docs at all.
 
 | Layout | Detection | Scope | Properties | Relationship name |
 |---|---|---|---|---|
 | **Horizontal table** | marker in a cell of a table with a header row | the whole **row** | one per column | the column header |
 | **Vertical table** | marker in a cell of a table whose *first column* is the header | the whole **column** | one per row | the row header |
 | **Paragraph** | marker in a paragraph or list item | the whole **block** | none, unless `propertyConfig` inline | `Dependency` |
+| **Heading** | marker in a heading of any level | the **heading text** | none | `Dependency` |
+
+A requirement in a heading takes only the heading's own text as its title — **not the
+section beneath it**. The video's example page puts `REQ-H1`, `REQ-H2`, `REQ-2.1` and so
+on directly in headings at several levels, and each is an independent requirement. We
+additionally record the heading level and the enclosing section path on the requirement
+(`headingLevel`, `sectionPath`), because a document outline is free structure that a
+requirements tool should not throw away — see `RD-026`.
 
 **Rule S1.** One requirement per scope. A second `requirement` node in the same scope is
 an **error**, surfaced in the editor, and the second marker is indexed as a link instead.
@@ -74,6 +83,13 @@ behaviour here is "surfaces in bright red for manual resolution" (research §2.2
 **Rule S4.** Table layout is decided by the presence of a header row or header column. A
 table with neither produces a **warning** on every requirement in it, matching RY's
 "grey first row that is not a real header" warning case (research §2.4).
+
+**Rule S5.** Requirements inside **collapsible blocks** — expand sections, panels, info
+boxes, layout columns, list items, nested tables — are indexed exactly as if the block
+were open. RY's administration video uses a requirement inside an *Expand* macro as its
+example of an *indexing problem* that leaves the requirement marked DELETED (videos-2
+§4.4). We do not reproduce the problem: the indexer walks the whole document tree, and a
+fixture with a requirement in every container type is part of contract I1's test set.
 
 ## 3. The indexer contract
 
@@ -115,38 +131,117 @@ as `\x1f`-separated members so `=` can be set membership (research §3.7, invari
 
 ## 4. Keys
 
-### 4.1 Validation
+### 4.1 Validation — permissive, not restrictive
 
-`^[A-Za-z0-9._-]+$`, length 2–64, at least one non-digit, no leading/trailing separator.
-Rejects slashes and spaces, as RY does (research §2.2, §6.7). Validated **server-side on
-index**, never trusted from the client (research §2.2's devtools warning).
+The written docs say keys accept "only letters, numbers, underscore, hyphen and dot".
+**The product does not behave that way.** The screencast (video §4) shows, as explicitly
+allowed: `REQ-!@#$%%^*()_-002`, `日本語の文字-001`, `حروف عربية-001`, `REQ-004(§2.5)`
+and `REQ 005` — punctuation, CJK, Arabic, the section sign, parentheses and an internal
+space. The only demonstrated rejection is `REQ/006\`, with the inline message
+`"REQ/006\" is not a valid key.`
 
-### 4.2 Patterns and suggestion
+Teams writing specifications in Japanese, Arabic or with clause numbering such as
+`§2.5` are a real constituency, and an ASCII-only key rule locks them out. So Reqforge
+is permissive, with narrow, justified exclusions (`RD-023`):
 
-A `RequirementType` carries a pattern such as `FN-###` where `#` runs are the numeric
-part. Suggestion:
+**Accepted**: any Unicode character, normalised to NFC, with these exclusions.
 
-1. Find the type whose pattern matches the context (last key used in this document, else
-   the space default).
-2. Next number = `max(nextSequence, highestExistingNumber + 1)`.
-3. `nextSequence` advances on use and **does not rewind on delete** (research §2.3).
-4. A "reset sequence" action rewinds it to `highestExistingNumber + 1`, gated on
-   `preventReusingDeletedKeys = false` and the edit-space permission.
+**Rejected** (hard error, `KEY_INVALID`):
+
+| Rejected | Reason |
+|---|---|
+| `/` and `\` | path separators; RY rejects them too, and they break the `/requirements/{space}/{key}` URL |
+| C0/C1 control characters, `U+200B`–`U+200F`, `U+2028`/`U+2029` | invisible characters make two different keys look identical |
+| leading or trailing whitespace | invisible, and survives copy-paste into queries |
+| length outside 1–200 characters after NFC | |
+| a key consisting only of whitespace or punctuation | must contain at least one letter or digit |
+
+**Accepted with a warning** (`KEY_AWKWARD`, non-blocking, shown once in the editor):
+
+| Pattern | Why we warn |
+|---|---|
+| contains a space | must be quoted in every query: `key = 'REQ 005'` |
+| contains `'` or `%` | `'` needs escaping in a query literal; `%` collides with the `~` wildcard — the editor offers the pre-escaped query form in the warning |
+| contains characters outside NFC-normalised letters, digits, `.`, `-`, `_` | fine, but worth knowing before it is the key of 400 requirements |
+| mixes scripts within one key | a classic homograph trap (`РЕQ-001` with Cyrillic Р and Е) |
+
+Two consequences the implementation must handle rather than assume away:
+
+1. **Case folding is Unicode-aware.** `upperKey` uses full case folding, not
+   `toUpperCase()` on ASCII. Turkish dotless ı and German ß are the usual casualties.
+2. **Keys are URL-escaped, never URL-inlined raw.** `/requirements/{space}/{key}` uses
+   percent-encoding, and the canonical form of a key in an export is the NFC string.
+
+Validation runs **server-side on index** and is never trusted from the client — the
+written docs' own devtools warning (research §2.2), confirmed by the video showing
+validation as an inline editor message rather than a hard input mask.
+
+### 4.2 Key suggestions
+
+A **key suggestion** is a **prefix, a zero-padded number and a suffix** — `BR-` · `04`
+· *(none)*, `SPEC-` · `00255` · *(none)*. That is how RY's own key-suggestion table
+models it (videos-2 §4.7), and it replaces the `FN-###` template this section used
+before (`RD-042`). The number's **width is its padding**: `007` pads to three digits,
+`00255` to five.
+
+Each space has a list of suggestions. They come from three places:
+
+1. **Automatically from the keys in the database.** Every new key whose shape is
+   prefix + digits + suffix registers or advances its suggestion. *"Unless suggestions
+   are locked and already created, the suggestions will be created from the keys in the
+   database."*
+2. **Added by a space admin** on the Key suggestions screen (`10` §18.1) — prefix,
+   number (pre-filled `001`), suffix, `Add`.
+3. **Promoted to a requirement type** by giving it a name (`06` §1).
+
+Offering keys:
+
+1. **Offer the next key of every suggestion in the space, simultaneously.** The picker
+   lists `Create BR-08`, `Create FN-12`, `Create TECH-008` together (video §3.1); the
+   author picks. Do not guess one from context.
+2. Order by proximity: suggestions already used on this page first, then the rest of the
+   space.
+3. Next key = prefix + `pad(lastNumber + 1, width)` + suffix, where `lastNumber` is the
+   suggestion's stored number. The stored number **advances on use and does not rewind
+   on delete** (research §2.3).
+4. **Deleting a suggestion** removes it; the next key for that prefix is then recomputed
+   from the highest existing key — *"If you delete a suggestion, new keys will be based on
+   the last sequence in the base."*
+5. With **Prevent reusing deleted keys** ticked, the recomputation also counts deleted
+   requirements, so a deleted number is never offered again.
+
+**Settings**, per space with a global default, verbatim names and RY's defaults:
+
+| Setting | Default | Effect |
+|---|---|---|
+| Use global settings | **ticked** | the space inherits the Administration values; the four below are disabled |
+| Links across spaces | **ticked** (recommended) | the picker offers other spaces' requirements when linking; pasting a direct link always works |
+| Prevent reusing deleted keys | unticked | deleted keys are never suggested again |
+| Generate global keys | unticked | generated keys are unique across the instance, not just the space |
+| Lock keys | unticked | authors may only use keys from the suggestion table (§4.3) |
 
 ### 4.3 Locking
 
-When `locked` is set on a space's types, the editor refuses keys that match no type
-pattern, and the indexer records a `KEY_NOT_ALLOWED` diagnostic for any that slip
-through.
+With **Lock keys** ticked, the editor offers only the suggestion table's keys and refuses
+any other, and the indexer records a `KEY_NOT_ALLOWED` diagnostic for any that slip
+through (pasted content, API uploads).
 
 ## 5. Renaming
 
-Mirrors RY's behaviour (research §2.8) with one improvement.
+Mirrors RY's behaviour (research §2.8, videos-2 §4.5) with one improvement. The screen is
+`10` §17.
 
-- **Single rename**: dialog, new key, validate, run.
-- **Batch rename**: decompose selected keys into common prefix + variable middle +
-  common suffix. The user edits the first line; the rest transform live. The preview
-  lists at most 50 with a count of the remainder.
+- **Who:** space administrators by default. The Administration *Requirements rename*
+  setting lists groups whose members may also rename — **if they can edit the space**
+  (`07` §2.4). This replaces the "global admin or configured group" reading of the
+  written docs.
+- **Entry:** Search tab → select → `Actions` → `Rename`. One key or many, same screen.
+- **Decomposition:** each selected key splits into **Prefix · Middle · Suffix**, where
+  prefix and suffix are the parts common to every selected key and middle is the varying
+  part. The user edits the first row's prefix and suffix; every other row previews live.
+  The middle is never edited — renumbering is not renaming.
+- **Validation before running:** every resulting key passes §4.1 and is unique in its
+  scope, or nothing runs and the clashes are listed.
 - **Propagation**: every `requirement` and `requirementLink` node in every *current*
   document version, every dependency row, every external property row, every saved matrix
   query that references the key literally.
@@ -156,21 +251,91 @@ Mirrors RY's behaviour (research §2.8) with one improvement.
   with; the live requirement carries a `renamedFrom` chain so history resolves. This is
   `RD-007` and is a deliberate divergence: RY rewrites page XHTML, which cannot reach
   frozen snapshots either, but never says so.
-- **Progress**: job progress with cancel, and an explicit acknowledge step.
+- **Progress and result:** the long-running task view (`10` §17.2), ending with
+  *"Rename task finished successfully."* and the count line *"Reqforge modified {m}
+  macros on {p} pages to rename {r} requirements."*
 
-## 6. Editor UX requirements
+## 6. Insertion — behaviour
 
-- `Alt+Shift+R` inserts a requirement; on a selected table it inserts one key per row
-  (research §2.4/§4.1). Mac: `Option+Shift+R`.
-- Typing `{req` opens the same picker. The picker offers "create new key" and "link to
-  existing", with cross-space results only when the space is not isolated.
+What the user **sees** — every dialog, label, default and chip — is specified in
+`10-ui-reference.md` §5–6 and follows the vendor screencast (`RD-031`). This section
+holds only the **behaviour** behind those screens. If a rule here seems to need a visual
+change, change `10` first.
+
+### 6.1 Three routes, one picker (GUI: `10` §5.3, §6.1)
+
+The video names three routes — **Keyboard shortcut `Alt + Shift + R`**,
+**`{requirement`**, and the **Insert More Content Menu** — and all three end in the
+same key picker. The picker is the single entry point: a fourth route is added to the
+picker, not beside it.
+
+- `Create <key>` lines: one per registered key pattern, the next key of each (§4.2).
+- Typing in `Enter requirement key` switches the list to existing requirements to
+  **link** to; cross-space results appear only when the space is not isolated.
+- Choosing a line commits the macro; `Remove` deletes it; `Esc` leaves the placeholder.
+
+### 6.2 Bulk insert in edit mode (GUI: `10` §6.3)
+
+The dialog has **two variants**, selected by what is highlighted — the video shows both:
+
+| Selection | Variant | The user supplies |
+|---|---|---|
+| empty cells or lines | **A** | `Prefix and first number`, pre-filled from the next suggested key and zero-padded |
+| cells or lines containing text | **B** | a `Mode` — *Use selected text as keys* or *Generate numbers automatically* — and an optional `Prefix` |
+
+Rules:
+
+- **Count is a promise.** The `{n} lines` figure is computed before the dialog opens and
+  exactly that many macros are inserted.
+- **All or nothing.** In variant B with *Use selected text as keys*, every line is
+  validated against §4.1 before anything is inserted. One failure refuses the whole
+  operation and lists the offending lines. A half-applied bulk insert is not a state
+  anyone can reason about.
+- **Prefix is mandatory when the selection contains only numbers** — the dialog's own
+  help text says so; enforce it, don't just display it.
+- **Padding.** Variant A pre-fills the first number already zero-padded to the
+  pattern's width (`008`), so the user keeps the padding by doing nothing; the help text
+  reminds them anyway, as shown. Generated numbers keep the width of the first number.
+- *Generate numbers automatically* inserts each macro **before** the existing text of
+  its line, leaving that text in place.
+
+### 6.3 Inline transform in view mode (GUI: `10` §6.4)
+
+Selecting key-like text in a rendered page opens the inline dialog. This is the "we
+pasted a Word document, now make it real" path.
+
+Defaults are part of the behaviour and follow the video:
+
+| Option | Default | Effect |
+|---|---|---|
+| Make links for every "KEY" on this page. | on, cannot be unchecked | later occurrences on the page become links |
+| Make links for every "KEY" in this space. | **on** | occurrences on other pages in the space become links |
+| Create similar definitions for all "PREFIX"… | **off** | every regex match on this page becomes a definition |
+
+Rules:
+
+- The selected occurrence becomes the definition — unless Rule S2 says an earlier
+  occurrence on the page wins, which it does, as RY documents for its Word-paste flow.
+- The regex must match the **complete key**. `Refresh` recounts. Zero matches disables
+  the option; more than 200 asks for confirmation.
+- The transform runs against rendered text only, never existing macros, so running it
+  twice is a no-op.
+- One job, one transaction: all pages touched get a new version each, or none do.
+- The space-wide option respects restrictions — pages the user cannot edit are skipped
+  and listed in the job result, never silently modified.
+
+### 6.4 Templates and validation in the editor
+
 - Inserting a typed key into an **empty** table scaffolds the type's required and
   optional columns; it does nothing once the table has content (research §2.4).
 - Validation appears as a byline warning; clicking reveals invalid requirements as red
-  pills. Required-property failures are red, optional yellow, formatting issues yellow.
-- **Quick fixes** next to each red message add the missing column or dependency.
-- Hovering a requirement or link shows the popup: excerpt, properties (external ones
-  marked `*`), dependencies both directions, and navigation across all occurrences.
+  pills. Required-property failures are red, optional and formatting issues yellow.
+- **Quick fixes** next to each message add the missing column or dependency, each as a
+  single undoable transaction.
+- Key validation failures appear in the picker exactly as the video shows them
+  (`10` §6.2): `"<key>" is not a valid key.` under the field, with `Remove` beside it.
+
+The hover popup is specified in `10-ui-reference.md` §8.
 
 ## 7. Diagnostics catalogue
 
@@ -178,7 +343,8 @@ Mirrors RY's behaviour (research §2.8) with one improvement.
 |---|---|---|
 | `DUPLICATE_MARKER_IN_SCOPE` | error | Rule S1 |
 | `KEY_CONFLICT` | error | Rule S3 |
-| `KEY_INVALID` | error | §4.1 |
+| `KEY_INVALID` | error | §4.1 hard rules |
+| `KEY_AWKWARD` | warning | §4.1 soft rules — spaces, `%`, `'`, mixed scripts |
 | `KEY_NOT_ALLOWED` | error | §4.3 |
 | `MISSING_REQUIRED_PROPERTY` | error | type rule |
 | `MISSING_REQUIRED_DEPENDENCY` | error | type rule |

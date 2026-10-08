@@ -55,7 +55,12 @@ model Space {
   key            String  @unique // [A-Z][A-Z0-9]{1,15}
   name           String
   isolated       Boolean @default(false) // research §6.6
-  globalKeys     Boolean @default(false) // research §2.2
+  globalKeys     Boolean @default(false) // research §2.2 — "Generate global keys"
+  // Key-suggestion settings, RY defaults (spec 03 §4.2, RD-042)
+  useGlobalKeySettings      Boolean @default(true)
+  linksAcrossSpaces         Boolean @default(true)
+  preventReusingDeletedKeys Boolean @default(false)
+  lockKeys                  Boolean @default(false)
   classification String? // e.g. "Official (Closed)" — spec 07 §2.3
   historyEnabled Boolean @default(false) // research §2.7 — off by default
   limits         Json? // per-space overrides of spec 07 §4
@@ -64,6 +69,7 @@ model Space {
   requirements Requirement[]
   baselines    Baseline[]
   types        RequirementType[]
+  keySuggestions KeySuggestion[]
   matrices     SavedMatrix[]
   memberships  Membership[]
   createdAt    DateTime          @default(now())
@@ -88,6 +94,32 @@ enum SpacePermission {
   ADMIN
 }
 
+/// Single row — Administration → Options (spec 10 §19.1, 07 §2.4).
+model InstanceSettings {
+  id                     Int      @id @default(1)
+  globalLimit            Int      @default(12000) // per operation, not per space
+  renameGroups           String[] // empty => space admins only
+  baselineDeletionGroups String[] // empty => space admins only
+  exportForAllViewers    Boolean  @default(true)
+  // instance-level key-suggestion defaults, inherited while a space has useGlobalKeySettings
+  linksAcrossSpaces         Boolean @default(true)
+  preventReusingDeletedKeys Boolean @default(false)
+  globalKeys                Boolean @default(false)
+  lockKeys                  Boolean @default(false)
+  updatedAt              DateTime @updatedAt
+}
+
+/// Last 10 queries per user — spec 10 §9.2.
+model QueryHistory {
+  id      String   @id @default(cuid())
+  userId  String
+  spaceId String
+  query   String
+  at      DateTime @default(now())
+
+  @@index([userId, spaceId, at])
+}
+
 // ---------------------------------------------------------------- documents
 
 model Document {
@@ -100,7 +132,7 @@ model Document {
   title            String
   ordinal          Int        @default(0)
   classification   String?
-  restrictionMode  RestrictionMode @default(INHERIT) // spec 07 §2.2
+  restrictionMode  RestrictionMode @default(NONE) // the three modes of the Restrictions dialog — spec 10 §10, 07 §2.2
   currentVersionId String?         @unique
   versions         DocumentVersion[] @relation("DocVersions")
   restrictions     DocumentRestriction[]
@@ -111,8 +143,9 @@ model Document {
 }
 
 enum RestrictionMode {
-  INHERIT
-  EXPLICIT
+  NONE // "No restrictions"
+  EDIT_RESTRICTED // "Editing restricted"
+  VIEW_EDIT_RESTRICTED // "Viewing and editing restricted"
 }
 
 model DocumentRestriction {
@@ -154,6 +187,14 @@ enum RequirementStatus {
   DELETED
 }
 
+/// Spec 03 §2. HEADING comes from the vendor screencast, not the written docs.
+enum RequirementLayout {
+  TABLE_ROW
+  TABLE_COLUMN
+  PARAGRAPH
+  HEADING
+}
+
 /// Logical identity is (spaceId, upperKey, baselineId) — RD-001.
 /// baselineId NULL => live. Rows with baselineId set are immutable (invariant R2),
 /// enforced by a trigger in the migration, not by application code.
@@ -161,7 +202,9 @@ model Requirement {
   id         String  @id @default(cuid())
   spaceId    String
   space      Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  /// NFC-normalised. Any Unicode except / and \ — see spec 03 §4.1 and RD-023.
   key        String
+  /// Unicode CASE-FOLDED, not uppercased. Postgres: lower(key) with an ICU collation.
   upperKey   String
   baselineId String?
   baseline   Baseline? @relation(fields: [baselineId], references: [id])
@@ -172,6 +215,9 @@ model Requirement {
   bodySearch      String
   anchorPath      String
   uid             String // stable marker id, survives rename
+  layout          RequirementLayout @default(TABLE_ROW)
+  headingLevel    Int? // 1-6 when layout = HEADING
+  sectionPath     String[] // enclosing heading titles, outermost first — RD-026
   originVersionId String?
   originVersion   DocumentVersion? @relation(fields: [originVersionId], references: [id])
 
@@ -228,24 +274,26 @@ model Property {
   @@index([searchName, value])
 }
 
-/// Instance-global, not space-scoped — research §2.6.
+/// Instance-global, not space-scoped — research §2.6. `name` is immutable (RD-040);
+/// deleting a definition deletes all its values instance-wide.
 model ExternalPropertyDefinition {
   id          String   @id @default(cuid())
   name        String   @unique
   dataType    DataType
-  enumValues  String[]
+  dropdownValues String[]
   description String?
   values      Property[]
   createdAt   DateTime @default(now())
 }
 
+/// Exactly the five types the product shows (RD-040). Admin labels:
+/// Text, Decimal number, Integer, Boolean, Dropdown.
 enum DataType {
   STRING
-  TEXT
-  NUMBER
+  FLOAT
+  INTEGER
   BOOLEAN
-  DATE
-  ENUM
+  DROPDOWN
 }
 
 model RequirementLabel {
@@ -357,23 +405,36 @@ model BaselineDanglingDependency {
 
 // ---------------------------------------------------------------- types
 
+/// prefix + zero-padded number + suffix — spec 03 §4.2, RD-042.
+/// `number` is the LAST USED number; its length is the padding. It only advances.
+model KeySuggestion {
+  id      String @id @default(cuid())
+  spaceId String
+  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  prefix  String
+  number  String @default("001")
+  suffix  String @default("")
+  type    RequirementType?
+
+  @@unique([spaceId, prefix, suffix])
+}
+
+/// A key suggestion with a name — research §2.3.
 model RequirementType {
-  id                        String  @id @default(cuid())
-  spaceId                   String
-  space                     Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  name                      String? // null => bare key suggestion (research §2.3)
-  keyPattern                String // e.g. "FN-###"
-  colour                    String  @default("#4a5568")
-  locked                    Boolean @default(false)
-  nextSequence              Int     @default(1)
-  preventReusingDeletedKeys Boolean @default(true)
+  id              String        @id @default(cuid())
+  spaceId         String
+  space           Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  keySuggestionId String        @unique
+  keySuggestion   KeySuggestion @relation(fields: [keySuggestionId], references: [id], onDelete: Cascade)
+  name            String
+  colour          String        @default("#4a5568")
 
   rules           RequirementTypeRule[]
   templateColumns TemplateColumn[]
   requirements    Requirement[]
   validations     RequirementValidation[]
 
-  @@unique([spaceId, keyPattern])
+  @@unique([spaceId, name])
 }
 
 enum RuleKind {

@@ -33,9 +33,21 @@ the agent team that will build it. No application code has been written yet.
 2. [`CLAUDE.md`](CLAUDE.md) — the conventions every agent (and human) follows.
 3. [`docs/specs/`](docs/specs/) — implementation-ready specifications.
 4. [`docs/research/requirement-yogi-dc.md`](docs/research/requirement-yogi-dc.md) —
-   what the Requirement Yogi documentation actually says, with gaps flagged.
-5. [`docs/specs/09-decision-log.md`](docs/specs/09-decision-log.md) — every deliberate
+   what the Requirement Yogi documentation says, with gaps flagged.
+5. [`docs/research/requirement-yogi-video.md`](docs/research/requirement-yogi-video.md)
+   and [`requirement-yogi-videos-2.md`](docs/research/requirement-yogi-videos-2.md) — what
+   the running product actually does, from four vendor screencasts (authoring, baselines,
+   Excel import, administration). **They outrank the prose docs where they disagree.**
+   The videos themselves sit in `docs/research/` and are git-ignored.
+6. [`docs/specs/09-decision-log.md`](docs/specs/09-decision-log.md) — every deliberate
    divergence from Requirement Yogi, and why.
+
+## The GUI
+
+The interface reproduces the vendor screencast's GUI — layout, controls, defaults and
+copy — so that people arriving from Requirement Yogi find everything where their hands
+expect it. [`docs/specs/10-ui-reference.md`](docs/specs/10-ui-reference.md) draws every
+screen and lists the few deliberate departures, starting with our own name and logo.
 
 ## The team
 

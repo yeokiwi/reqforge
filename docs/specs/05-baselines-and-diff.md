@@ -28,8 +28,41 @@ point: you assemble the scope, then freeze when it is agreed.
 **FROZEN** — one transaction materialises the member rows. From then on those rows are
 immutable (invariant R2).
 
-**Instant baseline** — creation and freeze in one action, scoped to a single document,
-with no report document. RY's fourth creation path (research §5.1).
+**Instant baseline** — creation and freeze in one action, scoped to a single page (and
+optionally its descendants), with no report page. RY's fourth creation path (research
+§5.1).
+
+### 2.1 Three ways to create, as the screencast teaches them
+
+The vendor's baseline video is organised around exactly three entry points (videos-2
+§2.2). The GUI is `10` §14–15; the behaviour behind each:
+
+| Entry | Scope | Wizard | Default name |
+|---|---|---|---|
+| **Baselines tab → Create a new baseline** | all requirements in the space, or an optional query | full wizard | `Baseline {n}` |
+| **Search → select → Actions → Make Baseline** | user picks: the selected requirements · the searched requirements · all requirements in the space | full wizard, with the Scope block | `Baseline {n}` |
+| **Page byline → Create baseline from this page (/ and its descendents)** | the page's definitions, plus descendants if chosen | none — instant | `Baseline {n} for {page title}` |
+
+The scope a wizard receives is stored as the baseline's `sourceQuery`, so a refreeze can
+re-run it. *Reuse the selected requirements* stores `key IN (…)`; *Reuse the searched
+requirements* stores the user's query verbatim.
+
+### 2.2 Wizard options and their defaults
+
+| Option | Values | Default |
+|---|---|---|
+| When | Freeze requirements now · Freeze requirements later | **now** |
+| Baseline page | None (simple) · Create a baseline and an associated page | **None (simple)** |
+| Dependencies | include parent requirements outside the scope | **off** |
+
+*Freeze later* creates a `DRAFT` (§2); *now* creates and freezes in one job. *Create … an
+associated page* creates a report page carrying a baseline block, the requirement list,
+and a Freeze button while in draft.
+
+### 2.3 Status display
+
+The Baselines tab shows `DONE` for `FROZEN` — the only status in the videos — and `DRAFT`
+for `DRAFT`. A baseline whose freeze job is running shows the job's progress in its row.
 
 ## 3. Freeze
 
@@ -79,6 +112,13 @@ streams rather than loading the whole set.
   freeze summary states how many dependencies point outside the baseline.
 - External properties, unless the option was set.
 
+### 3.3a Deletion
+
+Deleting a baseline needs the **baseline-deletion permission**: space administrators by
+default, plus members of the groups configured in Administration → Options who can also
+edit the space (`07` §2.4, videos-2 §4.6). Deletion removes the frozen rows and unpins
+their page versions, but the number is never reused (B2) and an audit row records it.
+
 ### 3.4 Refreeze
 
 Add, remove or update members of an existing frozen baseline. Implemented as delete +
@@ -94,6 +134,23 @@ visibly marked as revised; the revision history is not erasable.
 - Both are accepted wherever a baseline is referenced: `baseline = 3`,
   `baseline = 'Release 1.3c'`, `isModified('3')`, `isModified('Release 1.3c')`.
 - Addressing: `<SPACE>/<KEY>/<number|current>` (research §2.7).
+- **A baselined requirement displays as `KEY vN`** — `BR-01 v1` — in search, matrices,
+  diff, links and the popup header (videos-2 §2.4). *"Baselined requirements take the
+  number of the baseline in the key, and in the URL"*: the URL is
+  `/requirements/{SPACE}/{KEY}/{N}` (`RD-044`).
+- A baseline's own short identifier, used in pickers and integrations, is `{SPACE}-{N}` —
+  `TEAM-1` — as the video's Jira dialog shows.
+- **Baselined versions are read-only everywhere.** Search shows them on a grey
+  background; edit actions are disabled with *"You can only edit requirements in the
+  Current version."*
+
+### 4.1 Page history marker
+
+Freezing writes a marker against every page version it pins: page history (`10` §23)
+shows the comment `Baseline "<name>" for Reqforge` on that version, and its Delete action
+is disabled. RY achieves the same by creating a new page version with that comment
+(videos-2 §2.8); we annotate the existing version instead, because creating a version
+would make the pinned content and the marked version differ by one (`RD-041`).
 
 ## 5. Diff
 
@@ -122,6 +179,26 @@ type DiffRequest = {
   limit: number;                 // default 600
 };
 ```
+
+### 5.1a How the Diff tab maps onto the request
+
+| GUI (`10` §16) | `DiffRequest` |
+|---|---|
+| First query / Second query | `left` / `right`; an empty second query means current requirements, labelled `Set 2` |
+| `Compare ▾` → Description | `body` + `title` |
+| `Compare ▾` → External properties | `externalProperties` |
+| `Compare ▾` → Dependencies | `dependencies` |
+| `Compare ▾` → Issues | phase 3 |
+| `Display ▾` | `filter` |
+| `Limit (600) ▾` | `limit` |
+| `Display descriptions` | render-only; detail is computed either way |
+
+Inline properties are always compared: the video's diff shows them changing with no
+option to hide them.
+
+Row classification renders as state badges — `MODIFIED`, `REMOVED`, `ADDED` — with
+`NON EXISTING` in the column where the requirement is absent. In the detail view,
+**removed text is red with strikethrough and added content is highlighted green**.
 
 ### 5.2 Algorithm
 
@@ -165,6 +242,15 @@ largest table in the system.
   written in the same transaction as the index update. This is `RD-014`.
 - Retention is configurable per space; pruning never removes rows that a frozen baseline
   depends on.
+
+### 6.1 What baselines are not
+
+The vendor's own tips (videos-2 §2.9), adopted as product statements:
+
+- *"We do not have branches: you cannot have two diverging versions of your docs."*
+  Baselines are snapshots of one line of history, not branches (`RD-009`).
+- *"We do not track every little change on requirements."* Page history is the record of
+  who changed what; requirement history (above) is the opt-in finer grain.
 
 ## 7. Compliance posture
 

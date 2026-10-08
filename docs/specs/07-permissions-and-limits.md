@@ -2,11 +2,18 @@
 
 ## 1. Why this is its own spec
 
-Requirement Yogi inherits Confluence's permissions and, by its own documentation,
-**ignores page-level restrictions**: marking a table row as a requirement exports its
-text to everyone with space-view permission (research §6.7). For a tool whose entire
-purpose is holding the authoritative text of a specification, that is a hole we must not
-carry forward.
+Requirement Yogi inherits Confluence's permissions and **ignores page-level
+restrictions**: marking a table row as a requirement exports its text to everyone with
+space-view permission (research §6.7).
+
+This is not an inference from a limitations page. The vendor's own screencast puts it
+on a full-screen title card — **"Requirements are visible to anyone on the space"** —
+then demonstrates it: a page is set to "Viewing and editing restricted" with
+`Everyone: Has no access`, and its requirement `BR-01` still appears, with its full
+description, in the Requirements search screen (video §7).
+
+For a tool whose entire purpose is holding the authoritative text of a specification,
+in a regulated or defence context, that is disqualifying. We do not carry it forward.
 
 ## 2. Model
 
@@ -24,10 +31,48 @@ Subjects: `User`, `Group`. Objects: `Space`, `Document`, `SavedMatrix`, `Baselin
 `EXPORT` is deliberately separate from `VIEW`, exactly as RY does, because those screens
 are the expensive ones (research §4.3).
 
+### 2.4 Action permissions configured in Administration
+
+Three settings on Administration → Options (`10` §19.1), with RY's wording and defaults
+(videos-2 §4.6). The first two share one rule, quoted: *"By default, only space
+administrators can use this feature. If a group is present, the user has to either be
+space admin, either be able to both edit the space and be in this group."*
+
+| Setting | Default | Allowed when |
+|---|---|---|
+| **Requirements rename** | empty | space `ADMIN`, or (space `EDIT` **and** member of a listed group) |
+| **Baseline deletion** | empty | space `ADMIN`, or (space `EDIT` **and** member of a listed group) |
+| **Export** — *Allow export for anyone who can view requirements* | **ticked** | ticked: anyone with `VIEW`; unticked: only holders of `EXPORT` |
+
+The export setting governs only the CPU-heavy Excel/CSV export jobs. RY's note applies
+verbatim: *"Anyone who can view requirements can always export them, with or without this
+option, using the REST API."* — viewing is reading, and the API is a read. Restrictions
+(§2.2) still filter what any export contains.
+
+Other actions, for completeness:
+
+| Action | Needs |
+|---|---|
+| Create, edit, delete key suggestions; change key settings | space `ADMIN` |
+| Create an external property definition | space `ADMIN` (research §2.6) |
+| Change a property's type, delete a definition | instance administrator |
+| Reindex a space | space `ADMIN` |
+| Reindex a page (byline panel) | space `EDIT` |
+| Create or refreeze a baseline | space `EDIT` |
+| See the Queue screen | instance administrator; every user sees their own **Personal queue** |
+
 ### 2.2 Document restrictions — the divergence
 
-A document may carry a restriction: `inherit` (default), or an explicit allow-list of
-users and groups for `view` and for `edit`.
+A page carries one of the three restriction modes shown in the Restrictions dialog
+(`10` §10), with an entry list of users and groups:
+
+| Mode | Who can view | Who can edit |
+|---|---|---|
+| **No restrictions** | anyone with space `VIEW` | anyone with space `EDIT` |
+| **Editing restricted** | anyone with space `VIEW` | listed entries with `Can view and edit` |
+| **Viewing and editing restricted** | listed entries only (`Can view` or `Can view and edit`); `Everyone` shows `Has no access` | listed entries with `Can view and edit` |
+
+Restrictions narrow space permissions; they never grant beyond them.
 
 **Rule X1.** A restriction on a document propagates to **every requirement defined in
 it** and to that requirement's title, body and inline properties, everywhere they would
@@ -75,16 +120,22 @@ numbers where they exist, because they were derived from real deployments.
 
 | Limit | Default | Source |
 |---|---|---|
-| Requirements per space | 12,000 | RY global limit (research §6.7) |
-| Requirements per baseline | 12,000 | RY |
+| **Global limit** — requirements treated together in one operation (a query result being processed, a baseline, an export, a bulk action) | 12,000 | RY: *"Maximum number of requirements that can be treated together at any time"* (videos-2 §4.6). It is **not** a cap on how many requirements a space may hold |
+| Requirements per baseline | the global limit | RY |
 | Requirements per document | 400 hard, 150 warning | RY |
 | Diff rows (interactive) | 600 | RY |
+| Search page size | 30 | RY (video §8) |
 | Matrix page size | 100 default, 600 max | RY |
+| Key length | 200 characters after NFC | ours (`03` §4.1) |
+| Inline transform occurrences without confirmation | 200 | ours (`03` §6.3) |
 | Dependency matrix web cells | 40,000 | RY |
 | Traversal depth (`->`) | 4 | ours (`02` §5.1) |
 | Rules per requirement type | 40 | ours |
 | Types applying to one document | 20 | RY |
-| Import rows per file | 5,000 | ours — RY's docs conflict (2,000 vs 12,000) |
+| Requirements per Excel import | 4,000 | RY — *"Max 4000 requirements per import"* (videos-2 §3.2), settling the docs' 2,000-vs-12,000 conflict |
+| Finished jobs retained in the queue | 20,000 | RY (videos-2 §4.9) |
+| Recently viewed saved views per user | 8 | ours (`10` §9.5) |
+| Query history per user | 10 | ours (`10` §9.2) |
 
 Exceeding a hard limit is an error with the limit named in the message. Exceeding a
 warning threshold is a diagnostic, not a block.

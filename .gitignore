@@ -1,0 +1,32 @@
+# Reference videos (vendor screencasts, 20-30 MB each) — kept local only.
+# See docs/research/requirement-yogi-video*.md for the frame indexes.
+docs/research/*.mp4
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Environment and secrets
+.env
+.env*.local
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -39,12 +39,31 @@ type MatrixColumn =
 `Aggregate ∈ {sum, min, max, avg, count}` — RY's documented set (research §2.6),
 recomputed live as values are edited.
 
+**Cell rendering** uses the shared badge vocabulary in `10-ui-reference.md` §7: a
+dependency cell shows chevroned key lozenges, comma-separated when there are several
+(`› FN-09, › FN-06`), each carrying its direction arrow and opening the shared popup on
+hover. Do not invent a second visual language for links inside matrices.
+
 ### 2.2 Editing in place
 
-A toggle at the top switches to edit mode. In edit mode, `external` columns marked
-`editable` become inputs, and the column cog offers **set value in bulk** across the
-whole result set, not just the visible page. Inline properties are **not** editable here
-— they belong to the document (overview, decision 2).
+The toggle at the start of the toolbar line switches to edit mode — green when on
+(`10` §20, videos-2 §4.2). In edit mode, `external` columns become inputs whose control
+follows the property type (`01` ExternalPropertyDefinition): a number field for `FLOAT`
+and `INTEGER`, a checkbox for `BOOLEAN`, a select for `DROPDOWN`, text otherwise. Each
+cell saves on blur. The column cog offers **set value in bulk** across the whole result
+set, not just the visible page. Inline properties are **not** editable here — they
+belong to the page (overview, decision 2).
+
+**Adding a column.** `+ Add property` in the first column header opens *Add external
+property column*: search existing definitions, or *Or create a new one* with a name and
+a `Type`. Creating one needs the space-admin permission (`07` §2.4); the column is added
+to this matrix at once. There is no limit on the number of definitions.
+
+**Row tree.** Rows with dependencies carry a `›` expander that opens the dependency tree
+beneath the row, one level per click, to the depth cap (`02` §5.1).
+
+**Timing.** The toolbar shows *Built in {ms} ms.* for every render — users judge whether
+to narrow a query from that number.
 
 ### 2.3 Saving and embedding
 
@@ -68,8 +87,8 @@ first(@Priority)
 ```
 
 Deliberately tiny: aggregate functions over dependency sets and properties, comparison,
-`percent()`. No arbitrary expressions, no cross-row references. Scheduled for slice 6,
-after the matrix ships without it.
+`percent()`. No arbitrary expressions, no cross-row references. Scheduled for a slice
+after the matrix (slice 8) ships without it.
 
 ### 2.5 Performance
 
@@ -121,6 +140,13 @@ flagged. This drives the compliance story and has no RY equivalent.
 Coverage and the dependency matrix are gated on the `EXPORT` permission
 (`07-permissions-and-limits.md`) and refuse an empty query — both straight from RY's
 documented guidance (research §4.3).
+
+## 4a. The Reports tab
+
+The newer RY build has a **Reports** tab (videos-2 §1) that the videos never open. Ours
+lists every saved traceability matrix, dependency matrix and report definition in the
+space — name, kind, owner, visibility, last viewed — with open, rename, duplicate and
+delete. It is also where the sidebar's `View all` lands (`10` §9.5).
 
 ## 5. Reports
 

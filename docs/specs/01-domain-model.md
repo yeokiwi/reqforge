@@ -15,6 +15,23 @@ types, baselines, saved matrices, permissions.
   refused for this space (Requirement Yogi's "Isolate spaces", research §6.6).
 - `globalKeys` — when true, requirement keys in this space must be unique across the
   whole installation rather than per space (research §2.2).
+- Key-suggestion settings (`03` §4.2), each with RY's default: `useGlobalKeySettings`
+  (true), `linksAcrossSpaces` (true), `preventReusingDeletedKeys` (false), `globalKeys`
+  (false), `lockKeys` (false). While `useGlobalKeySettings` is true the instance values
+  apply and the space's own are ignored.
+
+### InstanceSettings
+
+One row. The Administration → Options screen (`10` §19.1): `globalLimit` (12000),
+`renameGroups`, `baselineDeletionGroups` (comma-separated group names, empty by
+default), `exportForAllViewers` (true), plus the instance-level key-suggestion defaults.
+
+### KeySuggestion
+
+`spaceId`, `prefix`, `number` (string — its length is the zero padding), `suffix`.
+Unique on `(spaceId, prefix, suffix)`. `number` is the **last used** number and only
+advances (`03` §4.2). Deleting a row is allowed; the next key is then recomputed from the
+highest existing requirement key with that prefix and suffix.
 
 ### Document
 
@@ -38,13 +55,16 @@ The projection of a marked-up region of a document version.
 |---|---|
 | `id` | technical PK |
 | `spaceId`, `key`, `baselineId` | **the logical identity**; `baselineId = NULL` ⇒ live |
-| `upperKey` | denormalised uppercase key for case-insensitive search (research §5.7) |
+| `upperKey` | denormalised **Unicode case-folded** key for case-insensitive search (research §5.7). Not `toUpperCase()` — keys may be CJK, Arabic or contain ß and ı (`03` §4.1) |
 | `status` | `ACTIVE` \| `ARCHIVED` \| `MOVED` \| `DELETED` |
 | `title` | plain text of the Title column / the line containing the marker |
 | `bodyHtml` | rendered excerpt for popups |
 | `bodySearch` | normalised searchable text — the `text` field of RYQL |
 | `originVersionId` | the `DocumentVersion` this was extracted from |
 | `anchorPath` | ProseMirror path to the marker node, for deep links |
+| `layout` | `TABLE_ROW` \| `TABLE_COLUMN` \| `PARAGRAPH` \| `HEADING` (`03` §2) |
+| `headingLevel` | 1–6 when `layout = HEADING`, else null |
+| `sectionPath` | ordered heading titles enclosing this requirement — free document structure, kept rather than discarded (`RD-026`) |
 | `typeId` | nullable → `RequirementType` |
 | `newKey`, `newSpaceId` | forwarding pointers when `status = MOVED` |
 
@@ -68,17 +88,37 @@ One row per (requirement, name, value). `kind ∈ {INLINE, EXTERNAL}`.
 - `INLINE` values are owned by the document and rewritten on every reindex.
 - `EXTERNAL` values are owned by the user and survive reindex, rename and document
   deletion. They are **not** copied into baselines (research §2.6).
-- `name` is stored verbatim and additionally as `searchName` — the name with spaces
-  removed is *not* what RY does; RY simply says searchable columns cannot contain a
-  space. See `RD-011`.
+- `name` is stored verbatim and additionally as `searchName`. RY says searchable columns
+  cannot contain a space, yet the video shows a live external property named
+  `Estimate (Max)` — with a space *and* parentheses. Both are true: such names exist and
+  display fine, they are just awkward to query. We store the real name and make it
+  queryable through the quoted form. See `RD-011`.
 - `valueOrdinal` preserves column order for display; `valueIndex` distinguishes members
   of a list-valued property.
 
 ### ExternalPropertyDefinition
 
-Instance-global (research §2.6), not space-scoped: `name`, `dataType ∈ {STRING, NUMBER,
-BOOLEAN, DATE, ENUM, TEXT}`, `enumValues`, `description`. Deletion is refused while
-values exist.
+Instance-global (research §2.6), not space-scoped: `name`, `dataType`, `dropdownValues`,
+`description`.
+
+`dataType` takes exactly the five types the screencasts show (videos-2 §4.1, §4.8):
+
+| Code | Admin label | Stored and compared as |
+|---|---|---|
+| `STRING` | Text | text |
+| `FLOAT` | Decimal number | numeric — aggregations (`04` §2.1) apply |
+| `INTEGER` | Integer | numeric |
+| `BOOLEAN` | Boolean | true / false; renders as a checkbox in edit mode |
+| `DROPDOWN` | Dropdown | one of `dropdownValues` |
+
+- **The name is immutable** after creation — *"Once created, it is not possible to rename
+  external properties."* (`RD-040`)
+- The type can change; values that do not convert are kept as text and flagged.
+- **Deleting a definition deletes every value of it, instance-wide**, after a
+  confirmation that states the count — *"It is possible to delete them entirely, with
+  their values."* This replaces the earlier rule that refused deletion while values
+  existed.
+- No limit on the number of definitions.
 
 ### Dependency
 
@@ -127,7 +167,8 @@ transaction that creates them.
 ### RequirementType
 
 `spaceId`, `name` (nullable — a nameless type is a bare key suggestion, research §2.3),
-`keyPattern`, `locked`, `colour`, `nextSequence`, `preventReusingDeletedKeys`.
+`keySuggestionId` → `KeySuggestion`, `colour`. Lock and reuse settings live on the
+space, not the type (`03` §4.2).
 
 Child `RequirementTypeRule` rows: `kind ∈ {REQUIRED_PROPERTY, OPTIONAL_PROPERTY,
 REQUIRED_DEPENDENCY}`, `name`, `relationship`, `ordinal`.
@@ -161,8 +202,9 @@ The canonical human-readable address of a requirement is RY's record-ID grammar
 <SPACE>/<KEY>/<baseline-number|current>      e.g.  SJ/J-026/current, SJ/J-026/1
 ```
 
-URLs: `/s/{spaceKey}/r/{key}` for live, `/s/{spaceKey}/r/{key}@{baselineNumber}` for a
-baselined version.
+URLs follow RY's shape (`RD-029`): `/requirements/{SPACE}/{KEY}` for live,
+`/requirements/{SPACE}/{KEY}/{baselineNumber}` for a baselined version, displayed as `KEY vN` (`RD-044`). Keys are
+percent-encoded; the full URL table is in `10-ui-reference.md` §11.
 
 ## Invariant summary (these become tests)
 

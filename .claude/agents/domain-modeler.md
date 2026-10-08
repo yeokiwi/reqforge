@@ -53,3 +53,17 @@ indexer can drift from the table. Do not add a third without a decision-log entr
 
 When a query is slow, produce `EXPLAIN (ANALYZE, BUFFERS)` output before proposing a fix,
 and keep it in the pull request. The budgets are in `07-permissions-and-limits.md` §5.
+
+## From screencast set 2
+
+Schema changes already drafted in `prisma/schema.prisma`:
+
+- `KeySuggestion` (prefix, padded number string, suffix) and `RequirementType` now hangs
+  off it by name (`RD-042`). Key settings live on `Space`, with an instance default on
+  `InstanceSettings`; *Prevent reusing deleted keys* defaults to false.
+- `DataType` is exactly `STRING · FLOAT · INTEGER · BOOLEAN · DROPDOWN` (`RD-040`).
+  Definition names are immutable — no update path may touch `name`. Deleting a definition
+  deletes its values instance-wide.
+- `InstanceSettings` (single row) for the global limit and the permission groups;
+  `QueryHistory` for the last 10 queries per user.
+- The global limit is **per operation**, not per space (`07` §4).

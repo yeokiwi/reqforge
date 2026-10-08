@@ -71,3 +71,11 @@ The recursion guard is ours and is cleaner than RY's: the indexer skips `report`
 `savedMatrix` nodes entirely when computing `bodySearch`, so a report inside a
 requirement never becomes part of that requirement's text. RY makes users hand-place a
 macro to avoid this; we make it structural.
+
+## From screencast set 2
+
+- The **Traceability toolbar** is specified to the control (`10` §20): `Search:` with
+  Save and `···`, *Built in N ms.*, the edit-mode toggle, `+ Add property` → *Add
+  external property column*, `›` row expanders. Edit-mode inputs follow the property type.
+- The **Reports** tab lists saved matrices and report definitions (`04` §4a); the sidebar
+  groups are *Recently viewed · Your queries · Shared by others · View all* (`10` §9.5).

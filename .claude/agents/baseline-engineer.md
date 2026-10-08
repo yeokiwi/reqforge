@@ -84,3 +84,19 @@ Authorship is exact (`RD-014`): history rows are written in the same transaction
 index update, carrying the editing session's actor. Requirement Yogi warns that its own
 authorship can be wrong; ours must not be, because "who changed this requirement" is an
 audit question.
+
+## From screencast set 2
+
+The baseline video is now the GUI contract for your lane — `10` §14–16 and `05` §2.1,
+§4.1, §5.1a:
+
+- **Three creation routes** — Baselines tab wizard, Search → Make Baseline (with the Scope
+  block), and the instant baseline from the page byline. Wizard defaults: *Freeze
+  requirements now*, *None (simple)*.
+- **`KEY vN`** everywhere a baselined version appears, and the number in the URL:
+  `/requirements/{SPACE}/{KEY}/{N}` (`RD-044`). Baselined rows are grey and read-only.
+- **Freezing marks page history** — `Baseline "<name>" for Reqforge` on the pinned
+  version — by annotation, not by creating a version (`RD-041`).
+- **Diff** follows the video: `State` column, `Set 2` for an empty second query,
+  `NON EXISTING`, red strikethrough for removed and green highlight for added.
+- **Deletion** is space admins plus configured groups who can edit (`RD-043`).

@@ -2,23 +2,33 @@
 
 Requirement Yogi merged "key suggestions" into "requirement types" in 4.0, and states the
 relationship plainly: *"The only difference between a simple 'key suggestion' and a
-requirement type is having a name."* (research §2.3). We model exactly one entity.
+requirement type is having a name."* (research §2.3).
+
+So a **key suggestion** is the base record — prefix, zero-padded number, suffix, exactly
+as RY's Key suggestions table shows it (videos-2 §4.7, `03` §4.2) — and a **requirement
+type** is a key suggestion with a name, rules and a template attached.
 
 ## 1. The entity
 
 ```ts
-type RequirementType = {
+type KeySuggestion = {
   id: string;
   spaceId: string;
-  name: string | null;        // null => a bare key suggestion
-  keyPattern: string;         // e.g. "FN-###"
+  prefix: string;             // "FN-"
+  number: string;             // "011" — last used number; its length is the padding
+  suffix: string;             // "" in most spaces
+};
+
+type RequirementType = {
+  id: string;
+  keySuggestion: KeySuggestion;
+  name: string;               // what makes it a type
   colour: string;
-  locked: boolean;            // restrict the space to configured patterns
-  nextSequence: number;
-  preventReusingDeletedKeys: boolean;
   rules: RequirementTypeRule[];
   templateColumns: TemplateColumn[];
 };
+// Lock keys / Prevent reusing deleted keys / Generate global keys are space settings,
+// not type fields — that is where RY's screen puts them (03 §4.2).
 
 type RequirementTypeRule =
   | { kind: 'REQUIRED_PROPERTY'; name: string }

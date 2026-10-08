@@ -18,8 +18,14 @@ auth (email + session), a space list, one empty space page. CI running
 `pnpm verify` = typecheck + lint + test + `prisma validate`. Playwright smoke test.
 Seed script creating two spaces and three users with different permissions.
 
+Also the **application shell from the video** (`10` §2–3): top bar with `Spaces ▾`,
+`Create`, `···`, Search, help, settings and avatar; the space sidebar in both its
+collapsed icon-rail and expanded states; the copy-deck loader every later slice uses.
+
 **Acceptance:** a fresh clone reaches a logged-in empty space in one command, and CI is
-green on a pull request.
+green on a pull request. The shell matches `10` §2–3 element for element, with every
+"not built" element absent and every "later" element's slot reserved. Copy-deck tests
+run in CI.
 
 ### Slice 1 — Documents and the editor shell
 `[lead] authoring-engineer` `[with] platform-engineer`
@@ -28,8 +34,15 @@ Document tree per space, create/rename/move/delete, TipTap editor with the stand
 rich-text schema, immutable `DocumentVersion` on every save, document history view.
 No requirements yet.
 
-**Acceptance:** write a document with tables and lists, reload, see it unchanged; every
-save creates a version; the version list renders past versions read-only.
+The GUI is the video's (`10` §4–5): page view with breadcrumb, byline icons, `Edit` ·
+`Save for later` · `Watching` · `Share` · `···`; the editor's two-row toolbar with the
+table row appearing only inside a table; the footer with `Ready to go` / `Saving
+changes` / `Changes saved`, `What did you change?`, `Notify watchers`, `Update`, `Close`;
+the `+ ▾` insert menu and `{` Macro suggestions with every v1 item from `10` §5.4–5.5.
+
+**Acceptance:** write a page with tables and lists, reload, see it unchanged; every
+save creates a version; the version list renders past versions read-only. The page view
+and editor pass the side-by-side review against the 0:18 and 0:46 reference frames.
 
 ---
 
@@ -38,26 +51,44 @@ save creates a version; the version list renders past versions read-only.
 ### Slice 2 — Requirement markers and the indexer
 `[lead] authoring-engineer` `[with] domain-modeler, test-engineer`
 
-The `requirement` node, `Alt+Shift+R` insertion, the three scope layouts (horizontal
-table, vertical table, paragraph), the pure indexer, requirement rows written on save,
-the requirement detail page, the hover popup.
+The `requirement` node, the three insertion paths (`Alt+Shift+R`, insert menu, `{req`
+autocomplete), the four scope layouts (horizontal table, vertical table, paragraph,
+**heading**), the pure indexer, requirement rows written on save, the requirement detail
+page, the hover popup.
 
-Spec: `03-authoring-and-indexing.md` §1–3.
+Spec: `03-authoring-and-indexing.md` §1–3, §6.1; `10-ui-reference.md` §4–8.
 
 **Acceptance:** all four indexer contracts (I1–I4) hold under property-based tests;
 rules S1–S4 each have a failing-document fixture and a diagnostic; deleting a marker sets
-`DELETED` and keeps the row.
+`DELETED` and keeps the row; a requirement in a heading takes the heading text as its
+title and records `headingLevel` and `sectionPath`; the popup is one component used by
+both the document and the detail page.
 
-### Slice 3 — Keys, patterns and suggestion
+### Slice 3 — Keys, patterns, suggestion and bulk creation
 `[lead] authoring-engineer` `[with] domain-modeler`
 
-Key validation, key patterns, next-key suggestion, sequence advance-and-never-rewind,
-reset action, key locking, duplicate and conflict handling.
+Unicode key validation with its hard and soft rules, key patterns, the multi-pattern
+suggestion picker, sequence advance-and-never-rewind, reset action, key locking,
+duplicate and conflict handling, the **bulk-insert dialog** and the **view-mode inline
+transform**.
 
-Spec: `03` §4.
+Spec: `03` §4, §6.2–6.3.
 
 **Acceptance:** the sequence survives deletion; reset is permission-gated; a key defined
-in two documents produces a visible conflict on both, with neither hidden.
+in two documents produces a visible conflict on both, with neither hidden; the picker
+offers the next key of every pattern at once; `日本語の文字-001` and `REQ 005` are
+accepted, round-trip through a URL, and are queryable, while `REQ/006\` is rejected with
+the inline message; a bulk insert that fails validation on any line inserts nothing;
+running the inline regex transform twice changes nothing the second time. The key
+picker, both bulk-dialog variants and the inline dialog open with exactly the defaults
+and copy in `10` §6, and pass side-by-side review against the 0:54, 2:16, 2:30 and 2:40
+frames.
+
+**From screencast set 2:** the space **Key suggestions** screen (`10` §18.1) — settings with
+RY's defaults (`RD-042`) and the suggestion table with Add, Delete and Search. Extra
+acceptance: a suggestion is stored as prefix + padded number + suffix; deleting one makes
+the next key follow the highest existing key; *Prevent reusing deleted keys* starts
+unticked; the four options are disabled while *Use global settings* is ticked.
 
 ### Slice 4 — Inline properties
 `[lead] authoring-engineer` `[with] platform-engineer`
@@ -80,25 +111,37 @@ still queryable with the quoted form.
 `[lead] ryql-engineer` `[with] test-engineer`
 
 Pure front end of the query pipeline. AST, typed errors with offsets, default-scope
-injection, precedence per RD-018, lexing per RD-019.
+injection, precedence per RD-018, lexing per RD-019, plus `describe()` and `complete()`
+per RD-024.
 
 Spec: `02-query-language.md` §1–4, §8–9.
 
 **Acceptance:** corpus items 1, 3, 4 from `02` §10 all green. Every example query in
-`docs/research/requirement-yogi-dc.md` §3.8 parses.
+`docs/research/requirement-yogi-dc.md` §3.8 parses. Every precedence case has a pinned
+English rendering from `describe()`, and the rendering names the injected defaults.
 
 ### Slice 6 — RQL: SQL compiler and the search screen
 `[lead] ryql-engineer` `[with] platform-engineer, test-engineer`
 
 Parameterised SQL generation for every field and operator, two-valued NULL semantics,
-traversal by joins with the depth cap, the search UI with inline error underlining,
-saved searches, bulk selection including select-all-matching-query.
+traversal by joins with the depth cap, the Requirements screen with its tab bar, inline
+error underlining, `Ctrl+Space` completion, the effective-query echo, the 30-row pager,
+Excel and CSV export, saved searches, bulk selection including select-all-matching-query.
 
-Spec: `02` §5–7, §10.
+Spec: `02` §5–8, §10; `10-ui-reference.md` §9.
 
-**Acceptance:** corpus items 2, 5, 6 green against the 500-requirement fixture database;
-no code path builds SQL from user input outside the compiler (enforced by a lint rule);
+**Acceptance:** corpus items 2, 5, 6, 7 green against the 500-requirement fixture
+database; no code path builds SQL from user input outside the compiler (enforced by a
+lint rule); the echo under the query box names the injected space, status and baseline
+scopes in the video's register; the tab bar, hint line, pager line and Links-column
+badges match `10` §7 and §9 verbatim, with `Excel` disabled; selecting the header
+checkbox selects every match, not the visible page;
 p95 budgets in `07` §5 met in CI.
+
+**From screencast set 2:** free-text queries (`02` §3.2) and query history; the newer tab
+bar `… Diff · Reports · External properties` (`RD-038`). Extra acceptance: typing `KEY`
+echoes *"Requirements containing 'KEY' and …"*; `key ~ 'Business%'` echoes *"…with key
+starting with 'Business'…"*; corpus category 8 is green.
 
 ---
 
@@ -127,6 +170,11 @@ Spec: `04` §2.
 
 **Acceptance:** no N+1 under a query counter; a matrix with 8 columns over 100 rows meets
 the budget; a saved matrix embedded in two documents renders correctly in both.
+
+**From screencast set 2:** the Traceability toolbar exactly as `10` §20 — `Search:` with
+Save and `···`, *Built in N ms.*, the edit-mode toggle, `+ Add property` with *Add external
+property column*, `›` row expanders — and the Reports tab (`04` §4a). Extra acceptance:
+edit mode renders the right input per property type and saves per cell.
 
 ### Slice 9 — Dependency matrix and coverage
 `[lead] traceability-engineer` `[with] platform-engineer`
@@ -164,6 +212,11 @@ Spec: `01` (Property, ExternalPropertyDefinition); `04` §2.2.
 
 **Acceptance:** external values survive reindex, rename and document deletion.
 
+**From screencast set 2:** the External properties tab (`10` §24) and Administration →
+Properties (`10` §19.2). Extra acceptance: only the five types exist (`RD-040`); the name
+field is absent from the edit form; deleting a definition reports and removes every value;
+INLINE and EXTERNAL counts are correct.
+
 ### Slice 12 — Requirement types and validation
 `[lead] domain-modeler` `[with] authoring-engineer`
 
@@ -194,6 +247,14 @@ Spec: `05-baselines-and-diff.md` §1–4.
 SQL and expecting the trigger to reject it; a pinned document version cannot be deleted;
 a frozen body's images resolve after the source image is replaced.
 
+**From screencast set 2:** the Baselines tab (`10` §14) and all three creation routes —
+wizard from the tab, wizard from Search with the Scope block, instant from the byline
+panel (`10` §15, `05` §2.1). Extra acceptance: wizard defaults are *Freeze requirements
+now* and *None (simple)*; baselined requirements display as `KEY vN`, sit on grey rows
+under *Show all versions* and refuse edits; page history shows `Baseline "<name>" for
+Reqforge` on pinned versions with Delete disabled (`RD-041`); only space admins and
+permitted groups can delete a baseline (`RD-043`).
+
 ### Slice 14 — Diff, `isModified`, history
 `[lead] baseline-engineer` `[with] ryql-engineer, test-engineer`
 
@@ -205,6 +266,11 @@ Spec: `05` §5–6.
 
 **Acceptance:** `isModified(N)` and the diff view never disagree on the same pair — a
 property-based test asserts exactly that.
+
+**From screencast set 2:** the Diff tab exactly as `10` §16 — `State` column, `Set 2`,
+`NON EXISTING`, `Compare ▾`, `Limit (600) ▾`, *Display descriptions* with red strikethrough
+and green highlight. Extra acceptance: selecting one baseline on the Baselines tab diffs it
+against current; two diffs them against each other; three disables the button.
 
 ### Slice 15 — Renaming
 `[lead] authoring-engineer` `[with] baseline-engineer, platform-engineer`
@@ -220,6 +286,10 @@ Spec: `03` §5.
 modification was saved"); a baselined requirement keeps its original key and still
 resolves from the renamed live one.
 
+**From screencast set 2:** the rename **page** (`10` §17) and the shared long-running-task
+view. Extra acceptance: a non-admin editor is refused unless in a configured rename group;
+the result reads *"Reqforge modified {m} macros on {p} pages to rename {r} requirements."*
+
 ---
 
 ## Phase 6 — Hardening
@@ -232,8 +302,33 @@ predicate, classification labels on exports, the audit log.
 
 Spec: `07-permissions-and-limits.md`.
 
+The **Restrictions dialog** reproduces the video (`10` §10): three modes with their
+subtitles, the user-or-group entry list, `Everyone — Has no access`, `Apply` disabled
+until a change — plus the one added line telling the user that requirements on the page
+follow the restriction (`RD-034`).
+
 **Acceptance:** the "no direct table access outside the repository" test passes; every
-list surface has a restricted-content test.
+list surface has a restricted-content test; restricting a page in the dialog removes its
+requirements from search, matrices, coverage and the popup for an unlisted user — the
+exact scenario the video demonstrates going the other way.
+
+### Slice 16a — Administration, queue and space settings
+`[lead] platform-engineer` `[with] domain-modeler, test-engineer`
+
+From screencast set 2. Administration with RY's tab structure (`10` §19): Getting started,
+Options (global limit; rename, baseline-deletion and export permissions), Properties, Key
+suggestions defaults, Upgrade tasks, Usage metrics. The **Queue** screen and **Personal
+queue** over our jobs (`10` §21, `RD-046`). Space settings → Reqforge: Options, Reindex,
+Key suggestions, Trash (`10` §18). The deleted-requirement page (`10` §22) and page
+history (`10` §23).
+
+Spec: `10` §18–23; `07` §2.4, §4; `RD-043`, `RD-046`, `RD-048`.
+
+**Acceptance:** every Options help text matches the copy deck; a reindex survives closing
+the browser and reattaches; failed jobs can be retried from the Queue; the Personal queue
+shows only the user's jobs and no settings; usage metrics make no outbound request (a
+test asserts no network egress); a requirement inside an expand block is indexed and never
+appears on the deleted-requirement page (`RD-047`).
 
 ### Slice 17 — REST API and webhooks
 `[lead] platform-engineer` `[with] ryql-engineer`
@@ -259,7 +354,7 @@ Not scheduled. Listed so nobody designs them out by accident.
 | Item | Notes |
 |---|---|
 | Word import | RY has no importer at all (research §6.1); a real one is a differentiator |
-| Excel import / round-trip | Column-mapping UI, the five roles, schema-drift abort |
+| Excel import / round-trip | **Fully specified from the vendor video in `10` §25 (`RD-049`)** — 4,000 per import, per-sheet opt-in, roles KEY · DESCRIPTION · PROPERTY · `-`. Until then, paste into a page and bulk-insert |
 | xlsx export of search results | RY's contractual-sign-off bridge |
 | ReqIF import/export | Exchange with external requirements tools |
 | GitHub App | Auto-link on commit keys; PR check on validation failures |
@@ -268,6 +363,13 @@ Not scheduled. Listed so nobody designs them out by accident.
 | Variants | `RD-009` |
 
 ---
+
+## GUI review gate
+
+Every slice that touches a screen in `10-ui-reference.md` produces a side-by-side
+artefact: our screen at 1920×1080 next to the matching reference frame from the research
+note's frame index. `code-reviewer` checks it against question 6 of its brief; a
+departure not listed in `10` §0 blocks the merge.
 
 ## Working rhythm
 

@@ -12,17 +12,29 @@ Requirement Yogi for Confluence Data Center, minus Confluence. Read
 
 1. **The spec is the contract.** If the code and `docs/specs/` disagree, one of them is
    a bug. Fix the one that is wrong, in the same PR, and say which.
-2. **No invented Requirement Yogi behaviour.** Requirement Yogi's docs are incomplete
-   in known places — they are catalogued in `docs/research/requirement-yogi-dc.md`
-   under "Gaps". When you hit a gap, you are *designing*, not *reproducing*. Record the
-   choice in `docs/specs/09-decision-log.md` as a new `RD-nnn` entry. Never silently
-   guess and never write "Requirement Yogi does X" unless the research notes say so.
+2. **No invented Requirement Yogi behaviour.** There are two research files, and they
+   rank:
+   1. `docs/research/requirement-yogi-video.md` and `requirement-yogi-videos-2.md` — the
+      running product, from four vendor screencasts. **They win any disagreement** with
+      the prose docs; where the two notes disagree, the newer product build wins
+      (`RD-038`). Each note ends with its contradictions table.
+   2. `docs/research/requirement-yogi-dc.md` — the vendor's prose documentation, with
+      its gaps catalogued at the end of each section.
+
+   When you hit a gap, you are *designing*, not *reproducing*. Record the choice in
+   `docs/specs/09-decision-log.md` as a new `RD-nnn` entry. Never silently guess, and
+   never write "Requirement Yogi does X" unless one of those two files says so.
 3. **Vertical slices only.** A slice ships schema + query + API + UI + tests together
    and is demoable. No horizontal "build all the models first" work.
 4. **Tests before the merge, not after the milestone.** Every slice's definition of
    done includes its tests. The query engine is golden-file tested: every example
    query in `docs/specs/02-query-language.md` is a test case.
-5. **Stay inside your lane.** Agents own directories (see `docs/team.md`). If your task
+5. **The GUI follows the video.** `docs/specs/10-ui-reference.md` reproduces the
+   vendor screencast's layout, controls, defaults and copy (`RD-031`). Strings come from
+   its copy deck (§13), never inlined. Do not "improve" a screen on taste; if you think
+   the video's GUI is wrong somewhere, raise it with `spec-keeper`. The only sanctioned
+   departures are the ones listed at the top of `10`.
+6. **Stay inside your lane.** Agents own directories (see `docs/team.md`). If your task
    needs a change outside your lane, state the change you need and hand off — do not
    reach in and edit another agent's files.
 

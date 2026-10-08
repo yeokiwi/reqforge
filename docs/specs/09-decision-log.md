@@ -17,7 +17,7 @@ event sourcing) makes the query compiler twice as complex for no user-visible ga
 the discriminator.
 
 ### RD-002 — `page` becomes `document`
-**accepted.** RY's `page`, `pageHistory` fields and "page" vocabulary are Confluence
+**superseded by RD-032.** RY's `page`, `pageHistory` fields and "page" vocabulary are Confluence
 artefacts. Reqforge uses `document` / `documentHistory`. `page` and `pageHistory` remain
 as **deprecated aliases** that parse, warn, and compile identically, so queries copied
 from RY documentation work.
@@ -141,3 +141,281 @@ recursive CTE with a visited-set guard and the same cap.
 implemented. `UNKNOWN_FIELD` maps them to an explanatory message rather than a
 did-you-mean. Integration links (`08` §8) will introduce a generic `externalLink` field
 when they land, not a vendor-named one.
+
+---
+
+## Decisions from the screencast (2026-10-08)
+
+The vendor screencast (`docs/research/requirement-yogi-video.md`) showed the running
+product and contradicted the written documentation in three places. These entries record
+what changed.
+
+### RD-023 — Requirement keys are Unicode-permissive
+**accepted. Supersedes the ASCII key rule previously in `03` §4.1.**
+The docs say keys accept only letters, digits, `_`, `-` and `.`. The product accepts
+anything except `/` and `\` — the video shows `日本語の文字-001`, `حروف عربية-001`,
+`REQ-004(§2.5)`, `REQ-!@#$%%^*()_-002` and `REQ 005` as explicitly valid, and rejects
+only `REQ/006\`. We match that, with a short exclusion list (path separators, invisible
+characters, leading/trailing whitespace, >200 chars) and a non-blocking `KEY_AWKWARD`
+warning for keys containing a space, `'`, `%`, or mixed scripts.
+
+*Why it matters more for us than for RY:* a defence or multinational programme writing
+in Japanese or Arabic, or numbering clauses as `§2.5`, is locked out by an ASCII rule.
+*Cost:* Unicode case folding rather than `toUpperCase()`, percent-encoded keys in URLs,
+`%` colliding with the `~` wildcard, and six awkward keys permanently in the query
+fixture set (`02` §10 category 7). All cheap, and all cheaper now than after launch.
+
+### RD-024 — `describe()` and `complete()` are analyser outputs
+**accepted.** The search screen renders the *effective* query in English below the box,
+including the defaults the analyser injected, and `Ctrl + Space` completes fields and
+property names. Both are generated from the AST in `src/domain/ryql/`, not in the UI —
+a description produced by any other route will eventually disagree with the compiler.
+
+*Why:* "why is my requirement missing from these results" is the main support cost of
+any query language, and the answer is almost always an invisible injected default. The
+echo also discharges `RD-018`'s obligation to make precedence visible.
+
+### RD-025 — The bulk-insert dialog states its mode explicitly, and pads for you
+**partly superseded by RD-033** — the mode radio and all-or-nothing validation stand;
+the dialog layout, and the preview line, do not. The dialog carries a mode radio — *use the selected text as keys* versus
+*generate numbers automatically* — rather than inferring which the user meant. It shows
+the line count before committing, previews the generated keys, and validates the whole
+selection before inserting anything; a partial bulk insert is not a state anyone can
+reason about.
+
+One improvement on RY: zero padding is **derived from the pattern and applied
+automatically**. RY's dialog tells the user to remember leading zeros so keys sort
+correctly. Telling the user to do something the software knows how to do is a defect.
+
+### RD-026 — Requirements may live in headings, and keep their outline position
+**accepted.** The video shows requirements in headings at several levels, a layout the
+written docs never mention. A heading requirement's title is the heading text only, not
+the section beneath it. We additionally store `headingLevel` and `sectionPath`.
+
+*Why the extra fields:* the document outline is structure the author already created.
+RY discards it; keeping it gives us section-scoped queries and a free tree view in the
+traceability matrix for no authoring effort.
+
+### RD-027 — Inline transform works across a whole space
+**accepted.** The view-mode dialog offers three independent options: make links for a
+key in this document, make links for it **in this space**, and create definitions for
+every regex match in this document with a live occurrence count. The written docs
+mention only the document scope; the space-wide option is the one that saves an
+afternoon after a Word paste. Above 200 occurrences the action requires an explicit
+confirmation, and the regex runs against rendered text only, so running it twice is
+idempotent.
+
+### RD-028 — One popup component, one badge vocabulary
+**accepted.** The requirement popup and the link badges (`ORIGINAL`, `LINK`,
+`PARENT ↗`, `CHILD ↘`, `TESTS`) appear in documents, search results, matrices and
+reports. They are specified once in `10-ui-reference.md` and implemented once.
+
+The direction arrows are load-bearing, not decoration: dependency direction is the most
+misread concept in the product (invariant P1), and RY labels every edge with ↗ or ↘
+rather than relying on the words parent and child.
+
+### RD-029 — Adopt RY's URL shape
+**accepted. Supersedes the `/s/{spaceKey}/r/{key}` scheme. Baselined form superseded by RD-044.**
+`/requirements/{SPACE}/{KEY}`, with `@{baselineNumber}` for a frozen version, matching
+the URL visible in the video's status bar. Short, guessable and pasteable into a ticket,
+which is most of what a requirement URL is for.
+
+### RD-030 — An eleventh spec file
+**accepted.** `CLAUDE.md` budgets ten spec files. `10-ui-reference.md` makes eleven.
+The screencast is primarily UI evidence, four agents build against it, and the
+alternative was duplicating the popup and badge definitions across three domain specs
+where they would drift. The budget stands at eleven; a twelfth needs its own entry.
+
+---
+
+## Decisions from the GUI directive (2026-10-08)
+
+Direction from the product owner: *the specifications and requirements follow the
+graphical user interface shown in the video.* A second pass over the screencast captured
+every distinct screen (`requirement-yogi-video.md` §10a). These entries record what that
+changed.
+
+### RD-031 — The GUI follows the vendor screencast
+**accepted.** Screen layout, controls and their order, UI copy, defaults, keyboard
+routes and colour roles reproduce what the video shows. `10-ui-reference.md` is the
+contract, with a verbatim copy deck (§13) that tests assert against.
+
+Three things are explicitly *not* reproduced, and the spec says so in a table at the top
+of `10` rather than leaving them to judgement:
+
+1. **Identity.** Product name, logo and wordmarks are ours. No third-party branding,
+   "Powered by" footers, or vendor names in our chrome. Copy that names the vendor
+   (`Requirement Yogi (Alt + Shift + R)`) substitutes our name.
+2. **Behaviour the decision log already overrides.** Most visibly `RD-017`: the video
+   demonstrates restricted pages leaking their requirements; ours do not. Following the
+   GUI is not following the defect.
+3. **Vendor-named integrations** (`Jira Issue/Filter`, the `JIRA` badge) keep their slot
+   and are relabelled generically when integrations ship.
+
+*Why this rule and not "inspired by":* users moving from Requirement Yogi carry muscle
+memory — where `Create` is, what `Alt + Shift + R` opens, which checkbox starts ticked.
+Fidelity is what makes migration free. *Cost:* some choices we previously made on taste
+are reversed (RD-032, RD-033), and the GUI inherits a few rough edges we would not have
+designed, such as the `TRACEABILITY MATRIXES` heading.
+
+### RD-032 — The UI says "page", "macro" and "Estimates"; so does RQL
+**accepted. Supersedes RD-002. The "Estimates" tab label is superseded by RD-038.**
+The video's vocabulary is "page" (Pages, Page tree, "on this page"), "macro" (Insert
+the Requirement macro, Macro suggestions, Other macros) and "Estimates" (the tab).
+The UI uses those words. RQL follows the UI: `page` and `pageHistory` are the native
+field names again, with `document` and `documentHistory` accepted as aliases — which
+also means queries copied out of RY's documentation work unmodified.
+
+Internal names do not change: the domain entity stays `Document`, the editor node stays
+a requirement *marker*. Code is written for engineers; the UI is written for users; the
+two vocabularies are mapped once, in the copy deck.
+
+### RD-033 — The bulk-insert dialog has the video's two variants and no preview line
+**accepted. Partly supersedes RD-025.**
+Empty-cell selections get **Prefix and first number**, two fields pre-filled from the
+next suggested key with the number already zero-padded. Text selections get the **Mode**
+radio and an optional **Prefix**. The preview line RD-025 added is dropped — it is not in
+the GUI, and the pre-filled padded number already shows the user what will be generated.
+
+What survives from RD-025, because it is behaviour, not layout: the count is a promise,
+validation is all-or-nothing, and a numbers-only selection requires a prefix.
+
+### RD-034 — The Restrictions dialog is reproduced; its effect is not
+**accepted.** The dialog's three modes, subtitles, entry list, `Everyone — Has no
+access` row and disabled-until-changed `Apply` are reproduced verbatim. The schema's
+restriction modes now mirror them (`NONE`, `EDIT_RESTRICTED`, `VIEW_EDIT_RESTRICTED`).
+
+The effect differs (`RD-017`): requirements on a restricted page are restricted with it.
+Because the GUI is identical to one that behaves the other way, the dialog adds one line
+whenever the page defines requirements — *"Requirements defined on this page follow these
+restrictions."* A user who knows Requirement Yogi must not be left to assume RY's
+behaviour from RY's dialog.
+
+### RD-035 — Elements shown in the video that we omit or defer
+**accepted.** Every element in the video is accounted for in `10`, with a status.
+
+| Element | Status | Reason |
+|---|---|---|
+| App switcher grid | not built | single-product installation |
+| `Blog` sidebar item | not built | no role in a requirements tool; removed rather than left dead |
+| `Like` / "Be the first to like this" | not built | social signal with no role in a specification |
+| `People` directory | later | |
+| Notifications bell | later | `Watching` ships in v1 and emails |
+| Page labels, comments | later | features in their own right; footer slot reserved |
+| `Gallery`, `Jira Issue/Filter` in the insert menu | later | |
+| Collaborator invite `+`, real-time co-editing | later | v1 shows presence and detects concurrent saves |
+| `Excel` tab | superseded by RD-038 | the newer build has no Excel tab; Excel import is reached from the External properties tab |
+| `Tests:` section of the popup | later | needs the testing module |
+
+### RD-036 — Page URLs
+**accepted. Extends RD-029.** Pages live at `/spaces/{SPACE}/pages/{pageId}`, with
+`/edit` for the editor. Requirement URLs stay `/requirements/{SPACE}/{KEY}`, as seen in
+the video's status bar.
+
+### RD-037 — The copy deck is a contract
+**accepted.** `10` §13 lists every string reproduced from the video with an id. Strings
+are loaded from that deck, never inlined in components, and a test asserts each id
+renders its exact text. Changing a string is a GUI change and needs a decision here.
+
+
+---
+
+## Decisions from screencast set 2 (2026-10-08)
+
+Three further vendor videos — baselines, Excel import, administration
+(`docs/research/requirement-yogi-videos-2.md`). They show a newer RY build than set 1 and
+cover screens set 1 never opened.
+
+### RD-038 — Where the builds differ, follow the newer one
+**accepted. Supersedes the tab bar of RD-032 and the Excel-tab row of RD-035.**
+The tab bar is `Search · Coverage · Dependencies · Traceability · Baselines · Diff ·
+Reports · External properties`. The newer build renamed Estimates to External properties
+— which the written docs also say happened — added Reports, and moved Excel import into
+links at the foot of the External properties tab. Following the older build would mean
+reproducing a layout the vendor has since replaced.
+
+### RD-039 — A bare word is a query
+**accepted.** `KEY` in the search box searches keys and text and echoes *"Requirements
+containing 'KEY'"*, as the administration video shows. Rule in `02` §3.2: free text is an
+input with no operators, parentheses, `@` or quotes that does not parse as a field
+predicate. A single quoted string is free text too, as the escape hatch. Focusing the
+empty box lists the user's last 10 queries.
+
+### RD-040 — External property types are the five the product shows; names are permanent
+**accepted.** `STRING`, `FLOAT`, `INTEGER`, `BOOLEAN`, `DROPDOWN` — labelled Text,
+Decimal number, Integer, Boolean, Dropdown in administration. Our earlier `DATE`, `ENUM`,
+`NUMBER` and `TEXT` are dropped: dates are text in ISO form (which RQL already compares
+correctly, `02` §5), and DROPDOWN is the enum. *"Once created, it is not possible to
+rename external properties"* — adopted, because a rename silently breaks every saved
+query that names the property. Deleting a definition deletes its values instance-wide,
+after a confirmation stating the count; the earlier rule refusing deletion while values
+exist is dropped.
+
+### RD-041 — Freezing marks page history, without creating a version
+**accepted.** RY's page history shows `Baseline "Baseline 3" for Requirement Yogi`
+against a version — it creates a new page version to carry the comment. We annotate the
+pinned version instead, so the marked version and the frozen content are the same
+version. The history screen shows the marker in the Comment column and disables Delete
+on that row.
+
+### RD-042 — A key suggestion is prefix + padded number + suffix
+**accepted. Replaces the `FN-###` template in `03` §4.2 and `06` §1.**
+That is the model RY's Key suggestions screen exposes, with `Add`, `Delete` and `Search`
+per row. Settings and defaults are RY's, verbatim: Use global settings (on), Links across
+spaces (on), Prevent reusing deleted keys (**off** — our schema had it on), Generate
+global keys (off), Lock keys (off). Lock and reuse are space settings, not type fields.
+
+### RD-043 — Rename and baseline deletion: space admins, plus groups who can edit
+**accepted.** Both default to space administrators. Administration lists groups whose
+members may also act — **only if they can edit the space**. The export setting (*Allow
+export for anyone who can view requirements*, default on) gates Excel/CSV export jobs
+only; the API remains available to anyone who can view, as RY's own note says. This
+replaces the written docs' "global admin or configured group" for rename.
+
+### RD-044 — Baselined versions are `KEY vN`, with the number in the URL
+**accepted. Supersedes RD-029's `@N` form.**
+*"Baselined requirements take the number of the baseline in the key, and in the URL."*
+Display `BR-01 v1`; URL `/requirements/{SPACE}/{KEY}/{N}`, mirroring the record-id
+grammar `SPACE/KEY/N` (research §2.7). A baseline's short id is `{SPACE}-{N}`. Baselined
+rows are grey in Search and read-only everywhere.
+
+### RD-045 — The baseline wizard's unshown parts are ours, and say so
+**accepted.** The videos never show the Dependencies step or any status but `DONE`. The
+Dependencies step offers *Include parent requirements* (off) from the written docs; a
+draft shows `DRAFT`. One copy fix: RY's step 1 states *"This action will create a page
+with a summary of the baseline"* even when the default *Baseline page: None (simple)* is
+selected. We show that line only when a page will actually be created — reproducing a
+false statement is not fidelity.
+
+### RD-046 — Long-running tasks survive closing the page
+**accepted.** RY's reindex tells the user *"For the task to progress, you must keep this
+page open."* Ours run as jobs (`00` decision 4); the task view reattaches from the job
+id. The view itself — Time Elapsed, Time Remaining (estimated), Completion, Stop and
+cancel — follows the video. The same jobs appear on the Queue screen, modelled on RY's
+message queue: statistics per queue, filters, retry, delete, 20,000 retained, and a
+read-only Personal queue for every user.
+
+### RD-047 — Requirements in collapsible blocks are always indexed
+**accepted.** RY's administration video demonstrates a requirement inside an Expand
+macro showing as DELETED, presented as an indexing problem to fix by reindexing. Ours
+indexes every container (`03` rule S5); the deleted-requirement page (`10` §22) exists
+for requirements that really were removed.
+
+### RD-048 — Administration and space settings follow the video's structure
+**accepted.** Administration tabs in RY's order — Getting started, Options, Queue,
+Integrations, Properties, Key suggestions, Upgrade tasks, Logging, Support, Usage
+metrics, Tutorials / checklist — each marked v1, later or not built in `10` §19. Space
+settings get a Reqforge tab with Options, Reindex, Key suggestions and Trash. Usage
+metrics are computed locally: *"We don't do telemetry, these metrics are just for you."*
+RY's indexing-engine selector has no equivalent and is not built.
+
+### RD-049 — Excel import is specified now, built in phase 3
+**accepted.** The Excel video gives enough to specify the feature completely: upload with
+a 4,000-requirement cap, per-sheet opt-in and category, column roles `KEY`,
+`DESCRIPTION`, `PROPERTY` (named) and `-`, read-only imported requirements, and *"N
+requirements created. File processed in N ms"*. Recorded in `10` §25 so the phase-3 build
+needs no new research. The 4,000 figure also settles the written docs' conflict.
+
+In v1 the recommended path for Excel content is the one the video's own tips give:
+paste the sheet into a page, select the key column, `Alt + Shift + R` — the bulk dialog's
+*Use selected text as keys* mode.

@@ -12,10 +12,18 @@ Confluence Data Center.
 
 1. `docs/specs/**` — the contract the code must satisfy.
 2. `docs/specs/09-decision-log.md` — what we chose where Requirement Yogi is silent.
-3. `docs/research/requirement-yogi-dc.md` — what the vendor documentation actually says.
-4. The live vendor documentation at `https://docs.requirementyogi.com/data-center` —
+3. `docs/research/requirement-yogi-video.md` and `requirement-yogi-videos-2.md` — the
+   running product, from four vendor screencasts. **They outrank the prose docs**; each
+   ends with a contradictions table. Where they disagree with each other, the newer
+   product build wins (`RD-038`). Evidence of behaviour beats prose about behaviour.
+4. `docs/research/requirement-yogi-dc.md` — what the vendor documentation says.
+5. The live vendor documentation at `https://docs.requirementyogi.com/data-center` —
    consult it only to close a gap the research notes flag, and update the research notes
    with what you find, citing the page.
+
+When new evidence arrives — another video, a trial instance, a screenshot — file it as
+its own research note with timestamps or sources, add a contradictions table, and only
+then amend the specs. Never edit a research note to agree with a spec.
 
 Never treat your own recollection of Requirement Yogi as a source. If it is not in the
 research notes and not on the vendor site, it is a gap and you decide.

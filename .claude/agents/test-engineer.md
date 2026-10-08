@@ -34,6 +34,11 @@ suggestion:
 5. The NULL-semantics table.
 6. A fixture database of ~500 requirements where every corpus query has an expected
    result-key set.
+7. **Awkward keys** — `日本語の文字-001`, `حروف عربية-001`, `REQ-004(§2.5)`, `REQ 005`,
+   `REQ-100%-A`, `O'Brien-01`. Each reachable by `key =`, by `key ~` with a wildcard,
+   and through a URL round-trip. These are the cases that break an engine written
+   against ASCII assumptions, and the vendor screencast shows all of these shapes as
+   valid keys (`RD-023`).
 
 Category 6 is the one that catches real compiler regressions; the others catch grammar
 drift. Keep the fixture database **stable** — changing it invalidates every expectation,
@@ -62,6 +67,25 @@ sentence. It is the single most-inverted rule in the system and it appears in th
 indexer, the query compiler, the matrices and coverage. One canonical fixture, reused
 everywhere.
 
+## GUI fidelity tests
+
+The GUI follows the vendor screencast (`RD-031`), so it gets tests like any other
+contract:
+
+- **Copy deck.** One test per id in `10-ui-reference.md` §13, asserting the exact
+  rendered string. Cheap, and it catches the "someone reworded the dialog" drift that
+  otherwise goes unnoticed for months.
+- **Defaults.** Playwright checks that the inline dialog opens with links-on-page checked
+  and disabled, links-in-space checked, similar-definitions unchecked; that variant A of
+  the bulk dialog opens pre-filled with the next key; that the editor footer reads
+  `Ready to go` before any edit.
+- **Structure.** Snapshot the accessible tree of each screen in `10` and assert the
+  control order — tab bar order, pager-line order, insert-menu order.
+- **Side-by-side review.** For each screen in the research note's frame index, a
+  Playwright screenshot of ours at 1920×1080 is placed next to the reference frame in a
+  review artefact on every slice that touches that screen. A human signs it off;
+  pixel-diffing against a different product would only produce noise.
+
 ## Performance gates
 
 Budgets are in `07-permissions-and-limits.md` §5. Record a baseline on the fixture
@@ -73,3 +97,14 @@ and both numbers. A performance gate nobody can read gets disabled within a mont
 A flaky test is worse than no test, because it trains everyone to re-run CI. Quarantine
 it the same day, file the cause, and either fix it or delete it within the week. Never
 add a `sleep` to an e2e test — wait for a condition.
+
+## From screencast set 2
+
+- Corpus category 8 — free text (`02` §10).
+- A **container fixture**: one requirement inside every collapsible or nested block type,
+  all indexed (`03` rule S5).
+- Copy-deck tests now cover the Baselines, Diff, Rename, Key suggestions, External
+  properties, Administration, Queue and Page history strings (`10` §13).
+- Side-by-side review frames for the new screens are listed in
+  `docs/research/requirement-yogi-videos-2.md` §6.
+- An egress test: usage metrics and every admin screen make no outbound request.

@@ -6,7 +6,8 @@ integrations we care about (CI pipelines, test tools, GitHub) are API-only.
 
 ## 1. Conventions
 
-- Base path `/api/v1`. Versioned; `v1` is stable once slice 8 ships.
+- Vocabulary follows the UI (`RD-032`): resources are **pages**, not documents.
+- Base path `/api/v1`. Versioned; `v1` is stable once slice 17 ships.
 - Auth: session cookie for the app; **API tokens** (scoped, per user, revocable) for
   machines. Bearer header.
 - Every endpoint enforces the same permission and visibility rules as the UI
@@ -31,16 +32,16 @@ There is deliberately **no** create/update/delete for requirements. A requiremen
 and inline properties come from its document (overview, decision 2); writing them means
 editing the document. This is the same conclusion RY reached, arrived at on purpose.
 
-## 3. Documents
+## 3. Pages
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/spaces/{spaceKey}/documents` | tree |
-| `GET` | `/spaces/{spaceKey}/documents/{id}?version=` | ProseMirror JSON or `?format=html` |
-| `POST` | `/spaces/{spaceKey}/documents` | create |
-| `PUT` | `/spaces/{spaceKey}/documents/{id}` | new version; triggers synchronous indexing |
-| `POST` | `/spaces/{spaceKey}/documents/{id}/reindex` | returns a job |
-| `GET` | `/spaces/{spaceKey}/documents/{id}/diagnostics` | indexer diagnostics |
+| `GET` | `/spaces/{spaceKey}/pages` | tree |
+| `GET` | `/spaces/{spaceKey}/pages/{id}?version=` | ProseMirror JSON or `?format=html` |
+| `POST` | `/spaces/{spaceKey}/pages` | create |
+| `PUT` | `/spaces/{spaceKey}/pages/{id}` | new version; triggers synchronous indexing |
+| `POST` | `/spaces/{spaceKey}/pages/{id}/reindex` | returns a job |
+| `GET` | `/spaces/{spaceKey}/pages/{id}/diagnostics` | indexer diagnostics |
 
 `PUT` returns the `IndexResult` diagnostics in the response body, so a CI job that
 uploads a document learns immediately whether its requirements are valid. This is the
@@ -56,7 +57,7 @@ headless path RY cannot offer (research §6.5, `RD-005`).
 | `POST` | `/spaces/{spaceKey}/baselines/{number}/refreeze` | `{query, reason}` → job |
 | `PATCH` | `/spaces/{spaceKey}/baselines/{number}` | rename only |
 | `DELETE` | `/spaces/{spaceKey}/baselines/{number}` | space admin |
-| `GET` | `/spaces/{spaceKey}/baselines/{number}/documents` | pinned versions |
+| `GET` | `/spaces/{spaceKey}/baselines/{number}/pages` | pinned page versions |
 
 ## 5. Analysis
 
@@ -69,6 +70,20 @@ headless path RY cannot offer (research §6.5, `RD-005`).
 | `POST` | `/spaces/{spaceKey}/diff` | `DiffRequest` → classified rows |
 | `POST` | `/spaces/{spaceKey}/exports` | `{kind, config, format}` → job |
 
+## 5a. Settings and administration
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` / `PUT` | `/spaces/{spaceKey}/settings/keys` | key-suggestion settings (`03` §4.2) |
+| `GET` / `POST` | `/spaces/{spaceKey}/key-suggestions` | list; add `{prefix, number, suffix}` |
+| `DELETE` | `/spaces/{spaceKey}/key-suggestions/{id}` | |
+| `POST` | `/spaces/{spaceKey}/reindex` | → job |
+| `POST` | `/spaces/{spaceKey}/requirements/rename` | `{selection, prefix, suffix}` → job; permission per `07` §2.4 |
+| `GET` / `POST` | `/external-properties` | instance-wide definitions |
+| `PATCH` / `DELETE` | `/external-properties/{id}` | type change only — no rename; delete removes all values |
+| `GET` / `PUT` | `/admin/settings` | `InstanceSettings` (`01`) |
+| `GET` | `/admin/usage` | usage metrics, computed locally |
+
 ## 6. Jobs
 
 | Method | Path |
@@ -76,6 +91,9 @@ headless path RY cannot offer (research §6.5, `RD-005`).
 | `GET` | `/jobs/{id}` — state, progress, message, result ref |
 | `POST` | `/jobs/{id}/cancel` |
 | `GET` | `/jobs/{id}/result` — 302 to the artefact for export jobs |
+
+`GET /jobs?queue=&status=&mine=true` backs both the Queue screen and the Personal queue
+(`10` §21); `POST /jobs/{id}/retry` replays a failed job.
 
 Every long operation in this API returns `202` with a job reference. Nothing blocks a
 request thread for more than the budget in `07` §5.
@@ -86,7 +104,7 @@ Outbound, per space, HMAC-signed, with delivery retry and a dead-letter view.
 
 Events: `requirement.created`, `requirement.updated`, `requirement.deleted`,
 `requirement.renamed`, `dependency.changed`, `validation.failed`, `baseline.frozen`,
-`document.indexed`.
+`page.indexed`.
 
 Payloads carry the requirement's record id (`SJ/J-026/current`), not just the technical
 id, so a consumer can address it back.

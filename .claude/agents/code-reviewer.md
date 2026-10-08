@@ -23,11 +23,15 @@ wrong result, not a stylistic preference.
 4. **Are the tests the spec demands present, and do they fail without the change?**
    Run them with the change reverted if you can. A test that passes on both sides tests
    nothing.
-5. **Is anything invented about Requirement Yogi's behaviour that
-   `docs/research/requirement-yogi-dc.md` does not support?** This is the one humans skip
+5. **Is anything invented about Requirement Yogi's behaviour that the research notes in
+   `docs/research/` do not support?** This is the one humans skip
    and the one that costs most later. A comment saying "RY does X" where the research
    notes say nothing about X is a finding, and the fix is either a citation or an
    `RD-nnn` entry.
+6. **Does a UI change match `10-ui-reference.md`?** Layout and control order as drawn,
+   strings loaded from the copy deck rather than inlined, defaults as specified (which
+   boxes start checked, which fields start filled). A screen that drifts from the video
+   without an `RD-` entry is a finding — the GUI is a contract (`RD-031`).
 
 ## Specific things to look for
 
