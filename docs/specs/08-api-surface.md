@@ -61,6 +61,7 @@ case-insensitive. Session cookie only until slice 17 (`RD-064`); every `POST`/`P
 | `PUT` / `DELETE` | `/pages/{id}/watch` | `VIEW` | idempotent `204` |
 | `PUT` / `DELETE` | `/pages/{id}/favourite` | `VIEW` | idempotent `204` |
 | `POST` | `/pages/{id}/presence` | `VIEW` | heartbeat; returns `{ others: UserRef[] }` (`RD-062`) |
+| `GET` | `/people?q=` | `VIEW` | up to 10 users who can view the space and whose name or email starts with `q` (case-insensitive); `{ people: UserRef[] }`. For `@mention` (`10` §5.5). Never returns email addresses |
 | `GET` | `/pages/{id}/attachments` | `VIEW` | live attachments, newest first |
 | `POST` | `/pages/{id}/attachments` | `EDIT` | `multipart/form-data`, field `file`; `201` `AttachmentRef` |
 | `DELETE` | `/pages/{id}/attachments/{attachmentId}` | `EDIT` | hides it; bytes stay (`RD-058`) |
