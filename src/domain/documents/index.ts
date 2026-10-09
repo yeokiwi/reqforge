@@ -9,3 +9,4 @@ export * from "./diff";
 export * from "./attachments";
 export * from "./presence";
 export * from "./versions";
+export * from "./api-types";
