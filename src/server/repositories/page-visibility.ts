@@ -23,7 +23,7 @@ function viewerSql(viewer: Viewer): Prisma.Sql {
  * of applicable memberships; nothing implies VIEW; EDIT without VIEW sees nothing). The same
  * rule as `visibleTo` in spaces.ts, which reads spaces through the ORM.
  */
-function spaceViewableSql(viewer: Viewer, spaceId: Prisma.Sql): Prisma.Sql {
+export function spaceViewableSql(viewer: Viewer, spaceId: Prisma.Sql): Prisma.Sql {
   const v = viewerSql(viewer);
   return Prisma.sql`EXISTS (
     SELECT 1 FROM "Membership" vis_m
