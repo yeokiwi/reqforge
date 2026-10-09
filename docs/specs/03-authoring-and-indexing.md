@@ -49,6 +49,51 @@ Reqforge's equivalent of RY's "RY Properties" macro. Attributes:
 Default when absent: the column header's plain text is the property name, and the first
 non-ignored column is the title (research §2.5).
 
+### 1.4 The standard rich-text schema
+
+One definition, built from TipTap extensions with no DOM (`src/editor/schema`), imported by
+the editor, the page renderer and the server's validator, so a stored document is always one
+the editor can open (`RD-063`). Requirement nodes (§1.1–1.3) join it in slice 2; adding a
+node later never invalidates stored content.
+
+| Node | Kind | Attributes | Content |
+|---|---|---|---|
+| `doc` | block | | `block+` |
+| `paragraph` | block | `textAlign` (`left`/`center`/`right`/`justify`/null), `indent` 0–6 | inline* |
+| `heading` | block | `level` 1–6, `textAlign`, `indent` | inline* |
+| `blockquote` | block | | `block+` |
+| `codeBlock` | block | `language` (string/null) | text* , no marks |
+| `horizontalRule` | block | | — |
+| `bulletList` / `orderedList` | block | `start` (ordered, default 1) | `listItem+` |
+| `listItem` | block | | `paragraph block*` |
+| `taskList` / `taskItem` | block | `checked` (item) | `taskItem+` / `paragraph block*` |
+| `table` | block | `widthMode` (`responsive`/`fixed`), `numberedColumn` (bool) | `tableRow+` |
+| `tableRow` | block | | `(tableCell \| tableHeader)+` |
+| `tableHeader` / `tableCell` | block | `colspan`, `rowspan`, `colwidth`, `background` (`#rrggbb`/null) | `block+` |
+| `infoPanel` | block | `variant` (`info`/`note`/`success`/`warning`/`error`) | `block+` |
+| `tableOfContents` | block atom | `minLevel`, `maxLevel` (1–6) | — |
+| `image` | inline atom | `attachmentId`, `src`, `alt`, `title`, `width` | — |
+| `status` | inline atom | `text`, `colour` (`grey`/`red`/`yellow`/`green`/`blue`/`purple`) | — |
+| `date` | inline atom | `value` (`YYYY-MM-DD`) | — |
+| `mention` | inline atom | `userId`, `label` | — |
+| `hardBreak`, `text` | inline | | |
+
+Marks: `bold`, `italic`, `underline`, `strike`, `code`, `subscript`, `superscript`,
+`link` (`href`), `textStyle` (`color` `#rrggbb`/null).
+
+Rules the schema layer adds beyond structure (`RD-058`, `RD-063`): `link.href` must be
+`http`, `https`, `mailto`, `tel` or start with `/`; an `image` must carry an `attachmentId`
+and a `src` of exactly `/api/v1/attachments/{attachmentId}/…`; colours and dates must match
+their patterns; nesting depth ≤ 64; serialised size ≤ 5 MiB.
+
+### 1.5 Canonical form
+
+Before storing a draft or a version the server runs `validateDocumentJson`: it parses the
+JSON with the schema, checks it, and re-serialises it with `node.toJSON()`. The result —
+unknown attributes dropped, key order fixed, adjacent identical text marks merged — is what
+is stored and what the indexer reads, so indexing is deterministic on stored content
+(contract I1) and the history compare (`RD-060`) is well-defined.
+
 ## 2. Scope rules — what becomes a requirement
 
 Four layouts. The first three are in the written docs (research §2.1); **headings** are

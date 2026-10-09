@@ -37,18 +37,115 @@ editing the document. This is the same conclusion RY reached, arrived at on purp
 
 ## 3. Pages
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/spaces/{spaceKey}/pages` | tree |
-| `GET` | `/spaces/{spaceKey}/pages/{id}?version=` | ProseMirror JSON or `?format=html` |
-| `POST` | `/spaces/{spaceKey}/pages` | create |
-| `PUT` | `/spaces/{spaceKey}/pages/{id}` | new version; triggers synchronous indexing |
-| `POST` | `/spaces/{spaceKey}/pages/{id}/reindex` | returns a job |
-| `GET` | `/spaces/{spaceKey}/pages/{id}/diagnostics` | indexer diagnostics |
+All paths are under `/api/v1/spaces/{spaceKey}`, except attachment bytes. `{spaceKey}` is
+case-insensitive. Session cookie only until slice 17 (`RD-064`); every `POST`/`PUT`/`PATCH`/
+`DELETE` must carry an `Origin` matching the host.
 
-`PUT` returns the `IndexResult` diagnostics in the response body, so a CI job that
-uploads a document learns immediately whether its requirements are valid. This is the
-headless path RY cannot offer (research §6.5, `RD-005`).
+| Method | Path | Needs | Notes |
+|---|---|---|---|
+| `GET` | `/pages` | `VIEW` | the whole tree as a flat `PageSummary[]`, ordered by `ordinal` within `parentId` |
+| `POST` | `/pages` | `EDIT` | create (`RD-056`); body `{ title?, parentId? }`; `201` |
+| `GET` | `/pages/{id}` | `VIEW` | `PageDetail` + the version's content; `?version=N` for a past version; `?format=html` returns the rendered fragment (`text/html`) |
+| `PUT` | `/pages/{id}` | `EDIT` | **publish** a new version (`PublishRequest`); runs the indexer once it exists (slice 2) and returns `diagnostics` |
+| `PATCH` | `/pages/{id}` | `EDIT` | rename `{ title }` — creates a version (`RD-056`) |
+| `POST` | `/pages/{id}/move` | `EDIT` | `{ parentId: string \| null, index: number }` within the space |
+| `POST` | `/pages/{id}/copy` | `EDIT` | `{ title? }`; copies the page only; `201` |
+| `DELETE` | `/pages/{id}` | `EDIT` | soft-deletes the subtree; `{ deletedCount }` |
+| `GET` | `/pages/{id}/draft` | `EDIT` | `{ draft: Draft | null }` — the caller's own unpublished draft |
+| `PUT` | `/pages/{id}/draft` | `EDIT` | autosave (`DraftRequest`); never creates history |
+| `DELETE` | `/pages/{id}/draft` | `EDIT` | revert to last published; idempotent `204` |
+| `GET` | `/pages/{id}/versions` | `VIEW` | `VersionSummary[]`, newest first |
+| `GET` | `/pages/{id}/versions/{n}` | `VIEW` | `VersionDetail` |
+| `POST` | `/pages/{id}/versions/{n}/restore` | `EDIT` | creates a new version from an old one (`RD-060`) |
+| `DELETE` | `/pages/{id}/versions/{n}` | `ADMIN` | refused for the current (`CURRENT_VERSION`) and pinned (`PINNED_VERSION`) |
+| `PUT` / `DELETE` | `/pages/{id}/watch` | `VIEW` | idempotent `204` |
+| `PUT` / `DELETE` | `/pages/{id}/favourite` | `VIEW` | idempotent `204` |
+| `POST` | `/pages/{id}/presence` | `VIEW` | heartbeat; returns `{ others: UserRef[] }` (`RD-062`) |
+| `GET` | `/pages/{id}/attachments` | `VIEW` | live attachments, newest first |
+| `POST` | `/pages/{id}/attachments` | `EDIT` | `multipart/form-data`, field `file`; `201` `AttachmentRef` |
+| `DELETE` | `/pages/{id}/attachments/{attachmentId}` | `EDIT` | hides it; bytes stay (`RD-058`) |
+| `GET` | `/api/v1/attachments/{attachmentId}/{filename}` | `VIEW` on the page's space | the bytes; images inline, everything else as a download |
+| `POST` | `/pages/{id}/reindex` | `EDIT` | returns a job — slice 2 |
+| `GET` | `/pages/{id}/diagnostics` | `VIEW` | indexer diagnostics — slice 2 |
+
+`PUT /pages/{id}` returns the `IndexResult` diagnostics in the response body, so a CI job
+that uploads a document learns immediately whether its requirements are valid. This is the
+headless path RY cannot offer (research §6.5, `RD-005`). Until slice 2, `diagnostics` is `[]`.
+
+### 3.1 Shapes
+
+Times are ISO-8601 UTC strings. `content` is canonical ProseMirror JSON (`03` §1.4).
+
+```ts
+interface UserRef { id: string; name: string }
+
+interface PageSummary {
+  id: string; title: string; parentId: string | null; ordinal: number;
+  currentVersion: number;           // number of the current version
+  lastModifiedAt: string;           // the current version's createdAt
+}
+
+interface PageDetail extends PageSummary {
+  spaceKey: string;
+  ancestors: { id: string; title: string }[];   // root first, excluding the page itself
+  createdBy: UserRef; createdAt: string;
+  lastModifiedBy: UserRef;
+  descendantCount: number;          // how many live pages a delete would take with it
+  watching: boolean; favourite: boolean;        // for the caller
+  hasDraft: boolean;                // the caller has an unpublished draft
+  permissions: { canEdit: boolean; canAdmin: boolean };
+}
+
+interface VersionSummary {
+  number: number; title: string; message: string | null;
+  author: UserRef; createdAt: string;
+  current: boolean; pinned: boolean;
+  pinnedBy?: number[];              // baseline numbers; absent until slice 13
+}
+interface VersionDetail extends VersionSummary { content: unknown }
+
+interface GetPageResponse { page: PageDetail; version: VersionDetail }
+
+interface DraftRequest   { title: string; content: unknown; baseVersion: number }
+interface DraftResponse  { savedAt: string; stale: boolean; currentVersion: number }
+interface Draft          { title: string; content: unknown; baseVersion: number; updatedAt: string;
+                           stale: boolean; currentVersion: number }
+
+interface PublishRequest {
+  title: string; content: unknown;
+  baseVersion: number;              // the version the editor opened from
+  message?: string;                 // `What did you change?`, ≤ 500
+  notifyWatchers?: boolean;         // recorded, not delivered (RD-061)
+  overwrite?: boolean;              // publish over a newer version (RD-055)
+}
+interface PublishResponse { page: PageDetail; version: VersionSummary; diagnostics: unknown[] }
+
+interface AttachmentRef {
+  id: string; filename: string; contentType: string; size: number;
+  url: string;                      // /api/v1/attachments/{id}/{filename}
+  image: boolean; uploadedBy: UserRef; createdAt: string;
+}
+```
+
+### 3.2 Errors
+
+RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...extras }`.
+`type` is `about:blank`; `code` is stable and is what clients branch on.
+
+| `code` | Status | Extras | When |
+|---|---|---|---|
+| `UNAUTHENTICATED` | 401 | | no valid session — never a redirect on `/api` paths |
+| `ORIGIN_MISMATCH` | 403 | | state-changing request whose `Origin` is not this host |
+| `FORBIDDEN` | 403 | | the caller can see the space but lacks the permission |
+| `NOT_FOUND` | 404 | | unknown, malformed, deleted — or **not visible to the caller** (`RD-051`) |
+| `VALIDATION` | 422 | `errors: { path, message }[]` | a field is malformed; content failed the schema |
+| `TITLE_TAKEN` | 409 | | another live page in the space has that title (`RD-056`) |
+| `VERSION_CONFLICT` | 409 | `currentVersion: number` | publish over a newer version without `overwrite` (`RD-055`) |
+| `CYCLE` | 409 | | move under itself or a descendant |
+| `CURRENT_VERSION` | 409 | | delete of the current version |
+| `PINNED_VERSION` | 409 | | delete of a version pinned by a baseline |
+| `TOO_LARGE` | 413 | `limit: number` | content over 5 MiB or an attachment over 10 MiB (`RD-063`, `RD-058`) |
+| `UNSUPPORTED_MEDIA` | 415 | | a refused attachment type (SVG) or a non-JSON body |
 
 ## 4. Baselines
 

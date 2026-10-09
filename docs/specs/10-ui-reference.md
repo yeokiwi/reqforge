@@ -263,6 +263,9 @@ Clicking the product icon in the byline opens a panel headed by the product logo
 | `Close` | v1 | returns to view mode, keeping the draft |
 | `···` | v1 | Revert to last published, Page history |
 
+Where a glyph is not self-explanatory, the reading chosen is in `RD-057`. Autosave, `Update`,
+`Close`, conflict handling and `Revert to last published` follow `RD-055`.
+
 ### 5.2 Macro chips
 
 | Macro | Chip text |
@@ -701,7 +704,10 @@ The GUI follows the video. The behaviour does not, and the dialog says so.
 | Surface | Path |
 |---|---|
 | Page | `/spaces/{SPACE}/pages/{pageId}` |
-| Page version | `/spaces/{SPACE}/pages/{pageId}?version={n}` |
+| Page version | `/spaces/{SPACE}/pages/{pageId}?version={n}` — read-only, with a banner back to current |
+| Page history | `/spaces/{SPACE}/pages/{pageId}/history` |
+| Compare two versions | `/spaces/{SPACE}/pages/{pageId}/history/compare?a={n}&b={m}` (`RD-060`) |
+| Space overview (the page tree) | `/spaces/{SPACE}`, and `?highlight={pageId}` for *View in Hierarchy* |
 | Editor | `/spaces/{SPACE}/pages/{pageId}/edit` |
 | Requirement, live | `/requirements/{SPACE}/{KEY}` — the form in the video's status bar |
 | Requirement, baselined | `/requirements/{SPACE}/{KEY}/{baselineNumber}` — the baseline number *in the URL*, as the video says (`RD-044`) |
@@ -1015,6 +1021,35 @@ is read by the same generator.
 | `globalSearch.none` | No results for "{q}". *(ours)* |
 | `reserved.body` | This screen is part of a later release. *(ours)* |
 | `error.notFound` | We couldn't find that page. *(ours)* |
+
+### 13.2 Page view, byline and page menus (slice 1)
+
+Owner: the page-view agent. Read `RD-059` first.
+
+| Id | String |
+|---|---|
+
+### 13.3 Editor toolbar, menus and dialogs (slice 1)
+
+Owner: the editor agents. Read `RD-055` and `RD-057` first.
+
+| Id | String |
+|---|---|
+
+### 13.4 Page tree, space overview, Page history and compare (slice 1)
+
+Owner: the tree and history agent. Read `RD-056` and `RD-060` first.
+
+| Id | String |
+|---|---|
+
+### 13.5 Server-side messages (slice 1)
+
+Owner: the server agent. Strings the server itself writes: change notes stored on versions,
+and problem-detail titles.
+
+| Id | String |
+|---|---|
 
 ---
 

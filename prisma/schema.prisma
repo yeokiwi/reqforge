@@ -14,27 +14,34 @@ datasource db {
 // ---------------------------------------------------------------- identity
 
 model User {
-  id               String   @id @default(cuid())
-  email            String   @unique
+  id               String              @id @default(cuid())
+  email            String              @unique
   name             String
   /// scrypt, `scrypt$N$r$p$salt$hash` — see src/server/auth/password.ts (RD-050).
   passwordHash     String
   /// Administration, the Queue, global property definitions. Grants no access to space
   /// content: space permissions are separate (RD-051).
-  isInstanceAdmin  Boolean  @default(false)
+  isInstanceAdmin  Boolean             @default(false)
   /// Remembered per user — spec 10 §3.2 (`«` / `»`).
-  sidebarCollapsed Boolean  @default(false)
-  createdAt        DateTime @default(now())
+  sidebarCollapsed Boolean             @default(false)
+  createdAt        DateTime            @default(now())
   memberships      Membership[]
   groupMemberships GroupMember[]
   apiTokens        ApiToken[]
   sessions         Session[]
   spaceStates      UserSpaceState[]
+  createdDocuments Document[]          @relation("DocumentCreator")
+  versionsAuthored DocumentVersion[]   @relation("VersionAuthor")
+  drafts           DocumentDraft[]
+  watches          DocumentWatch[]
+  favouriteDocs    DocumentFavourite[]
+  presence         DocumentPresence[]
+  attachments      Attachment[]
 }
 
 model Group {
-  id          String @id @default(cuid())
-  name        String @unique
+  id          String        @id @default(cuid())
+  name        String        @unique
   members     GroupMember[]
   memberships Membership[]
 }
@@ -42,8 +49,8 @@ model Group {
 model GroupMember {
   groupId String
   userId  String
-  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([groupId, userId])
   @@index([userId])
@@ -93,41 +100,41 @@ model ApiToken {
 // ---------------------------------------------------------------- space
 
 model Space {
-  id             String  @id @default(cuid())
-  key            String  @unique // [A-Z][A-Z0-9]{1,15}
-  name           String
-  isolated       Boolean @default(false) // research §6.6
-  globalKeys     Boolean @default(false) // research §2.2 — "Generate global keys"
+  id                        String  @id @default(cuid())
+  key                       String  @unique // [A-Z][A-Z0-9]{1,15}
+  name                      String
+  isolated                  Boolean @default(false) // research §6.6
+  globalKeys                Boolean @default(false) // research §2.2 — "Generate global keys"
   // Key-suggestion settings, RY defaults (spec 03 §4.2, RD-042)
   useGlobalKeySettings      Boolean @default(true)
   linksAcrossSpaces         Boolean @default(true)
   preventReusingDeletedKeys Boolean @default(false)
   lockKeys                  Boolean @default(false)
-  classification String? // e.g. "Official (Closed)" — spec 07 §2.3
-  historyEnabled Boolean @default(false) // research §2.7 — off by default
-  limits         Json? // per-space overrides of spec 07 §4
+  classification            String? // e.g. "Official (Closed)" — spec 07 §2.3
+  historyEnabled            Boolean @default(false) // research §2.7 — off by default
+  limits                    Json? // per-space overrides of spec 07 §4
 
-  documents    Document[]
-  requirements Requirement[]
-  baselines    Baseline[]
-  types        RequirementType[]
+  documents      Document[]
+  requirements   Requirement[]
+  baselines      Baseline[]
+  types          RequirementType[]
   keySuggestions KeySuggestion[]
-  matrices     SavedMatrix[]
-  memberships  Membership[]
-  userStates   UserSpaceState[]
-  createdAt    DateTime          @default(now())
+  matrices       SavedMatrix[]
+  memberships    Membership[]
+  userStates     UserSpaceState[]
+  createdAt      DateTime          @default(now())
 }
 
 /// Exactly one of userId / groupId is set. Postgres treats NULLs as distinct, so the
 /// "exactly one" CHECK and the two partial unique indexes live in the migration SQL.
 model Membership {
-  id          String  @id @default(cuid())
+  id          String            @id @default(cuid())
   spaceId     String
-  space       Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   userId      String?
-  user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
   groupId     String?
-  group       Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group       Group?            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   permissions SpacePermission[]
 
   @@index([spaceId])
@@ -144,17 +151,17 @@ enum SpacePermission {
 
 /// Single row — Administration → Options (spec 10 §19.1, 07 §2.4).
 model InstanceSettings {
-  id                     Int      @id @default(1)
-  globalLimit            Int      @default(12000) // per operation, not per space
-  renameGroups           String[] // empty => space admins only
-  baselineDeletionGroups String[] // empty => space admins only
-  exportForAllViewers    Boolean  @default(true)
+  id                        Int      @id @default(1)
+  globalLimit               Int      @default(12000) // per operation, not per space
+  renameGroups              String[] // empty => space admins only
+  baselineDeletionGroups    String[] // empty => space admins only
+  exportForAllViewers       Boolean  @default(true)
   // instance-level key-suggestion defaults, inherited while a space has useGlobalKeySettings
-  linksAcrossSpaces         Boolean @default(true)
-  preventReusingDeletedKeys Boolean @default(false)
-  globalKeys                Boolean @default(false)
-  lockKeys                  Boolean @default(false)
-  updatedAt              DateTime @updatedAt
+  linksAcrossSpaces         Boolean  @default(true)
+  preventReusingDeletedKeys Boolean  @default(false)
+  globalKeys                Boolean  @default(false)
+  lockKeys                  Boolean  @default(false)
+  updatedAt                 DateTime @updatedAt
 }
 
 /// Last 10 queries per user — spec 10 §9.2.
@@ -171,23 +178,41 @@ model QueryHistory {
 // ---------------------------------------------------------------- documents
 
 model Document {
-  id               String  @id @default(cuid())
+  id               String                @id @default(cuid())
   spaceId          String
-  space            Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space            Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   parentId         String?
-  parent           Document?  @relation("DocTree", fields: [parentId], references: [id])
-  children         Document[] @relation("DocTree")
+  parent           Document?             @relation("DocTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Document[]            @relation("DocTree")
+  /// Current title. Unique per space among live documents, case-insensitively — partial
+  /// unique index in the migration (RD-056). Every version also records its own title.
   title            String
-  ordinal          Int        @default(0)
+  /// Position among siblings, dense 0..n-1 (RD-056).
+  ordinal          Int                   @default(0)
   classification   String?
-  restrictionMode  RestrictionMode @default(NONE) // the three modes of the Restrictions dialog — spec 10 §10, 07 §2.2
-  currentVersionId String?         @unique
-  versions         DocumentVersion[] @relation("DocVersions")
+  restrictionMode  RestrictionMode       @default(NONE) // the three modes of the Restrictions dialog — spec 10 §10, 07 §2.2
+  currentVersionId String?               @unique
+  /// Never deletable while current (ON DELETE RESTRICT).
+  currentVersion   DocumentVersion?      @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  versions         DocumentVersion[]     @relation("DocVersions")
   restrictions     DocumentRestriction[]
-  createdAt        DateTime @default(now())
+  drafts           DocumentDraft[]
+  watchers         DocumentWatch[]
+  favourites       DocumentFavourite[]
+  presence         DocumentPresence[]
+  attachments      Attachment[]
+  createdById      String
+  createdBy        User                  @relation("DocumentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime              @default(now())
+  /// Soft delete (RD-056): a deleted page and its whole subtree are hidden together.
   deletedAt        DateTime?
+  deletedById      String?
+  /// The page the user actually deleted; its descendants carry the same value, so the
+  /// subtree can be restored as a unit (Trash, slice 16a).
+  deletedRootId    String?
 
   @@index([spaceId, parentId, ordinal])
+  @@index([spaceId, deletedAt])
 }
 
 enum RestrictionMode {
@@ -208,22 +233,104 @@ model DocumentRestriction {
   @@unique([documentId, userId, groupId])
 }
 
-/// Immutable. Never deleted while `pinned` (invariant D1, spec 05 §3.2 step 6).
+/// Immutable. Never deleted while `pinned` (invariant D1, spec 05 §3.2 step 6). Only `pinned`
+/// may change after insert; a trigger in the migration enforces both rules.
 model DocumentVersion {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   documentId String
-  document   Document @relation("DocVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  document   Document  @relation("DocVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  currentOf  Document? @relation("CurrentVersion")
+  /// Sequential per document. The current version is never deleted, so MAX+1 never reuses one.
   number     Int
-  content    Json // ProseMirror JSON
+  /// The title as of this version (a rename is a new version — RD-056).
+  title      String
+  /// Canonical ProseMirror JSON: normalised through the editor schema before storage (RD-055).
+  content    Json
   authorId   String
+  author     User      @relation("VersionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  /// The editor footer's `What did you change?` (10 §5.1), shown in Page history (10 §23).
   message    String?
-  pinned     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  pinned     Boolean   @default(false)
+  createdAt  DateTime  @default(now())
 
   requirements Requirement[]
   links        DocumentLink[]
 
   @@unique([documentId, number])
+}
+
+/// Autosaved work in progress: mutable, one per (document, user). `Update` turns it into a
+/// DocumentVersion; `Close` keeps it; `Revert to last published` deletes it (RD-055).
+model DocumentDraft {
+  documentId        String
+  userId            String
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  content           Json
+  /// The version number this draft started from. Stale when it no longer equals the current one.
+  baseVersionNumber Int
+  updatedAt         DateTime @updatedAt
+
+  @@id([documentId, userId])
+}
+
+/// `Watching` (10 §4.1). On by default for the author. Email delivery is not built (RD-061).
+model DocumentWatch {
+  documentId String
+  userId     String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([documentId, userId])
+  @@index([userId])
+}
+
+/// `Save for later` (10 §4.1): personal favourites.
+model DocumentFavourite {
+  documentId String
+  userId     String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([documentId, userId])
+  @@index([userId])
+}
+
+/// Who has the page open (10 §5.1 presence avatars). Heartbeat-driven; rows older than the
+/// presence window are ignored and pruned opportunistically (RD-062).
+model DocumentPresence {
+  documentId String
+  userId     String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenAt DateTime
+
+  @@id([documentId, userId])
+  @@index([documentId, lastSeenAt])
+}
+
+/// Files and images on a page (RD-058). Bytes live in the database, content-addressed by
+/// `sha256`, so baseline freeze can later copy images by hash (RD-012). `deletedAt` hides an
+/// attachment from the page's list but keeps the bytes: past versions still reference them.
+model Attachment {
+  id           String    @id @default(cuid())
+  documentId   String
+  document     Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  filename     String
+  contentType  String
+  size         Int
+  sha256       String
+  data         Bytes
+  uploadedById String
+  uploadedBy   User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  @@index([documentId, deletedAt])
+  @@index([sha256])
 }
 
 // ---------------------------------------------------------------- requirements
@@ -247,9 +354,9 @@ enum RequirementLayout {
 /// baselineId NULL => live. Rows with baselineId set are immutable (invariant R2),
 /// enforced by a trigger in the migration, not by application code.
 model Requirement {
-  id         String  @id @default(cuid())
+  id         String    @id @default(cuid())
   spaceId    String
-  space      Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space      Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   /// NFC-normalised. Any Unicode except / and \ — see spec 03 §4.1 and RD-023.
   key        String
   /// Unicode CASE-FOLDED, not uppercased. Postgres: lower(key) with an ICU collation.
@@ -267,7 +374,7 @@ model Requirement {
   headingLevel    Int? // 1-6 when layout = HEADING
   sectionPath     String[] // enclosing heading titles, outermost first — RD-026
   originVersionId String?
-  originVersion   DocumentVersion? @relation(fields: [originVersionId], references: [id])
+  originVersion   DocumentVersion?  @relation(fields: [originVersionId], references: [id])
 
   typeId String?
   type   RequirementType? @relation(fields: [typeId], references: [id])
@@ -277,14 +384,14 @@ model Requirement {
   newSpaceId  String?
   renamedFrom String?
 
-  properties    Property[]
-  parentEdges   Dependency[] @relation("AsChild")
-  childEdges    Dependency[] @relation("AsParent")
-  unresolved    UnresolvedDependency[]
-  links         DocumentLink[]
-  validations   RequirementValidation[]
-  labels        RequirementLabel[]
-  history       RequirementHistory[]
+  properties  Property[]
+  parentEdges Dependency[]            @relation("AsChild")
+  childEdges  Dependency[]            @relation("AsParent")
+  unresolved  UnresolvedDependency[]
+  links       DocumentLink[]
+  validations RequirementValidation[]
+  labels      RequirementLabel[]
+  history     RequirementHistory[]
 
   createdAt   DateTime @default(now())
   createdById String?
@@ -306,15 +413,15 @@ enum PropertyKind {
 }
 
 model Property {
-  id            String       @id @default(cuid())
+  id            String                      @id @default(cuid())
   requirementId String
-  requirement   Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  requirement   Requirement                 @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   kind          PropertyKind
   name          String
   searchName    String // RD-011
   value         String
-  valueOrdinal  Int          @default(0) // column order
-  valueIndex    Int          @default(0) // list member index
+  valueOrdinal  Int                         @default(0) // column order
+  valueIndex    Int                         @default(0) // list member index
   definitionId  String?
   definition    ExternalPropertyDefinition? @relation(fields: [definitionId], references: [id])
 
@@ -325,13 +432,13 @@ model Property {
 /// Instance-global, not space-scoped — research §2.6. `name` is immutable (RD-040);
 /// deleting a definition deletes all its values instance-wide.
 model ExternalPropertyDefinition {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  dataType    DataType
+  id             String     @id @default(cuid())
+  name           String     @unique
+  dataType       DataType
   dropdownValues String[]
-  description String?
-  values      Property[]
-  createdAt   DateTime @default(now())
+  description    String?
+  values         Property[]
+  createdAt      DateTime   @default(now())
 }
 
 /// Exactly the five types the product shows (RD-040). Admin labels:
@@ -357,11 +464,11 @@ model RequirementLabel {
 
 /// Invariant P1: the requirement containing the link is the CHILD.
 model Dependency {
-  relationship String
-  parentId     String
-  childId      String
-  parent       Requirement @relation("AsParent", fields: [parentId], references: [id], onDelete: Cascade)
-  child        Requirement @relation("AsChild", fields: [childId], references: [id], onDelete: Cascade)
+  relationship     String
+  parentId         String
+  childId          String
+  parent           Requirement @relation("AsParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child            Requirement @relation("AsChild", fields: [childId], references: [id], onDelete: Cascade)
   /// Pin to a baseline of the target — research §4.1
   targetBaselineId String?
 
@@ -406,19 +513,19 @@ enum BaselineState {
 }
 
 model Baseline {
-  id                  String        @id @default(cuid())
-  spaceId             String
-  space               Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  number              Int // sequential, immutable, never reused (invariant B2)
-  name                String
-  state               BaselineState @default(DRAFT)
-  sourceQuery         String
-  includedDependencies Boolean      @default(false)
-  includedExternal     Boolean      @default(false) // RD-010
+  id                   String        @id @default(cuid())
+  spaceId              String
+  space                Space         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  number               Int // sequential, immutable, never reused (invariant B2)
+  name                 String
+  state                BaselineState @default(DRAFT)
+  sourceQuery          String
+  includedDependencies Boolean       @default(false)
+  includedExternal     Boolean       @default(false) // RD-010
   reportDocumentId     String?
   frozenAt             DateTime?
   frozenById           String?
-  createdAt            DateTime     @default(now())
+  createdAt            DateTime      @default(now())
   createdById          String?
 
   requirements Requirement[]
@@ -430,15 +537,15 @@ model Baseline {
 }
 
 model BaselineRevision {
-  id           String   @id @default(cuid())
-  baselineId   String
-  baseline     Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
-  at           DateTime @default(now())
-  actorId      String
-  reason       String
-  countBefore  Int
-  countAfter   Int
-  detail       Json
+  id          String   @id @default(cuid())
+  baselineId  String
+  baseline    Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  at          DateTime @default(now())
+  actorId     String
+  reason      String
+  countBefore Int
+  countAfter  Int
+  detail      Json
 }
 
 /// Dependencies that pointed outside the member set at freeze time — spec 05 §3.2 step 5.
@@ -456,12 +563,12 @@ model BaselineDanglingDependency {
 /// prefix + zero-padded number + suffix — spec 03 §4.2, RD-042.
 /// `number` is the LAST USED number; its length is the padding. It only advances.
 model KeySuggestion {
-  id      String @id @default(cuid())
+  id      String           @id @default(cuid())
   spaceId String
-  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space   Space            @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   prefix  String
-  number  String @default("001")
-  suffix  String @default("")
+  number  String           @default("001")
+  suffix  String           @default("")
   type    RequirementType?
 
   @@unique([spaceId, prefix, suffix])
@@ -565,18 +672,18 @@ enum JobState {
 }
 
 model Job {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   kind            String
   spaceId         String?
   payload         Json
-  state           JobState @default(QUEUED)
-  progress        Int      @default(0)
+  state           JobState  @default(QUEUED)
+  progress        Int       @default(0)
   message         String?
   error           String?
   resultRef       String?
-  cancelRequested Boolean  @default(false)
+  cancelRequested Boolean   @default(false)
   actorId         String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
   startedAt       DateTime?
   finishedAt      DateTime?
 
@@ -599,13 +706,13 @@ model RequirementHistory {
 
 /// Append-only. Never pruned by history retention — spec 07 §6.
 model AuditEvent {
-  id        String   @id @default(cuid())
-  at        DateTime @default(now())
-  actorId   String
-  spaceId   String?
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  actorId    String
+  spaceId    String?
   objectType String
-  objectId  String
-  operation String
+  objectId   String
+  operation  String
   parameters Json
 
   @@index([spaceId, at])

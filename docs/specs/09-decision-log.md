@@ -502,3 +502,171 @@ from what the spec produces — so a string cannot change without the spec chang
 `{placeholder}` names are type-checked at the call site (`t("bulk.count", { n })`), and ESLint
 rejects literal text in `src/app` and `src/ui` components. New rows added for the shell and
 sign-in are in `10` §13.1, marked *(ours)* where the video has no equivalent.
+
+---
+
+## Decisions from slice 1 — documents and the editor (2026-10-09)
+
+The video shows Confluence's editor wrapped around Requirement Yogi. It never shows a
+save failing, a page being deleted, an image being uploaded, or what several toolbar
+glyphs do. These are **design choices, not reproductions**; where the video does show
+something, the GUI follows it (`RD-031`).
+
+### RD-055 — Autosaved drafts, immutable versions, and what "save" means
+**accepted.** `10` §5.1 shows autosave states (`Ready to go` → `Saving changes` → `Changes
+saved`) *and* an **Update** button that "publishes the version", *and* **Close** that
+"returns to view mode, keeping the draft", *and* `Revert to last published`. `PLAN.md`
+says "immutable `DocumentVersion` on every save". These fit together only if there are two
+kinds of save:
+
+- **Autosave** writes a mutable `DocumentDraft` — one per (document, user), holding title,
+  content and the version number it started from (`baseVersionNumber`). It is not history.
+- **Update** publishes: it canonicalises the draft's content (`RD-063`), creates the next
+  immutable `DocumentVersion` carrying the change note (`What did you change?`), makes it
+  current, and deletes the draft. **Every Update creates a version** — that is the sense in
+  which "every save creates a version".
+- **Close** keeps the draft; opening Edit again resumes it. **Revert to last published**
+  deletes it.
+
+*Concurrency* (`10` §5.1: "v1 detects a concurrent save and offers merge or overwrite"):
+publishing with a `baseVersionNumber` that is no longer current is refused with
+`VERSION_CONFLICT`; the editor then offers **Overwrite** (publish anyway, as a new version
+on top) or **Reload latest** (discard the draft, open the current version). **Merge is not
+built**: the spec says what the user is offered but not what merging means, and a faithful
+merge is the co-editing problem `10` §5.1 itself defers to phase 3. *Cost:* two people
+editing one page choose a winner rather than combining work.
+
+### RD-056 — The page tree: titles, creation, moving, deleting, renaming
+**accepted.** Rules the specs do not state:
+
+- **Titles are unique per space among live pages, case-insensitively** (partial unique
+  index on `lower(title)`), 1–255 characters after trimming, no control characters. URLs use
+  the page id, so this is for people — breadcrumbs, search and the tree are unreadable
+  with twins.
+- **`Create` makes the page immediately**: an empty first version titled `Untitled` (or
+  `Untitled 2`, … if taken) at the root of the space, then opens the editor. There is no
+  unpublished-page state. A child is created from the tree or the space overview.
+- **Moving** reparents and reorders **within one space**. Moving across spaces changes
+  requirement identity (`MOVED` status, `RD-007`) and is not built in this slice. A page
+  cannot be moved under itself or a descendant (database trigger and use case).
+- **Siblings are ordered by a dense `ordinal` 0…n−1**; a move renumbers the affected sibling
+  lists.
+- **Deleting is soft and takes the subtree.** The page and every descendant get the same
+  `deletedAt` and `deletedRootId`; the confirmation names how many pages will go. Restore
+  from Trash is slice 16a (`10` §18.3). A deleted page's title is free for reuse.
+- **Renaming creates a version** (comment `Renamed from "<old>"`), because titles are part
+  of what a version records and an unversioned rename would make history lie.
+- **Copy** duplicates one page (not its descendants) as `Copy of <title>`, made unique.
+
+### RD-057 — Editor toolbar: what the unlabelled glyphs are
+**accepted.** `10` §5.1 draws the toolbar as glyphs. Where the video's glyph is not
+self-explanatory, the reading chosen — revisit against the 0:46 frame:
+
+| Glyph | Read as | Why |
+|---|---|---|
+| `A▾` | Text colour | colour pickers are `A` with a bar |
+| `Aᵃ▾` | More formatting: strikethrough, subscript, superscript, code, clear formatting | `A` plus a small `a` |
+| `≔` `⒈` `☑` | Bulleted list, numbered list, task list | |
+| `⇤` `⇥` | Outdent, indent | lists lift/sink; paragraphs and headings change indent level 0–6 |
+| `⫷` `⫸` `⫶` | Align left, align right, align centre | the glyph order is as drawn; the mapping is a guess |
+| `▭` | Info panel | a plain rectangle outline; `Info` is a v1 item of both the `+` menu and `{` suggestions, and no other v1 item is a rectangle. Page layouts appear in no list in `10` |
+| `🖼` `🔗` `▦▾` `☺` | Insert image/file, link, table (with a size grid), emoji | |
+| `+ ▾` | The Insert More Content menu, `10` §5.5 | |
+| `↶` `↷` | Undo, redo | |
+| `🔍` | Find and replace in the page | Ctrl+F is claimed by the browser's find unless the editor is focused |
+| `?` | Keyboard shortcuts | |
+
+Row 2 (only in a table): `Responsive ▾`/`Fixed width ▾` is the table width mode; `hdr-row`,
+`hdr-col` toggle header row/column; `num` toggles a numbered first column (a CSS counter,
+nothing stored per row); `fill ▾` sets the cell background.
+
+### RD-058 — Files, images and attachments
+**accepted.** `Files and images` is a v1 insert item (`10` §5.5) and the byline has a 📎
+attachments icon (`10` §4.1), but nothing says where bytes live or what is allowed.
+
+- Bytes are stored **in the database**, content-addressed by SHA-256, up to **10 MiB** each.
+  Baseline freeze (`RD-012`) can then copy an image by hash, and a past version always
+  finds its image.
+- **Deleting an attachment hides it; it does not remove the bytes.** Old versions keep
+  rendering their images.
+- **Images**: PNG, JPEG, GIF and WebP only, shown inline. **SVG is refused** (it can carry
+  script). **Other files** are listed under the page's attachments and download only
+  (`Content-Disposition: attachment`, `application/octet-stream`).
+- **An image node may only reference an attachment on the same page.** External image URLs
+  are refused in v1: they are tracking pixels, they break freeze-time materialisation, and
+  fetching them server-side is an SSRF surface. Pasting HTML with a remote `<img>` keeps the
+  text and drops the image.
+- Attachment URLs are `/api/v1/attachments/{id}/{filename}`; every read checks space `VIEW`
+  on the page, and responses carry `X-Content-Type-Options: nosniff`.
+
+### RD-059 — The page view's menus: what ships and what holds a slot
+**accepted. Extends `10` §4.1.** The `···` menu lists, in the video's order: Attachments ·
+Page History · Restrictions · People who can view · Page information · View in Hierarchy ·
+Export to Word · Reqforge · Copy · Move · Delete.
+
+| Item | This slice |
+|---|---|
+| Attachments, Page History, Page information, Copy, Move, Delete | built |
+| View in Hierarchy | built: opens the space overview with the page highlighted in the tree |
+| Restrictions, People who can view, and the 🔓 byline icon | drawn, inert — the dialog and its effect are slice 16 |
+| Reqforge and the ⛹ byline icon (`10` §4.4) | drawn, inert — its items need the indexer and later tabs (slices 2–14) |
+| Export to Word | drawn, inert — no slice in `PLAN.md` builds it; it is backlog, listed so nobody designs it out |
+
+Move is within the space (`RD-056`). `Share` is *copy link* only: sharing with a user needs
+notification delivery (`RD-061`).
+
+### RD-060 — Page history: restore, delete, compare
+**accepted. Extends `10` §23.**
+
+- **Restore** creates a **new** version whose title and content equal the old one's, with
+  the comment `Restored from v. N`. It never moves the current pointer back, so history
+  stays append-only. Needs space `EDIT`.
+- **Delete** removes one non-current, non-pinned version. The current version cannot be
+  deleted (foreign key), a pinned one cannot (trigger, invariant D1), and the button is
+  disabled with *"Pinned by baseline N"* for the latter. Needs space `ADMIN`: it is the one
+  destructive history action, and `07` §2.1 gives history settings to `ADMIN`.
+- **Compare selected versions** takes exactly two. The spec does not say what it shows, so:
+  both versions side by side and read-only, with changed **top-level blocks** highlighted
+  (added, removed, changed). Block identity is canonical-JSON equality, so the comparison is
+  deterministic and cannot disagree with what is stored.
+- A past version is viewed read-only at `?version=N`, with a banner linking back to current.
+
+### RD-061 — Watching, Save for later, Share, Notify watchers
+**accepted.** `Watching` is on by default for a page's creator; both it and `Save for later`
+are per-user toggles with their own tables. `Notify watchers` (checked by default) is sent
+with the publish request and recorded on that publish's audit event together with the
+number of watchers it applies to. **No email is sent**: delivery needs transport
+configuration and a notifications slice, and `RD-035` already places the bell in a later
+slice. `Share` is copy-link only (`RD-059`). *Cost:* ticking `Notify watchers` has no
+visible effect yet; the checkbox and the data are in place for when delivery ships.
+
+### RD-062 — Presence
+**accepted.** The editor's presence avatars (`10` §5.1) show who else has the page open. An
+open editor sends a heartbeat every **15 s**; a user counts as present for **45 s** after
+the last one, and a user is never shown to themselves. State is a table, not process memory,
+so it works with more than one server. The view page does not report presence.
+
+### RD-063 — Content limits and canonical form
+**accepted.** What the server will store:
+
+- Content is ProseMirror JSON that **validates against the shared schema** (`03` §1.4) —
+  the same schema the editor builds from, imported headlessly. A document the server stores
+  is always one the editor can open.
+- It is stored **canonicalised**: re-serialised through the schema, so unknown attributes
+  are dropped and key order is fixed. This is what makes the indexer's determinism (`I1`)
+  hold on stored content and block comparison (`RD-060`) well-defined.
+- At most **5 MiB** serialised, nesting depth at most **64**. Title 1–255 characters, change
+  note at most 500.
+- Link targets may use `http`, `https`, `mailto`, `tel`, or be same-site paths starting with
+  `/`; `javascript:`, `data:`, `vbscript:` and anything else are refused. Image sources are
+  attachments only (`RD-058`).
+
+### RD-064 — Page API conventions
+**accepted. Extends `08` §1.** Slice 1 ships the pages endpoints of `08` §3 early, because
+the editor must autosave and publish bodies larger than a server action's 1 MB default.
+They authenticate with the **session cookie only** (API tokens arrive in slice 17). Because
+a cookie is ambient, every state-changing request must carry an `Origin` that matches the
+host or is refused (`ORIGIN_MISMATCH`), on top of `SameSite=Lax`. Errors are RFC 9457
+`application/problem+json` with a stable `code`. Unauthenticated API requests get `401`,
+never a redirect to the sign-in page. A space or page the caller cannot see is `404`
+(`RD-051`). The OpenAPI document is still slice 17's.

@@ -49,17 +49,48 @@ highest existing requirement key with that prefix and suffix.
 
 ### Document
 
-A rich-text specification document owned by a space, stored as ProseMirror JSON.
+A rich-text specification document owned by a space, stored as ProseMirror JSON. The UI
+calls it a *page* (`RD-032`).
 
-- `title`, `parentId` (documents form a tree, like a page tree).
-- `currentVersionId` → `DocumentVersion`.
-- Documents are versioned on every save. Versions are immutable.
+- `title` — unique per space among live documents, case-insensitively (`RD-056`).
+- `parentId`, `ordinal` — documents form a tree like a page tree; siblings are ordered by a
+  dense `ordinal`. A parent is in the same space and the tree has no cycles (both enforced by
+  a trigger).
+- `currentVersionId` → `DocumentVersion`, never deletable while current (`ON DELETE
+  RESTRICT`) and always one of the document's own versions (trigger).
+- `createdById`; `deletedAt`, `deletedById`, `deletedRootId` — soft delete takes the whole
+  subtree and records the page the user actually deleted (`RD-056`).
+- Versioned on every **Update**, not on every autosave (`RD-055`).
 
 **Invariant D1.** A requirement always points at the `DocumentVersion` it was extracted
 from, never at the `Document`. This is what makes "show me the document as it was when
 baseline 3 was frozen" answerable — the failure mode Requirement Yogi warns about when
 Confluence page versions are deleted (research §5.3, leak 3). We never delete versions
 referenced by a frozen baseline.
+
+**Invariant D2.** A `DocumentVersion` is immutable: only `pinned` may change after insert,
+and a pinned version cannot be deleted — including by a cascading delete of its document.
+Both are enforced by a trigger, so no code path, ORM or raw SQL, can rewrite history.
+
+### DocumentVersion
+
+`documentId`, `number` (sequential per document, never reused because the current version is
+never deleted), `title` (as of this version), `content` (canonical ProseMirror JSON,
+`03` §1.5), `authorId`, `message` (the change note, ≤ 500), `pinned`, `createdAt`.
+
+### DocumentDraft
+
+`(documentId, userId)` → `title`, `content`, `baseVersionNumber`, `updatedAt`. Mutable
+autosave state, **not history**: one per user per document, replaced on every autosave,
+deleted by Update or by *Revert to last published*. It is *stale* when `baseVersionNumber`
+no longer equals the current version's number (`RD-055`).
+
+### DocumentWatch, DocumentFavourite, DocumentPresence, Attachment
+
+Per-user `Watching` and `Save for later` (`RD-061`); the presence heartbeat table
+(`RD-062`); and `Attachment` — `filename`, `contentType`, `size`, `sha256`, `data`,
+`uploadedById`, `deletedAt` — bytes in the database, content-addressed, at most 10 MiB,
+immutable except for `deletedAt` (`RD-058`).
 
 ### Requirement
 
@@ -225,6 +256,7 @@ percent-encoded; the full URL table is in `10-ui-reference.md` §11.
 | Id | Invariant |
 |---|---|
 | D1 | Requirements reference a `DocumentVersion`, never a `Document` |
+| D2 | A `DocumentVersion` is immutable except `pinned`; a pinned one cannot be deleted |
 | R1 | `(spaceId, upperKey, baselineId)` is unique, NULLs colliding |
 | R2 | Baselined requirement rows are immutable |
 | R3 | `bodySearch` is the only field RYQL `text` matches |

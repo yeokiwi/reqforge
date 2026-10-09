@@ -46,13 +46,38 @@ describe("layer boundaries", () => {
   });
 
   it("src/domain is pure: no React, Next, Prisma, server or app imports", () => {
-    const forbidden = /^(react|react-dom|next)(\/|$)|^@prisma\/|^@\/(server|app|ui)(\/|$)/;
+    const forbidden = /^(react|react-dom|next)(\/|$)|^@prisma\/|^@\/(server|app|ui|editor)(\/|$)/;
     const offenders = under("domain/").flatMap((f) =>
       importsOf(f)
         .filter((i) => forbidden.test(i))
         .map((i) => `${rel(f)} imports ${i}`),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("src/editor/schema is headless: no React, Next, UI, renderer, server or app", () => {
+    const forbidden =
+      /^(react|react-dom|next)(\/|$)|^@prisma\/|^@\/(server|app|ui)(\/|$)|^@\/editor\/(ui|render)(\/|$)/;
+    const offenders = under("editor/schema/").flatMap((f) =>
+      importsOf(f)
+        .filter((i) => forbidden.test(i))
+        .map((i) => `${rel(f)} imports ${i}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("the editor never imports server code or the app, and the server never imports the editor UI", () => {
+    const fromEditor = under("editor/").flatMap((f) =>
+      importsOf(f)
+        .filter((i) => /^@\/(server|app)(\/|$)|^@prisma\//.test(i))
+        .map((i) => `${rel(f)} imports ${i}`),
+    );
+    const fromServer = under("server/").flatMap((f) =>
+      importsOf(f)
+        .filter((i) => /^@\/editor\/ui(\/|$)/.test(i))
+        .map((i) => `${rel(f)} imports ${i}`),
+    );
+    expect([...fromEditor, ...fromServer]).toEqual([]);
   });
 
   it("src/server never imports upward (app, ui)", () => {

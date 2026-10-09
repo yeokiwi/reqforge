@@ -67,6 +67,9 @@ Other actions, for completeness:
 | Reindex a page (byline panel) | space `EDIT` |
 | Create or refreeze a baseline | space `EDIT` |
 | See the Queue screen | instance administrator; every user sees their own **Personal queue** |
+| See a page, its history, its attachments; watch, star, presence | space `VIEW` |
+| Create, edit, publish, rename, move, copy, delete a page; upload or hide an attachment; restore a version | space `EDIT` |
+| Delete one version from Page history | space `ADMIN` (`RD-060`) |
 
 ### 2.2 Document restrictions — the divergence
 
@@ -134,6 +137,10 @@ numbers where they exist, because they were derived from real deployments.
 | Search page size | 30 | RY (video §8) |
 | Matrix page size | 100 default, 600 max | RY |
 | Key length | 200 characters after NFC | ours (`03` §4.1) |
+| Page title | 1–255 characters, unique per space (`RD-056`) | ours |
+| Page content | 5 MiB serialised, nesting depth 64 (`RD-063`) | ours |
+| Change note | 500 characters | ours |
+| Attachment | 10 MiB (`RD-058`) | ours |
 | Inline transform occurrences without confirmation | 200 | ours (`03` §6.3) |
 | Dependency matrix web cells | 40,000 | RY |
 | Traversal depth (`->`) | 4 | ours (`02` §5.1) |
