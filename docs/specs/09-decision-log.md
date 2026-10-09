@@ -670,3 +670,143 @@ host or is refused (`ORIGIN_MISMATCH`), on top of `SameSite=Lax`. Errors are RFC
 `application/problem+json` with a stable `code`. Unauthenticated API requests get `401`,
 never a redirect to the sign-in page. A space or page the caller cannot see is `404`
 (`RD-051`). The OpenAPI document is still slice 17's.
+
+---
+
+## Decisions from slice 1, phase 1 — what the builders had to choose (2026-10-09)
+
+Phase 1 built the pure document logic, the editor schema and renderer, and the repository
+layer. Independent reviewers then attacked each unit, and three skeptics tried to refute each
+finding. These entries record what that process settled.
+
+### RD-065 — A table row may hold no cells
+**accepted. Corrects `03` §1.4, which said `(tableCell | tableHeader)+`.** The spec was
+wrong and the code followed it. Reproduced headlessly with prosemirror-tables: merging a
+2×2 table's cells across whole rows leaves the covered row with no cells (every one of its
+cells sits under a rowspan from above). Under `+` that row is invalid, `TableMap` reports a
+missing cell, and the editor's table fix-up silently adds a third column. The rule is now
+`*`, as prosemirror-tables and TipTap use. *Why this direction:* loosening a content rule
+never invalidates stored content; tightening it later would.
+
+### RD-066 — Compare has a work cap
+**accepted. Amends `RD-060`.** Aligning two versions' blocks is a longest-common-subsequence
+problem, quadratic in the worst case, and a crafted pair of versions well under 5 MiB made it
+run for minutes on a request. Alignment is now charged against a total budget of 16,777,216
+units; a region that would overrun what is left keeps its common start and end and is
+otherwise left unaligned. **Rows marked `same` are always canonically equal**, but past the
+cap some equal blocks may be shown as changed, removed or added. Realistic comparisons —
+including a 40,000-block scale test — use under 1% of the budget and stay exact.
+
+### RD-067 — Page titles, and the titles we make up
+**accepted. Extends `RD-056`.**
+
+- **Refused characters:** Unicode control characters (Cc), line and paragraph separators (Zl,
+  Zp) and unpaired surrogates, checked after NFC normalisation and trimming — so a pasted
+  trailing newline is trimmed, not refused. Bidi and zero-width characters are allowed.
+  Problems are reported in the order `EMPTY`, `CONTROL_CHARACTERS`, `TOO_LONG`.
+- **Length** is counted in code points, as the database `CHECK` counts it.
+- **Stored form** is `normalizeTitle` output (NFC, trimmed); uniqueness is then decided by
+  the database index (`RD-070`), which is the final arbiter.
+- **Made-up titles:** `Untitled`, `Untitled 2`, … and `Copy of <title>`, `Copy of <title> 2`,
+  … skip any title taken case-insensitively. A long base is cut on a grapheme boundary and
+  trailing spaces trimmed *before* the number is added, so the number is never cut. `Untitled`
+  and `Copy of {title}` are copy-deck strings (`13.5`), passed in by the caller.
+- **Moving:** a fractional `index` is rounded down, then clamped into range; `NaN` appends.
+
+### RD-068 — Content rules beyond `03` §1.4
+**accepted. Extends `RD-063`.**
+
+- **Strings the database cannot hold are refused, not stripped.** U+0000 and unpaired UTF-16
+  surrogates are `422 VALIDATION` with the string's path. Stripping would silently change what
+  the user wrote. The editor strips them from *pasted* text so a paste cannot cause the 422.
+- **Links:** any whitespace, control, invisible or bidirectional-formatting character, or a
+  backslash anywhere in the href is refused; `http(s)` needs a host; `mailto` and `tel` need
+  something after the colon. **`#fragment`, `?query` and relative paths without a leading `/`
+  are refused**, exactly as the list in `03` §1.4 implies. (Linking to a heading of the same
+  page is a candidate for a later slice; heading anchors are an implementation detail until
+  then, `RD-069`.)
+- **Images:** the `src` filename segment is one non-empty path segment with no `/ \ ? #`,
+  whitespace or control characters, not `.` or `..`, with valid percent-encoding — so the
+  attachment URL must be built with `encodeURIComponent`.
+- **Ranges:** `colspan` 1–1000, `rowspan` 1–65534, `colwidth` null or `colspan` numbers in
+  0–10000, image `width` null or an integer 1–10000, ordered-list `start` a non-negative safe
+  integer, code `language` one token of at most 64 characters, `attachmentId`/`userId` match
+  `[A-Za-z0-9_-]{1,64}`, mention label 1–255 characters, status text 1–60 code points on one
+  line, a table of contents with `minLevel ≤ maxLevel`, date year ≥ 0001 and a real date.
+- **Depth** counts ProseMirror nodes (`doc` is 1, text nodes count); raw JSON nesting is also
+  capped at 132 so hostile junk hidden in attributes is caught. **Size** is UTF-8 bytes of the
+  JSON, checked on the input *and* on the canonical output, because canonicalising fills in
+  default attributes and can grow a document.
+- **Typed input rules stop at their limits** rather than clamping: `N. ` starts an ordered
+  list only for 1–15 digits, and a code fence takes a language of 1–64 lowercase letters.
+  The Markdown image rule `![alt](src)` is removed — images come only from the attachment
+  picker (`RD-058`).
+
+### RD-069 — How content renders
+**accepted. Extends `10` §4.2.**
+
+- **Heading anchors** are `rf-h-<github-style slug>` (`#rf-h-introduction`), deduplicated
+  with `-1`, `-2`; a heading whose slug is empty is `heading`. Bare slugs collided with the
+  app shell's ids (`main`, `global-search`) and with a second view on the same screen
+  (Compare), so the prefix is configurable per view (`idPrefix`).
+- **Numbered column** (`num`, `RD-057`) is a fixed **30 px** gutter, reserved by a leading
+  `<col>` and added to a fixed-width table's total, so stored column widths apply to the data
+  columns.
+- **Status lozenge colours** are seeded from the §1.1 tokens (grey `badge.child`, red
+  `lozenge.critical`, yellow `lozenge.medium`, green `badge.original`, blue `action.primary`,
+  purple `badge.external`). Info-panel colours are ours.
+- **Dates** display as the en-US short date in UTC (`Oct 9, 2026`); it is locale data, not a
+  copy-deck string, and moves to the user's locale when users have one.
+- **`?format=html`** is produced by an in-repo serialiser, not `react-dom/server`: Next bundles
+  route handlers in the react-server layer, where every `react-dom/server` entry throws on
+  import. The serialiser is held byte-identical to `react-dom`'s output by tests, and it
+  **refuses** (code `RENDER_UNSUPPORTED`) any element kind it does not reproduce exactly —
+  raw HTML, `script`, `style`, `svg`, form controls — rather than emit something that differs
+  from the page. It never emits an event handler, a `javascript:` URL or a preload hint.
+
+### RD-070 — The data layer's own rules
+**accepted. Extends `RD-056`, `RD-058`.** Added by migrations `…_documents_hardening` and
+`…_documents_tree_depth`, each because a failing raw-SQL or ORM test showed the rule missing:
+
+- **Title uniqueness folds case with the ICU root collation** (`lower(title COLLATE
+  "und-x-icu")`). Plain `lower()` follows the cluster's locale and under the C locale folds
+  ASCII only, so `Äpfel` and `äpfel` could both be live.
+- **A page with children cannot change space.** The guard checked a row against its parent but
+  not its children; cross-space moves, when built, detach, move and re-attach.
+- **The page tree is at most 1,000 levels deep as a whole** — the new parent's ancestors *plus*
+  the moved subtree's height. Counting only ancestors let two 600-deep chains be stacked
+  without limit, and recursive consumers fail at a few thousand levels.
+- **An attachment's `sha256` must equal the hash of its bytes** (`NOT VALID`: enforced for new
+  rows). Freeze copies images by hash (`RD-012`); a row must not be able to claim another
+  file's.
+- **Soft delete keeps sibling ordinals dense**, so *restore from Trash* (slice 16a) must place
+  the restored page explicitly.
+- **A deleted page reads as not found everywhere**, including its attachments. A *hidden*
+  attachment on a live page is still served, so old versions render.
+- **Permission and liveness are separate.** One predicate decides permission (space `VIEW`
+  today); each reader filters deleted pages. Slice 16 adds page restrictions to the one
+  predicate. It must also decide two things this slice leaves open: title suggestions and
+  `TITLE_TAKEN` can reveal that a page the viewer cannot see exists, and a delete takes
+  descendants the viewer cannot see.
+- **Watcher counts and presence** include only users who can still view the page.
+- **Refusals the use case cannot pre-empt** (a parent in another space, a change of space with
+  children, a tree too deep) surface as `VALIDATION` on `parentId` / `spaceId`.
+- **Lock order:** the space-row tree lock, then a page lock, always — which serialises sibling
+  ordinals and title checks without deadlock. A move takes the tree lock before reading the
+  tree.
+
+### RD-071 — Attachment detection, file names and download headers
+**accepted. Extends `RD-058`.**
+
+- **An image is decided from its bytes only** (PNG, JPEG, GIF, WebP); the declared type and
+  extension are never trusted. A file that is not a verified image is a plain download.
+- **SVG is refused** however it announces itself: a declared type containing `svg`, a `.svg`
+  or `.svgz` name, a doctype naming `svg`, or an `<svg` root in the first KiB (after a BOM,
+  whitespace or an XML declaration; UTF-16 with a BOM is decoded; a root cut at the boundary
+  counts). Checks run in the order empty, too large, SVG.
+- **File names** are reduced to their last path component; control characters and bidi
+  formatting characters (the right-to-left-override extension trick) are removed; NFC; at
+  most 255 characters with an extension of up to 16 preserved; never empty (`file`).
+- **`Content-Disposition`** carries an ASCII `filename=` fallback (NFKD with accents
+  stripped; `"`, `\`, `%`, `/` and anything non-printable become `_`; leading dots trimmed)
+  and the real UTF-8 name in `filename*`. Images are `inline`, files `attachment`.

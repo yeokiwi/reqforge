@@ -68,7 +68,7 @@ node later never invalidates stored content.
 | `listItem` | block | | `paragraph block*` |
 | `taskList` / `taskItem` | block | `checked` (item) | `taskItem+` / `paragraph block*` |
 | `table` | block | `widthMode` (`responsive`/`fixed`), `numberedColumn` (bool) | `tableRow+` |
-| `tableRow` | block | | `(tableCell \| tableHeader)+` |
+| `tableRow` | block | | `(tableCell \| tableHeader)*` — a row may hold no cells: it is what a whole-row merge leaves behind (`RD-065`) |
 | `tableHeader` / `tableCell` | block | `colspan`, `rowspan`, `colwidth`, `background` (`#rrggbb`/null) | `block+` |
 | `infoPanel` | block | `variant` (`info`/`note`/`success`/`warning`/`error`) | `block+` |
 | `tableOfContents` | block atom | `minLevel`, `maxLevel` (1–6) | — |
@@ -81,18 +81,24 @@ node later never invalidates stored content.
 Marks: `bold`, `italic`, `underline`, `strike`, `code`, `subscript`, `superscript`,
 `link` (`href`), `textStyle` (`color` `#rrggbb`/null).
 
-Rules the schema layer adds beyond structure (`RD-058`, `RD-063`): `link.href` must be
-`http`, `https`, `mailto`, `tel` or start with `/`; an `image` must carry an `attachmentId`
+Rules the schema layer adds beyond structure (`RD-058`, `RD-063`, `RD-068`): `link.href` must
+be `http`, `https`, `mailto`, `tel` or start with `/`; an `image` must carry an `attachmentId`
 and a `src` of exactly `/api/v1/attachments/{attachmentId}/…`; colours and dates must match
-their patterns; nesting depth ≤ 64; serialised size ≤ 5 MiB.
+their patterns; **every string must be storable in PostgreSQL `jsonb` — no U+0000 and no
+unpaired UTF-16 surrogate**; nesting depth ≤ 64; serialised size ≤ 5 MiB. Attribute ranges and
+the finer link and image rules are in `RD-068`.
 
 ### 1.5 Canonical form
 
 Before storing a draft or a version the server runs `validateDocumentJson`: it parses the
 JSON with the schema, checks it, and re-serialises it with `node.toJSON()`. The result —
-unknown attributes dropped, key order fixed, adjacent identical text marks merged — is what
-is stored and what the indexer reads, so indexing is deterministic on stored content
-(contract I1) and the history compare (`RD-060`) is well-defined.
+unknown attributes dropped, defaults filled in, adjacent identical text marks merged — is
+what is stored and what the indexer reads, so indexing is deterministic on stored content
+(contract I1) and the history compare (`RD-060`) is well-defined. **Canonical means
+canonical in content, not in byte order:** `jsonb` does not preserve object key order, so a
+stored document may come back with its keys rearranged. Compare stored content by deep
+equality or by `canonicalJson` (sorted keys), never by a raw string against freshly
+canonicalised JSON.
 
 ## 2. Scope rules — what becomes a requirement
 

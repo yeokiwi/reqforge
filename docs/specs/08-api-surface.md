@@ -69,6 +69,11 @@ case-insensitive. Session cookie only until slice 17 (`RD-064`); every `POST`/`P
 | `POST` | `/pages/{id}/reindex` | `EDIT` | returns a job — slice 2 |
 | `GET` | `/pages/{id}/diagnostics` | `VIEW` | indexer diagnostics — slice 2 |
 
+`?format=html` returns `<div class="rf-content">…</div>`: the same renderer the page view uses,
+every value escaped. Its numbered-column gutter and styling need `content.css`; a consumer
+that does not load it sees an empty 30 px gutter (`RD-069`). An element kind the serialiser
+does not reproduce exactly makes the endpoint answer `500` with code `RENDER_UNSUPPORTED`.
+
 `PUT /pages/{id}` returns the `IndexResult` diagnostics in the response body, so a CI job
 that uploads a document learns immediately whether its requirements are valid. This is the
 headless path RY cannot offer (research §6.5, `RD-005`). Until slice 2, `diagnostics` is `[]`.
@@ -139,7 +144,7 @@ RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...ex
 | `ORIGIN_MISMATCH` | 403 | | state-changing request whose `Origin` is not this host |
 | `FORBIDDEN` | 403 | | the caller can see the space but lacks the permission |
 | `NOT_FOUND` | 404 | | unknown, malformed, deleted — or **not visible to the caller** (`RD-051`) |
-| `VALIDATION` | 422 | `errors: { path, message }[]` | a field is malformed; content failed the schema |
+| `VALIDATION` | 422 | `errors: { path, message }[]` | a field is malformed; content failed the schema, a content rule, the depth limit (`RD-063`) or the page-tree depth limit (`RD-070`) |
 | `TITLE_TAKEN` | 409 | | another live page in the space has that title (`RD-056`) |
 | `VERSION_CONFLICT` | 409 | `currentVersion: number` | publish over a newer version without `overwrite` (`RD-055`) |
 | `CYCLE` | 409 | | move under itself or a descendant |

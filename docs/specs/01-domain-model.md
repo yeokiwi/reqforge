@@ -52,10 +52,14 @@ highest existing requirement key with that prefix and suffix.
 A rich-text specification document owned by a space, stored as ProseMirror JSON. The UI
 calls it a *page* (`RD-032`).
 
-- `title` — unique per space among live documents, case-insensitively (`RD-056`).
+- `title` — unique per space among live documents, case-insensitively (`RD-056`). Case is
+  folded with the ICU root collation (`lower(title COLLATE "und-x-icu")`), so the rule holds
+  for every script and does not depend on the cluster's locale (`RD-070`). Writers store
+  `normalizeTitle` output (NFC, trimmed).
 - `parentId`, `ordinal` — documents form a tree like a page tree; siblings are ordered by a
-  dense `ordinal`. A parent is in the same space and the tree has no cycles (both enforced by
-  a trigger).
+  dense `ordinal`. A parent is in the same space, the tree has no cycles, no page with
+  children changes space, and no page sits more than 1,000 levels deep (all enforced by one
+  trigger, `RD-070`).
 - `currentVersionId` → `DocumentVersion`, never deletable while current (`ON DELETE
   RESTRICT`) and always one of the document's own versions (trigger).
 - `createdById`; `deletedAt`, `deletedById`, `deletedRootId` — soft delete takes the whole
@@ -90,7 +94,8 @@ no longer equals the current version's number (`RD-055`).
 Per-user `Watching` and `Save for later` (`RD-061`); the presence heartbeat table
 (`RD-062`); and `Attachment` — `filename`, `contentType`, `size`, `sha256`, `data`,
 `uploadedById`, `deletedAt` — bytes in the database, content-addressed, at most 10 MiB,
-immutable except for `deletedAt` (`RD-058`).
+immutable except for `deletedAt` (`RD-058`). The database checks that `sha256` equals the
+hash of `data`, so a row cannot claim another file's hash (`RD-070`).
 
 ### Requirement
 

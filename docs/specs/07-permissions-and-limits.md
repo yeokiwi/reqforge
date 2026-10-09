@@ -138,6 +138,7 @@ numbers where they exist, because they were derived from real deployments.
 | Matrix page size | 100 default, 600 max | RY |
 | Key length | 200 characters after NFC | ours (`03` §4.1) |
 | Page title | 1–255 characters, unique per space (`RD-056`) | ours |
+| Page tree depth | 1,000 levels (`RD-070`) | ours |
 | Page content | 5 MiB serialised, nesting depth 64 (`RD-063`) | ours |
 | Change note | 500 characters | ours |
 | Attachment | 10 MiB (`RD-058`) | ours |

@@ -1,0 +1,372 @@
+/*
+ * Document content: the page view (DocumentView) and the editor's ProseMirror root
+ * (.rf-content .ProseMirror) share these rules, so a page looks the same while it is being
+ * edited and while it is being read. Every selector is scoped under .rf-content; the
+ * classes and data attributes are the ones src/editor/schema/dom.ts names.
+ * Colour roles: docs/specs/10-ui-reference.md §1.1 (table.header.bg, lozenge.*, badge.*).
+ * Tailwind's preflight resets lists, headings and margins; this file restores them.
+ */
+
+.rf-content {
+  --rf-text: #172b4d;
+  --rf-subtle: #626878;
+  --rf-border: #c1c7d0;
+  --rf-rule: #dfe1e6;
+  --rf-link: #0b5bd3;
+  --rf-code-bg: #f4f5f7;
+  --rf-chip-bg: #ebecf0;
+  --rf-table-header-bg: #f0f1f3; /* table.header.bg */
+  --rf-indent-step: 30px;
+  --rf-block-gap: 0.75em;
+
+  color: var(--rf-text);
+  font-size: 0.875rem;
+  line-height: 1.714;
+  overflow-wrap: break-word;
+}
+
+/* ---------------------------------------------------------------- blocks and spacing */
+
+.rf-content p,
+.rf-content h1,
+.rf-content h2,
+.rf-content h3,
+.rf-content h4,
+.rf-content h5,
+.rf-content h6,
+.rf-content ul,
+.rf-content ol,
+.rf-content blockquote,
+.rf-content pre,
+.rf-content hr,
+.rf-content .rf-panel,
+.rf-content .rf-toc,
+.rf-content .rf-table-wrapper,
+.rf-content .tableWrapper {
+  margin: var(--rf-block-gap) 0 0;
+}
+
+.rf-content :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, hr, .rf-panel, .rf-toc, .rf-table-wrapper, .tableWrapper):first-child {
+  margin-top: 0;
+}
+
+.rf-content h1,
+.rf-content h2,
+.rf-content h3,
+.rf-content h4,
+.rf-content h5,
+.rf-content h6 {
+  color: var(--rf-text);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.rf-content h1 { font-size: 1.714em; margin-top: 1.4em; }
+.rf-content h2 { font-size: 1.429em; margin-top: 1.3em; }
+.rf-content h3 { font-size: 1.143em; margin-top: 1.2em; }
+.rf-content h4 { font-size: 1em; margin-top: 1.1em; }
+.rf-content h5 { font-size: 0.857em; margin-top: 1em; }
+.rf-content h6 { font-size: 0.857em; margin-top: 1em; color: var(--rf-subtle); }
+
+/* Anchors land below the sticky chrome rather than under it. */
+.rf-content :is(h1, h2, h3, h4, h5, h6)[id] {
+  scroll-margin-top: 4rem;
+}
+
+/* indent 1–6 on paragraphs and headings (RD-057) */
+.rf-content [data-indent="1"] { margin-left: calc(1 * var(--rf-indent-step)); }
+.rf-content [data-indent="2"] { margin-left: calc(2 * var(--rf-indent-step)); }
+.rf-content [data-indent="3"] { margin-left: calc(3 * var(--rf-indent-step)); }
+.rf-content [data-indent="4"] { margin-left: calc(4 * var(--rf-indent-step)); }
+.rf-content [data-indent="5"] { margin-left: calc(5 * var(--rf-indent-step)); }
+.rf-content [data-indent="6"] { margin-left: calc(6 * var(--rf-indent-step)); }
+
+.rf-content blockquote {
+  border-left: 2px solid var(--rf-rule);
+  padding-left: 1em;
+  color: var(--rf-subtle);
+}
+
+.rf-content hr {
+  border: 0;
+  border-top: 2px solid var(--rf-rule);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+/* --------------------------------------------------------------------------- inline */
+
+.rf-content a {
+  color: var(--rf-link);
+  text-decoration: none;
+}
+
+.rf-content a:hover {
+  text-decoration: underline;
+}
+
+.rf-content u {
+  text-decoration: underline;
+}
+
+.rf-content s {
+  text-decoration: line-through;
+}
+
+.rf-content code {
+  background: var(--rf-code-bg);
+  border-radius: 3px;
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875em;
+}
+
+.rf-content img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------------ code block */
+
+.rf-content pre {
+  background: var(--rf-code-bg);
+  border: 1px solid var(--rf-rule);
+  border-radius: 3px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+}
+
+.rf-content pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 0.857em;
+}
+
+/* ---------------------------------------------------------------------------- lists */
+
+.rf-content ul,
+.rf-content ol {
+  padding-left: 1.75em;
+}
+
+.rf-content ul { list-style: disc; }
+.rf-content ul ul { list-style: circle; }
+.rf-content ul ul ul { list-style: square; }
+.rf-content ol { list-style: decimal; }
+.rf-content ol ol { list-style: lower-alpha; }
+.rf-content ol ol ol { list-style: lower-roman; }
+
+.rf-content li > :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+
+.rf-content li > :is(ul, ol) {
+  margin-top: 0.25em;
+}
+
+/* Task lists: the same DOM as TipTap's task item, li > label > input + span, div. */
+.rf-content ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.rf-content ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin-top: 0.25em;
+}
+
+.rf-content li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.rf-content li[data-type="taskItem"] > label {
+  flex: 0 0 auto;
+  margin-top: 0.3em;
+  user-select: none;
+}
+
+.rf-content li[data-type="taskItem"] > label input {
+  width: 1em;
+  height: 1em;
+  margin: 0;
+}
+
+.rf-content li[data-type="taskItem"] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------- tables */
+
+.rf-content .rf-table-wrapper,
+.rf-content .tableWrapper {
+  overflow-x: auto;
+}
+
+.rf-content table {
+  border-collapse: collapse;
+}
+
+.rf-content table.rf-table--responsive {
+  width: 100%;
+}
+
+.rf-content table.rf-table--fixed {
+  table-layout: fixed;
+}
+
+.rf-content th,
+.rf-content td {
+  border: 1px solid var(--rf-border);
+  padding: 7px 10px;
+  min-width: 2em;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* table.header.bg, bold labels (10 §4.2); a cell's own fill (inline style) wins. */
+.rf-content th {
+  background-color: var(--rf-table-header-bg);
+  font-weight: 600;
+}
+
+.rf-content :is(th, td) > :first-child {
+  margin-top: 0;
+}
+
+/* Numbered column (RD-057): a CSS counter, nothing stored per row. Header rows (no td)
+   get an empty header-coloured cell and are not counted. The counter cell is a real leading
+   column, so the page view gives it its own <col> of the same width: keep this width equal to
+   NUMBER_COLUMN_WIDTH in src/editor/schema/dom.ts (a test checks). */
+.rf-content table.rf-table--numbered {
+  counter-reset: rf-row;
+}
+
+.rf-content table.rf-table--numbered > tbody > tr {
+  counter-increment: rf-row;
+}
+
+.rf-content table.rf-table--numbered > tbody > tr::before {
+  content: counter(rf-row);
+  display: table-cell;
+  width: 30px;
+  padding: 7px 4px;
+  border: 1px solid var(--rf-border);
+  background-color: var(--rf-table-header-bg);
+  color: var(--rf-subtle);
+  font-size: 0.857em;
+  text-align: center;
+  vertical-align: top;
+}
+
+.rf-content table.rf-table--numbered > tbody > tr:not(:has(> td)) {
+  counter-increment: none;
+}
+
+.rf-content table.rf-table--numbered > tbody > tr:not(:has(> td))::before {
+  content: "";
+}
+
+/* ----------------------------------------------------------------------- info panels */
+
+.rf-content .rf-panel {
+  --rf-panel-bg: #deebff;
+  --rf-panel-icon: #0052cc;
+  position: relative;
+  padding: 8px 12px 8px 40px;
+  border-radius: 3px;
+  background-color: var(--rf-panel-bg);
+}
+
+.rf-content .rf-panel::before {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--rf-panel-icon);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.rf-content .rf-panel--info { --rf-panel-bg: #deebff; --rf-panel-icon: #0052cc; }
+.rf-content .rf-panel--note { --rf-panel-bg: #eae6ff; --rf-panel-icon: #5243aa; }
+.rf-content .rf-panel--success { --rf-panel-bg: #e3fcef; --rf-panel-icon: #00875a; }
+.rf-content .rf-panel--warning { --rf-panel-bg: #fffae6; --rf-panel-icon: #ff991f; }
+.rf-content .rf-panel--error { --rf-panel-bg: #ffebe6; --rf-panel-icon: #de350b; }
+
+.rf-content .rf-panel--info::before { content: "i"; }
+.rf-content .rf-panel--note::before { content: "✎"; }
+.rf-content .rf-panel--success::before { content: "✓"; }
+.rf-content .rf-panel--warning::before { content: "!"; }
+.rf-content .rf-panel--error::before { content: "✕"; }
+
+/* ------------------------------------------------------------------ table of contents */
+
+.rf-content .rf-toc ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+.rf-content .rf-toc__item[data-level="2"] { padding-left: 1.5em; }
+.rf-content .rf-toc__item[data-level="3"] { padding-left: 3em; }
+.rf-content .rf-toc__item[data-level="4"] { padding-left: 4.5em; }
+.rf-content .rf-toc__item[data-level="5"] { padding-left: 6em; }
+.rf-content .rf-toc__item[data-level="6"] { padding-left: 7.5em; }
+
+/* -------------------------------------------------------------------- inline atoms */
+
+/* Status lozenge (10 §1.2): uppercase, filled, white text. Seeds from 10 §1.1:
+   red = lozenge.critical, yellow = lozenge.medium, green = badge.original,
+   blue = action.primary, purple = badge.external, grey = badge.child. */
+.rf-content .rf-status {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 4px;
+  border-radius: 3px;
+  background-color: #626878;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: baseline;
+}
+
+.rf-content .rf-status--grey { background-color: #626878; }
+.rf-content .rf-status--red { background-color: #a11911; }
+.rf-content .rf-status--yellow { background-color: #ee841c; }
+.rf-content .rf-status--green { background-color: #198b5a; }
+.rf-content .rf-status--blue { background-color: #0b48b1; }
+.rf-content .rf-status--purple { background-color: #5a4aa3; }
+
+.rf-content .rf-date {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  background-color: var(--rf-chip-bg);
+  font-size: 0.929em;
+  white-space: nowrap;
+}
+
+.rf-content .rf-mention {
+  padding: 0 4px;
+  border-radius: 20px;
+  background-color: var(--rf-chip-bg);
+  color: #0b48b1;
+  white-space: nowrap;
+}
