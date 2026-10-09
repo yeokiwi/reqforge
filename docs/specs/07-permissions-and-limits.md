@@ -31,6 +31,13 @@ Subjects: `User`, `Group`. Objects: `Space`, `Document`, `SavedMatrix`, `Baselin
 `EXPORT` is deliberately separate from `VIEW`, exactly as RY does, because those screens
 are the expensive ones (research §4.3).
 
+**How they combine (`RD-051`).** A user's permissions in a space are the union of every
+membership that applies to them — directly, or through a group. No permission implies
+another, and every action other than viewing also requires `VIEW`. A space the caller cannot
+`VIEW` does not exist for them: it is absent from lists and answered with **404, not 403**,
+the same answer as for a space that was never created. Instance administrators
+(`User.isInstanceAdmin`) gain no access to space content by being one.
+
 ### 2.4 Action permissions configured in Administration
 
 Three settings on Administration → Options (`10` §19.1), with RY's wording and defaults

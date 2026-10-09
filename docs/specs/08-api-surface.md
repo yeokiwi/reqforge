@@ -18,6 +18,9 @@ integrations we care about (CI pipelines, test tools, GitHub) are API-only.
 - All list responses carry `total` only when it is cheap; otherwise `hasMore`.
 - OpenAPI 3.1 document served at `/api/v1/openapi.json` and generated **from the route
   handlers**, not hand-written.
+- One endpoint lives outside `/api/v1`: `GET /api/health`, an unauthenticated readiness
+  probe for Docker, CI and load balancers. It answers `200 {"status":"ok","database":true}`
+  or `503 {"status":"degraded","database":false}` and reveals nothing else (slice 0).
 
 ## 2. Requirements
 

@@ -30,3 +30,7 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Next generates this
+next-env.d.ts
+tsconfig.tsbuildinfo

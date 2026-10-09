@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-surface-page font-sans text-sm text-slate-900 antialiased;
+  }
+  a {
+    @apply text-link;
+  }
+  /* Keyboard-first (10 quality bar): focus is always visible. */
+  :focus-visible {
+    outline: 2px solid #4c9aff;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .rf-btn-primary {
+    @apply inline-flex items-center justify-center rounded bg-action-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-[#09398f] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .rf-input {
+    @apply w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400;
+  }
+}

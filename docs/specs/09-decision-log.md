@@ -419,3 +419,86 @@ needs no new research. The 4,000 figure also settles the written docs' conflict.
 In v1 the recommended path for Excel content is the one the video's own tips give:
 paste the sheet into a page, select the key column, `Alt + Shift + R` — the bulk dialog's
 *Use selected text as keys* mode.
+
+---
+
+## Decisions from slice 0 — walking skeleton (2026-10-09)
+
+Slice 0 is the first code. The videos show Confluence's chrome around Requirement Yogi, so
+sign-in, accounts and the shell's edges are things the research notes never document. These
+are **design choices, not reproductions**: nothing below is claimed to be what Requirement
+Yogi does.
+
+### RD-050 — Sign-in is email + password, with server-side sessions
+**accepted.** `PLAN.md` slice 0 says "auth (email + session)" and nothing more. Chosen:
+
+- Email + password. Emails are stored lower-cased (a `CHECK` enforces it) and compared after
+  trimming and lower-casing.
+- Passwords are hashed with **scrypt** (`N=2^15, r=8, p=1`, per-password salt, NFKC-normalised
+  input) from `node:crypto`: memory-hard, and no native dependency to build in CI or Docker.
+  The stored form is self-describing (`scrypt$N$r$p$salt$hash`) so parameters can be raised later.
+- Sessions live in the database. The cookie holds a random 256-bit token; the database stores
+  only its **SHA-256**, so a leaked database yields no usable sessions. The cookie is
+  `HttpOnly`, `SameSite=Lax`, `Secure` in production, with a **fixed 14-day lifetime** — no
+  sliding renewal, because a server component cannot refresh a cookie and extending only the
+  row would outlive the cookie.
+- Sign-in answers *"Incorrect email or password."* identically for an unknown address and a
+  wrong password, and burns the same CPU for both. After **8 failures in 15 minutes** for one
+  address it answers *"Too many attempts…"*. The throttle is in-process and keyed by email: it
+  stops guessing against one account but lets someone lock a *known* address out for the
+  window. A shared store replaces it when there is more than one server.
+- `?next=` is honoured only for same-site relative paths (open-redirect protection).
+
+*Cost:* no SSO, no password reset, no MFA. They are not in the plan; each is its own slice.
+
+### RD-051 — Space permissions are an explicit set; a hidden space is a 404
+**accepted. Extends `07` §2.1.** The spec lists `VIEW`, `EDIT`, `EXPORT`, `ADMIN` but not how
+they combine. Rules: a user's permissions in a space are the **union of every membership that
+applies** to them (direct, or through a group); **no permission implies another**; and every
+action other than viewing **also requires `VIEW`** — an `EDIT` grant on a space you cannot see
+does nothing. A space the caller cannot `VIEW` **does not exist** for them: absent from lists
+and answered with **404, not 403**, indistinguishable from a space that was never created
+(rule X2's "omitted, not redacted", applied to spaces).
+
+**Instance administrators gain no access to space content.** `isInstanceAdmin` opens
+Administration, the Queue and global property definitions (`07` §2.4); it does not bypass
+space permissions, which is consistent with `RD-017` — a tool that holds specification text
+for regulated work should not have a role that reads everything by default. *Cost:* an
+instance admin who needs a space needs a membership in it, like anyone else.
+
+### RD-052 — Shell gaps the screencast leaves open
+**accepted. Extends `10` §2–3; strings in `10` §13.1.**
+
+| Question | Choice | Why |
+|---|---|---|
+| What does `Create` do in slice 0? | Outside a space, or in a space the user cannot edit: a picker of the spaces they can edit. Inside an editable space: the button holds its slot, **disabled**, until pages exist (slice 1) | `10` §2 says "new page in the current space, or space picker outside one"; there are no pages yet |
+| How are `later` elements drawn? | `People` and `🔔` are drawn and inert (`aria-disabled` / a disabled button), keeping their slot | `10` §0, and the video-derived precedent of the disabled `Excel` tab |
+| What do the rail's `⇪ Export / open` and `⊶ Page tree` icons do? | Both **expand the sidebar** | the video shows them without behaviour; there is no matching item in the expanded sidebar to point at |
+| The rail's `···` | **Omitted** (not built) | nothing to overflow yet; revisit when something would |
+| `SPACE SHORTCUTS` | Renders only when the space has shortcuts; none can exist until the Space tools screens (slice 16a) | an empty heading reads as a bug; the slot is kept in the component |
+| Who sees `Space tools`? | Space `ADMIN`s only | all four of its screens (permissions, requirement types, key suggestions, history settings) are `ADMIN` actions in `07` §2.1 |
+| What is in `Spaces ▾`? | The five most recently opened spaces, the **current space first**, then *View all spaces* | `10` §2 says "recent spaces, then View all spaces"; the current-first rule keeps the list right even though layout and page render in parallel |
+| Where does `/` go? | The last space opened, else a starred one, else the first by name; with no spaces, the space list and its explanation | "a fresh clone reaches a logged-in empty space" (`PLAN.md` slice 0) |
+| What does a failed sign-in keep? | The email, not the password | React resets a form after an action; without this a typo costs the user their email too |
+
+### RD-053 — Slice 0 schema delta and database-level invariants
+**accepted.** Added to `prisma/schema.prisma`: `User.passwordHash`, `isInstanceAdmin`,
+`sidebarCollapsed`; `Session`; `UserSpaceState` (the star and the recent-spaces list); real
+relations for `Membership.group` and `GroupMember.user` (group-based permissions need them).
+The init migration also carries what the schema language cannot express — each pinned by an
+integration test: the `Space.key` format `CHECK` (`01`), lower-case emails, `Membership`
+naming exactly one subject with one row per subject per space (partial unique indexes,
+because NULLs are distinct in a plain `UNIQUE`), and **invariant R1**'s partial unique index
+on live requirements. R2's immutability trigger stays with baselines (slice 13).
+
+The `@@unique([spaceId, userId, groupId])` on `Membership` is replaced by the partial
+indexes. The whole draft schema is migrated in `0001_init`; tables for later slices exist
+but nothing reads or writes them yet.
+
+### RD-054 — The copy deck is generated from the spec
+**accepted. Implements `RD-037`.** `10` §13 is the single source: `pnpm copy:gen` parses its
+tables into `src/copy/deck.generated.ts`, and a unit test fails if the committed file differs
+from what the spec produces — so a string cannot change without the spec changing. Ids and
+`{placeholder}` names are type-checked at the call site (`t("bulk.count", { n })`), and ESLint
+rejects literal text in `src/app` and `src/ui` components. New rows added for the shell and
+sign-in are in `10` §13.1, marked *(ours)* where the video has no equivalent.

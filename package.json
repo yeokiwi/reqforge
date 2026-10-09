@@ -1,0 +1,64 @@
+{
+  "name": "reqforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone requirements traceability application.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration --no-file-parallelism",
+    "e2e": "playwright test",
+    "prisma:validate": "node scripts/prisma-validate.mjs",
+    "prisma:generate": "prisma generate",
+    "db:up": "node scripts/db-up.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force --skip-seed && pnpm db:seed",
+    "copy:gen": "tsx scripts/gen-copy-deck.ts",
+    "demo": "pnpm db:up && pnpm db:migrate && pnpm db:seed && next dev",
+    "verify": "pnpm prisma:generate && pnpm typecheck && pnpm lint && pnpm test && pnpm prisma:validate"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "next": "15.5.27",
+    "react": "19.1.9",
+    "react-dom": "19.1.9",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.7",
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.20.5",
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.11",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "10.6.1",
+    "eslint": "9.39.5",
+    "eslint-config-next": "15.5.27",
+    "jsdom": "26.1.0",
+    "@testing-library/react": "16.3.3",
+    "postcss": "8.5.29",
+    "prisma": "6.19.3",
+    "tailwindcss": "3.4.19",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "unrs-resolver"
+    ]
+  }
+}

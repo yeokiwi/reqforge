@@ -26,6 +26,20 @@ One row. The Administration → Options screen (`10` §19.1): `globalLimit` (120
 `renameGroups`, `baselineDeletionGroups` (comma-separated group names, empty by
 default), `exportForAllViewers` (true), plus the instance-level key-suggestion defaults.
 
+### User, Group, Membership, Session
+
+- `User`: `email` (stored lower-cased — a `CHECK` enforces it), `name`, `passwordHash`
+  (scrypt, `RD-050`), `isInstanceAdmin`, `sidebarCollapsed` (the sidebar's `«` / `»` state,
+  remembered per user, `10` §3.2).
+- `Group` / `GroupMember`: named sets of users; a group can hold a space membership.
+- `Membership`: grants a set of `SpacePermission`s in one space to **exactly one** subject — a
+  user or a group (`CHECK`), at most one row per subject per space (partial unique indexes).
+  How rows combine is `07` §2.1 and `RD-051`.
+- `Session`: `tokenHash` (SHA-256 of the cookie value; the token itself is never stored),
+  `userId`, `expiresAt` — fixed lifetime, no renewal (`RD-050`).
+- `UserSpaceState`: per user and space, the star (`favourite`) and `lastViewedAt`, which
+  feeds the `Spaces ▾` menu (`10` §2).
+
 ### KeySuggestion
 
 `spaceId`, `prefix`, `number` (string — its length is the zero padding), `suffix`.

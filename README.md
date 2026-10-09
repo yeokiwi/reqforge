@@ -14,8 +14,41 @@ traceability, coverage, baselines, diff) is rebuilt against Reqforge's own store
 
 ## Status
 
-**Pre-slice-0.** This repository currently contains the specification, the plan, and
-the agent team that will build it. No application code has been written yet.
+**Slice 0 (walking skeleton) is built.** Sign in, a space list, an empty space page and the
+application shell — top bar and space sidebar in both states — run end to end, with CI. Slice 1
+(documents and the editor) is next; see [`PLAN.md`](PLAN.md).
+
+## Getting started
+
+Needs Node 22+, pnpm 10 and either Docker or your own PostgreSQL 16.
+
+```bash
+pnpm install
+pnpm demo        # starts Postgres (Docker), migrates, seeds, runs the dev server
+```
+
+Then open <http://localhost:3000> and sign in. The seed creates two spaces and three users
+with different permissions; the password for all three is `reqforge-dev`.
+
+| User | `TEAM` | `PLAT` |
+|---|---|---|
+| `alice@reqforge.test` (instance admin) | view, edit, export, admin | view, edit, export, admin |
+| `bob@reqforge.test` | view, edit, export | view (through the `platform-viewers` group) |
+| `carol@reqforge.test` | view | — cannot see the space |
+
+Without Docker, point `DATABASE_URL` in `.env` (created from `.env.example`) at your own
+PostgreSQL and run `pnpm db:migrate && pnpm db:seed && pnpm dev`.
+
+| Command | What it does |
+|---|---|
+| `pnpm verify` | prisma generate + typecheck + lint + unit tests + prisma validate. No database needed |
+| `pnpm test:integration` | use-case and constraint tests against Postgres (a throwaway `reqforge_test` database) |
+| `pnpm e2e` | Playwright against a production build (a throwaway `reqforge_e2e` database) |
+| `pnpm copy:gen` | regenerate `src/copy/deck.generated.ts` from the spec's copy deck (`10` §13) |
+| `pnpm db:reset` | drop, re-migrate and re-seed the development database |
+
+The integration and e2e helpers refuse to run against any database whose name does not end in
+`_test` or `_e2e`, because they truncate every table.
 
 ## Stack
 

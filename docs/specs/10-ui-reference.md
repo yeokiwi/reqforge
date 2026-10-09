@@ -85,13 +85,13 @@ Present on every screen.
 | App switcher `⊞` | not built | single-product install; nothing to switch to |
 | Logo + product name | v1 | home |
 | `Spaces ▾` | v1 | recent spaces, then "View all spaces" |
-| `People` | later | user directory |
-| **`Create`** | v1 | new page in the current space, or space picker outside one |
+| `People` | later | user directory — drawn inert until built (`RD-052`) |
+| **`Create`** | v1 | new page in the current space, or space picker outside one. Until pages exist (slice 1) it is disabled inside a space the user can edit; in a space they cannot edit it is the picker (`RD-052`) |
 | `···` | v1 | overflow: Templates, Requirement types (admin) |
 | `Search` | v1 | global search over page titles and requirement keys; `Enter` opens results |
 | `?` | v1 | help, including the query syntax reference |
 | `⚙` | v1 | administration, admins only |
-| `🔔` | later | notifications for watched pages |
+| `🔔` | later | notifications for watched pages — drawn as a disabled button (`RD-052`) |
 | Avatar | v1 | profile, API tokens, sign out |
 
 ---
@@ -134,11 +134,13 @@ PAGE TREE
 | `Pages` | v1 | |
 | `Blog` | not built | a blog has no role in a requirements tool; the item is removed rather than left dead |
 | `Requirements` | v1 | opens the Requirements screen, §9 |
-| `SPACE SHORTCUTS` | v1 | admin-curated links |
+| `SPACE SHORTCUTS` | v1 | admin-curated links; shown only when the space has shortcuts, which needs the Space tools screens (`RD-052`) |
 | `PAGE TREE` | v1 | drag to reorder and re-parent |
 | `TRACEABILITY MATRIXES` | v1 | replaces `PAGE TREE` while on the Requirements screen, §9.5 |
-| `Space tools` | v1 | permissions, requirement types, key suggestions, history settings |
+| `Space tools` | v1 | permissions, requirement types, key suggestions, history settings — space `ADMIN`s only (`RD-052`) |
 | `«` / `»` | v1 | collapse and expand; remembered per user |
+| Rail `⇪ Export / open`, `⊶ Page tree` | v1 | the video shows no behaviour; both expand the sidebar (`RD-052`) |
+| Rail `···` | not built | nothing to overflow yet (`RD-052`) |
 
 ---
 
@@ -949,6 +951,70 @@ change to any of these is a GUI change and needs a decision-log entry.
 | `history.current` | CURRENT (v. {n}) |
 | `history.baselineComment` | Baseline "{name}" for Reqforge |
 | `history.restore` / `.delete` | Restore / Delete |
+
+### 13.1 Shell, sign-in and placeholders (`RD-050`)
+
+Strings for the chrome of §2–3 and for screens the video never shows. Where §2–3 draw a
+label it is reproduced verbatim; labels marked *(ours)* are accessible names and empty
+states the video has no equivalent for. The table has the same shape as the one above and
+is read by the same generator.
+
+| Id | String |
+|---|---|
+| `app.name` | Reqforge |
+| `shell.spaces` | Spaces |
+| `shell.spaces.recent` | Recent *(ours)* |
+| `shell.spaces.viewAll` | View all spaces |
+| `shell.people` | People |
+| `shell.create` | Create |
+| `shell.create.pickSpace` | Choose a space *(ours)* |
+| `shell.create.noSpace` | You can't create pages in any space. *(ours)* |
+| `shell.more` | More *(ours)* |
+| `shell.more.templates` | Templates |
+| `shell.more.requirementTypes` | Requirement types |
+| `shell.search.placeholder` | Search |
+| `shell.search.label` | Search pages and requirement keys *(ours)* |
+| `shell.help` | Help *(ours)* |
+| `shell.admin` | Administration *(ours)* |
+| `shell.notifications` | Notifications *(ours)* |
+| `shell.avatar` | Account *(ours)* |
+| `shell.avatar.profile` | Profile |
+| `shell.avatar.tokens` | API tokens |
+| `shell.avatar.signOut` | Sign out |
+| `shell.later` | Not available yet *(ours)* |
+| `sidebar.nav` | Space navigation *(ours)* |
+| `sidebar.pages` | Pages |
+| `sidebar.requirements` | Requirements |
+| `sidebar.shortcuts` | SPACE SHORTCUTS |
+| `sidebar.pageTree` | PAGE TREE |
+| `sidebar.rail.pageTree` | Page tree |
+| `sidebar.rail.exportOpen` | Export / open |
+| `sidebar.spaceTools` | Space tools |
+| `sidebar.collapse` | Collapse sidebar *(ours)* |
+| `sidebar.expand` | Expand sidebar *(ours)* |
+| `sidebar.favourite` | Add {space} to your starred spaces *(ours)* |
+| `sidebar.unfavourite` | Remove {space} from your starred spaces *(ours)* |
+| `sidebar.pageTree.empty` | No pages yet. *(ours)* |
+| `sidebar.tools.permissions` | Permissions |
+| `sidebar.tools.requirementTypes` | Requirement types |
+| `sidebar.tools.keySuggestions` | Key suggestions |
+| `sidebar.tools.history` | History settings |
+| `spaces.title` | Spaces *(ours)* |
+| `spaces.none` | You don't have access to any spaces yet. *(ours)* |
+| `space.empty` | This space has no pages yet. *(ours)* |
+| `auth.title` | Sign in to {app} *(ours)* |
+| `auth.email` | Email *(ours)* |
+| `auth.password` | Password *(ours)* |
+| `auth.submit` | Sign in *(ours)* |
+| `auth.error` | Incorrect email or password. *(ours)* |
+| `auth.throttled` | Too many attempts. Try again in a few minutes. *(ours)* |
+| `profile.title` | Profile *(ours)* |
+| `profile.name` | Name *(ours)* |
+| `profile.email` | Email *(ours)* |
+| `globalSearch.title` | Search results *(ours)* |
+| `globalSearch.none` | No results for "{q}". *(ours)* |
+| `reserved.body` | This screen is part of a later release. *(ours)* |
+| `error.notFound` | We couldn't find that page. *(ours)* |
 
 ---
 

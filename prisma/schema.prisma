@@ -14,26 +14,68 @@ datasource db {
 // ---------------------------------------------------------------- identity
 
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  name        String
-  createdAt   DateTime @default(now())
-  memberships Membership[]
-  apiTokens   ApiToken[]
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String
+  /// scrypt, `scrypt$N$r$p$salt$hash` — see src/server/auth/password.ts (RD-050).
+  passwordHash     String
+  /// Administration, the Queue, global property definitions. Grants no access to space
+  /// content: space permissions are separate (RD-051).
+  isInstanceAdmin  Boolean  @default(false)
+  /// Remembered per user — spec 10 §3.2 (`«` / `»`).
+  sidebarCollapsed Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  memberships      Membership[]
+  groupMemberships GroupMember[]
+  apiTokens        ApiToken[]
+  sessions         Session[]
+  spaceStates      UserSpaceState[]
 }
 
 model Group {
-  id      String @id @default(cuid())
-  name    String @unique
-  members GroupMember[]
+  id          String @id @default(cuid())
+  name        String @unique
+  members     GroupMember[]
+  memberships Membership[]
 }
 
 model GroupMember {
   groupId String
   userId  String
   group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([groupId, userId])
+  @@index([userId])
+}
+
+/// Server-side session. Only the SHA-256 of the cookie value is stored, so a database
+/// read does not yield usable credentials (RD-050).
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Per-user, per-space UI state: the sidebar star (spec 10 §3.2) and the "recent spaces"
+/// list in the `Spaces ▾` menu (spec 10 §2).
+model UserSpaceState {
+  userId       String
+  spaceId      String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space        Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  favourite    Boolean   @default(false)
+  lastViewedAt DateTime?
+
+  @@id([userId, spaceId])
+  @@index([userId, lastViewedAt])
 }
 
 model ApiToken {
@@ -72,9 +114,12 @@ model Space {
   keySuggestions KeySuggestion[]
   matrices     SavedMatrix[]
   memberships  Membership[]
+  userStates   UserSpaceState[]
   createdAt    DateTime          @default(now())
 }
 
+/// Exactly one of userId / groupId is set. Postgres treats NULLs as distinct, so the
+/// "exactly one" CHECK and the two partial unique indexes live in the migration SQL.
 model Membership {
   id          String  @id @default(cuid())
   spaceId     String
@@ -82,9 +127,12 @@ model Membership {
   userId      String?
   user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   groupId     String?
+  group       Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   permissions SpacePermission[]
 
-  @@unique([spaceId, userId, groupId])
+  @@index([spaceId])
+  @@index([userId])
+  @@index([groupId])
 }
 
 enum SpacePermission {

@@ -13,6 +13,10 @@ See `docs/team.md`.
 ### Slice 0 — Walking skeleton
 `[lead] platform-engineer` `[with] domain-modeler, test-engineer`
 
+**Status: built** (2026-10-09). Decisions `RD-050` – `RD-054`. Not in this slice, by design:
+password reset, SSO, MFA and a shared login throttle (`RD-050`); the page tree, `Create`
+and `SPACE SHORTCUTS` content (slices 1 and 16a, `RD-052`).
+
 Next.js App Router + TypeScript strict, Postgres via Docker Compose, Prisma wired,
 auth (email + session), a space list, one empty space page. CI running
 `pnpm verify` = typecheck + lint + test + `prisma validate`. Playwright smoke test.

@@ -1,0 +1,21 @@
+# Local development database. `pnpm demo` starts this for you (scripts/db-up.mjs).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reqforge
+      POSTGRES_PASSWORD: reqforge
+      POSTGRES_DB: reqforge
+    ports:
+      - "${REQFORGE_DB_PORT:-5432}:5432"
+    volumes:
+      - reqforge-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reqforge -d reqforge"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  reqforge-pgdata:
