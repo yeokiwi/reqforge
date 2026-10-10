@@ -1031,10 +1031,132 @@ Owner: the page-view agent. Read `RD-059` first.
 
 ### 13.3 Editor toolbar, menus and dialogs (slice 1)
 
-Owner: the editor agents. Read `RD-055` and `RD-057` first.
+Owner: the editor agents. Read `RD-055` and `RD-057` first. Toolbar labels are the accessible
+names of the glyphs `10` §5.1 draws (the video shows no text for them), read as `RD-057` reads
+them. Colour names belong to the fixed palettes, seeded from the §1.1 tokens.
 
 | Id | String |
 |---|---|
+| `editor.toolbar` | Editor toolbar *(ours)* |
+| `editor.tableToolbar` | Table tools *(ours)* |
+| `editor.style.label` | Text style *(ours)* |
+| `editor.style.paragraph` | Paragraph |
+| `editor.style.normal` | Normal |
+| `editor.style.heading` | Heading {level} |
+| `editor.style.quote` | Quote |
+| `editor.style.preformatted` | Preformatted |
+| `editor.bold` | Bold *(ours)* |
+| `editor.italic` | Italic *(ours)* |
+| `editor.underline` | Underline *(ours)* |
+| `editor.textColour` | Text colour *(ours, `RD-057`)* |
+| `editor.textColour.default` | Default colour *(ours)* |
+| `editor.colour.grey` | Grey *(ours)* |
+| `editor.colour.darkBlue` | Dark blue *(ours)* |
+| `editor.colour.blue` | Blue *(ours)* |
+| `editor.colour.green` | Green *(ours)* |
+| `editor.colour.orange` | Orange *(ours)* |
+| `editor.colour.red` | Red *(ours)* |
+| `editor.colour.purple` | Purple *(ours)* |
+| `editor.moreFormatting` | More formatting *(ours, `RD-057`)* |
+| `editor.strike` | Strikethrough *(ours)* |
+| `editor.subscript` | Subscript *(ours)* |
+| `editor.superscript` | Superscript *(ours)* |
+| `editor.code` | Code *(ours)* |
+| `editor.clearFormatting` | Clear formatting *(ours)* |
+| `editor.bulletList` | Bullet list *(ours)* |
+| `editor.orderedList` | Numbered list *(ours)* |
+| `editor.taskList` | Task list |
+| `editor.outdent` | Outdent *(ours)* |
+| `editor.indent` | Indent *(ours)* |
+| `editor.alignLeft` | Align left *(ours, `RD-057`)* |
+| `editor.alignRight` | Align right *(ours, `RD-057`)* |
+| `editor.alignCentre` | Align centre *(ours, `RD-057`)* |
+| `editor.infoPanel` | Info panel *(ours, `RD-057`)* |
+| `editor.files` | Files and images |
+| `editor.link` | Link |
+| `editor.table` | Insert table *(ours)* |
+| `editor.table.size` | {cols} × {rows} *(ours)* |
+| `editor.table.sizeLabel` | Insert a table with {cols} columns and {rows} rows *(ours)* |
+| `editor.emoji` | Emoji *(ours)* |
+| `editor.insertMore` | Insert more content *(ours)* |
+| `editor.find` | Find and replace *(ours, `RD-057`)* |
+| `editor.help` | Keyboard shortcuts *(ours, `RD-057`)* |
+| `editor.undo` | Undo *(ours)* |
+| `editor.redo` | Redo *(ours)* |
+| `editor.table.widthMode` | Table width *(ours)* |
+| `editor.table.responsive` | Responsive |
+| `editor.table.fixed` | Fixed width |
+| `editor.table.rowAbove` | Insert row above *(ours)* |
+| `editor.table.rowBelow` | Insert row below *(ours)* |
+| `editor.table.deleteRow` | Delete row *(ours)* |
+| `editor.table.columnBefore` | Insert column before *(ours)* |
+| `editor.table.columnAfter` | Insert column after *(ours)* |
+| `editor.table.deleteColumn` | Delete column *(ours)* |
+| `editor.table.merge` | Merge cells *(ours)* |
+| `editor.table.split` | Split cell *(ours)* |
+| `editor.table.headerRow` | Header row *(ours)* |
+| `editor.table.headerColumn` | Header column *(ours)* |
+| `editor.table.numbered` | Numbered column *(ours, `RD-057`)* |
+| `editor.table.fill` | Cell background *(ours, `RD-057`)* |
+| `editor.table.noFill` | No fill *(ours)* |
+| `editor.fill.grey` | Light grey *(ours)* |
+| `editor.fill.blue` | Light blue *(ours)* |
+| `editor.fill.green` | Light green *(ours)* |
+| `editor.fill.yellow` | Light yellow *(ours)* |
+| `editor.fill.red` | Light red *(ours)* |
+| `editor.fill.purple` | Light purple *(ours)* |
+| `editor.table.delete` | Delete table *(ours)* |
+| `editor.breadcrumb` | Breadcrumb *(ours)* |
+| `editor.labels` | Labels *(ours)* |
+| `editor.title.label` | Page title *(ours)* |
+| `editor.title.placeholder` | Give this page a title *(ours)* |
+| `editor.title.empty` | Give this page a title before you publish it. *(ours)* |
+| `editor.title.taken` | Another page in this space already has this title. *(ours, `RD-056`)* |
+| `editor.title.invalid` | This title can't be used. Use at most 255 characters, with no line breaks or control characters. *(ours, `RD-067`)* |
+| `editor.content.label` | Page content *(ours)* |
+| `editor.placeholder` | Type your content here *(ours)* |
+| `editor.presence` | Also editing this page *(ours, `RD-062`)* |
+| `editor.presence.user` | {name} is editing this page *(ours, `RD-062`)* |
+| `editor.presence.invite` | Invite collaborator *(ours)* |
+| `editor.more` | More actions *(ours)* |
+| `editor.more.revert` | Revert to last published |
+| `editor.more.history` | Page history |
+| `editor.save.retrying` | Couldn't save your changes. Trying again… *(ours, `RD-055`)* |
+| `editor.save.signedOut` | You've been signed out. Sign in again in another tab and your changes will be saved. *(ours)* |
+| `editor.save.noAccess` | You can no longer edit this page, so your changes can't be saved. *(ours)* |
+| `editor.save.invalid` | Your changes can't be saved because some of the content isn't valid. *(ours, `RD-063`)* |
+| `editor.save.tooLarge` | This page is too large to save. The limit is {mib} MiB. *(ours, `RD-063`)* |
+| `editor.save.failed` | Couldn't save your changes. *(ours)* |
+| `editor.publish.signedOut` | You've been signed out. Sign in again in another tab, then press Update. *(ours)* |
+| `editor.publish.noAccess` | You can no longer edit this page. *(ours)* |
+| `editor.publish.invalid` | This page can't be published because some of the content isn't valid. *(ours, `RD-063`)* |
+| `editor.publish.messageInvalid` | Keep the change note to 500 characters or fewer. *(ours, `RD-063`)* |
+| `editor.publish.tooLarge` | This page is too large to publish. The limit is {mib} MiB. *(ours, `RD-063`)* |
+| `editor.publish.failed` | Couldn't publish this page. Try again. *(ours)* |
+| `editor.conflict.message` | Someone published version {n} of this page while you were editing. *(ours, `RD-055`)* |
+| `editor.conflict.help` | Overwrite publishes your changes as a new version on top of it. Reload latest discards your changes and opens the current version. *(ours, `RD-055`)* |
+| `editor.conflict.overwrite` | Overwrite *(`RD-055`)* |
+| `editor.conflict.reload` | Reload latest *(`RD-055`)* |
+| `editor.revert.title` | Revert to last published? *(ours)* |
+| `editor.revert.body` | This discards your unpublished changes and opens the current version of the page. *(ours, `RD-055`)* |
+| `editor.revert.confirm` | Revert *(ours)* |
+| `editor.revert.failed` | Couldn't revert to the last published version. Try again. *(ours)* |
+| `editor.reload.failed` | Couldn't load the latest version. Try again. *(ours)* |
+| `editor.cancel` | Cancel *(ours)* |
+| `editor.closeUnsaved.title` | Close without saving? *(ours)* |
+| `editor.closeUnsaved.body` | Your latest changes couldn't be saved. If you close the editor now, they will be lost. *(ours)* |
+| `editor.closeUnsaved.confirm` | Close anyway *(ours)* |
+| `editor.closeUnsaved.cancel` | Keep editing *(ours)* |
+| `editor.linkDialog.title` | Insert link *(ours)* |
+| `editor.linkDialog.editTitle` | Edit link *(ours)* |
+| `editor.linkDialog.url` | Link address *(ours)* |
+| `editor.linkDialog.urlHelp` | Starts with http://, https://, mailto:, tel: or a / for a page of this site. *(ours, `RD-063`)* |
+| `editor.linkDialog.text` | Text to display *(ours)* |
+| `editor.linkDialog.textHelp` | Optional. Leave it empty to link the selected text, or the address itself. *(ours)* |
+| `editor.linkDialog.invalid` | Enter an address that starts with http://, https://, mailto:, tel: or a /. *(ours, `RD-063`)* |
+| `editor.linkDialog.submit` | Insert *(ours)* |
+| `editor.linkDialog.save` | Save *(ours)* |
+| `editor.linkDialog.remove` | Remove link *(ours)* |
 
 ### 13.4 Page tree, space overview, Page history and compare (slice 1)
 
@@ -1050,6 +1172,10 @@ and problem-detail titles.
 
 | Id | String |
 |---|---|
+| `page.untitled` | Untitled *(ours, `RD-056`)* |
+| `page.copyOf` | Copy of {title} *(ours, `RD-056`)* |
+| `history.restoredNote` | Restored from v. {n} *(ours, `RD-060`)* |
+| `history.renamedNote` | Renamed from "{old}" *(ours, `RD-056`)* |
 
 ---
 
