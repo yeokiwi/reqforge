@@ -2,7 +2,6 @@
 import { LIMITS, classifyAttachment, sanitizeFilename, sniffImageType, type AttachmentRef } from "@/domain/documents";
 import { NotFoundError, TooLargeError, UnsupportedMediaError, ValidationError } from "@/domain/errors";
 import type { Actor } from "@/server/authz/actor";
-import { authorizeSpace } from "@/server/authz/space-permission";
 import {
   getAttachmentForRead,
   insertAttachment,
@@ -11,7 +10,7 @@ import {
   softDeleteAttachment,
 } from "@/server/repositories/attachments";
 import { lockPage, rootDb, transaction } from "@/server/repositories/transaction";
-import { auditAttachment, findPageInSpace, isImageContentType, isWellFormedId, resolvePage, toAttachmentRef } from "./shared";
+import { auditAttachment, isImageContentType, isWellFormedId, resolvePage, toAttachmentRef } from "./shared";
 
 /** Upload transactions carry up to 10 MiB. */
 const UPLOAD_TIMEOUT_MS = 30_000;
@@ -46,7 +45,7 @@ export async function uploadAttachment(
   pageId: string,
   upload: AttachmentUploadInput,
 ): Promise<AttachmentRef> {
-  const space = await authorizeSpace(actor, spaceKey, "EDIT");
+  const { space, page } = await resolvePage(actor, spaceKey, pageId, "EDIT");
   const filename = sanitizeFilename(upload.filename);
   const kind = classifyAttachment({ filename: upload.filename, declaredContentType: upload.declaredContentType ?? null, bytes: upload.bytes });
   if (kind.kind === "rejected") {
@@ -59,7 +58,6 @@ export async function uploadAttachment(
         throw new TooLargeError(LIMITS.attachmentMaxBytes);
     }
   }
-  const page = await findPageInSpace(rootDb, actor, space, pageId);
   const sha256 = sha256Hex(upload.bytes);
 
   const row = await transaction(

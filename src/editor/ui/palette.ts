@@ -3,13 +3,14 @@
 // are seeded from the colour roles of 10 section 1.1 and the panel backgrounds of content.css,
 // so a coloured page reads in the product's own palette. The names are copy-deck strings.
 // spec: docs/specs/10-ui-reference.md section 5.1 (`A▾`, `fill ▾`); docs/specs/09-decision-log.md section RD-057
-import type { CopyId } from "@/copy";
+import type { ParamlessCopyId } from "@/copy";
 
 export interface Swatch {
   readonly hex: string;
-  readonly copy: CopyId;
+  readonly copy: ParamlessCopyId;
 }
 
+// spec: docs/specs/09-decision-log.md section RD-057 (`A▾` text colour); 10 section 1.1 (colour roles)
 /** Text colours, from the §1.1 tokens: badge.child, chrome.nav, action.primary, badge.original, badge.link, lozenge.critical, badge.external. */
 export const TEXT_COLOURS: readonly Swatch[] = Object.freeze([
   { hex: "#626878", copy: "editor.colour.grey" },
@@ -21,6 +22,7 @@ export const TEXT_COLOURS: readonly Swatch[] = Object.freeze([
   { hex: "#5a4aa3", copy: "editor.colour.purple" },
 ]);
 
+// spec: docs/specs/09-decision-log.md section RD-057 (`fill ▾` cell background)
 /** Cell fills: table.header.bg and the five info-panel backgrounds of content.css. */
 export const CELL_FILLS: readonly Swatch[] = Object.freeze([
   { hex: "#f0f1f3", copy: "editor.fill.grey" },

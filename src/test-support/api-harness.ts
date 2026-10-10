@@ -6,7 +6,8 @@
 //
 // Requests carry the session cookie, a Host header and — by default — a same-site Origin, so a
 // test opts OUT of what a browser would send (`origin: null`, `session: null`) to probe a refusal.
-import type { ProblemDetails } from "@/domain/documents/api-types";
+import { expect } from "vitest";
+import type { ApiErrorCode, ProblemDetails } from "@/domain/documents/api-types";
 import { LoginThrottle } from "@/domain/auth/login-throttle";
 import { SESSION_COOKIE } from "@/server/auth/cookie-name";
 import { login } from "@/server/usecases/login";
@@ -80,6 +81,18 @@ export function routeContext<P>(params: P): { params: Promise<P> } {
   return { params: Promise.resolve(params) };
 }
 
+/** A Next 15 route handler as a route.ts exports it. */
+export type RouteHandlerFn<P> = (request: Request, context: { params: Promise<P> }) => Promise<Response>;
+
+/**
+ * Calls an exported route handler the way Next would: `send(page.PUT, "PUT", url, { spaceKey, id }, { session, json })`.
+ * A missing export (the route does not serve that method) fails the test loudly.
+ */
+export function send<P>(handler: RouteHandlerFn<P> | undefined, method: string, path: string, params: P, options: RequestOptions = {}): Promise<Response> {
+  if (handler === undefined) throw new Error(`the route for ${path} exports no ${method} handler`);
+  return handler(apiRequest(method, path, options), routeContext(params));
+}
+
 /** A ReadableStream that yields `total` bytes of `fill` in `chunk`-sized pieces — a chunked body with no Content-Length. */
 export function streamOf(total: number, chunk = 64 * 1024, fill = 0x20): ReadableStream<Uint8Array> {
   let sent = 0;
@@ -103,6 +116,21 @@ export async function readProblem(response: Response): Promise<ProblemDetails> {
     throw new Error(`expected application/problem+json, got ${type ?? "no Content-Type"} (status ${response.status})`);
   }
   return (await response.json()) as ProblemDetails;
+}
+
+/**
+ * Asserts the whole problem+json contract of spec 08 §3.2 — status, media type, no-store, no
+ * redirect, `type`, `title`, `detail`, `status` and the stable `code` — and returns the body.
+ */
+export async function expectProblem(response: Response, status: number, code: ApiErrorCode): Promise<ProblemDetails> {
+  expect(response.status, `status for ${code}`).toBe(status);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("location")).toBeNull();
+  const problem = await readProblem(response);
+  expect(problem).toMatchObject({ type: "about:blank", status, code });
+  expect(typeof problem.title).toBe("string");
+  expect(typeof problem.detail).toBe("string");
+  return problem;
 }
 
 /** The JSON body of a successful response. */

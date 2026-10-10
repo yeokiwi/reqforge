@@ -27,18 +27,22 @@ export interface Autosave {
   flush(reason: SaveReason): Promise<boolean>;
   /** Stop saving and wait for an in-flight save (before Update, Revert, Reload). */
   pause(): Promise<void>;
+  /** While paused: the editor now holds the server's version, so nothing is unsaved. */
+  reset(): void;
   resume(): void;
   /** Some change is not yet confirmed by the server. */
   isDirty(): boolean;
 }
 
 /** How a failed draft save is reported and whether it is retried by itself. */
+// spec: docs/specs/09-decision-log.md section RD-055 (autosave); 08 section 3.2 (the codes)
 export function classifySaveError(error: unknown): ErrorClassification {
   const apiError = toApiError(error);
   return { code: apiError.code, retryable: isRetryable(apiError), limit: apiError.limit };
 }
 
 /** Ctrl+S or Cmd+S with no other modifier. */
+// spec: docs/specs/09-decision-log.md section RD-055 (flush on Ctrl/Cmd+S)
 export function isSaveShortcut(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): boolean {
   return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s";
 }
@@ -104,6 +108,7 @@ export function useAutosave({ save, dispatch, timers, config }: UseAutosaveOptio
       change: (field) => schedulerRef.current?.change(field),
       flush: (reason) => schedulerRef.current?.flush(reason) ?? Promise.resolve(true),
       pause: () => schedulerRef.current?.pause() ?? Promise.resolve(),
+      reset: () => schedulerRef.current?.reset(),
       resume: () => schedulerRef.current?.resume(),
       isDirty: () => schedulerRef.current?.dirty ?? false,
     }),

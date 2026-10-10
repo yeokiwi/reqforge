@@ -370,3 +370,64 @@
   color: #0b48b1;
   white-space: nowrap;
 }
+
+/* ----------------------------------------------------------- editor only (.rf-editor) */
+/* What only the editing surface draws: the empty-document placeholder, selected table cells,
+   the column-resize handle and cursor, and selected atoms. Scoped under .rf-editor, so the page
+   view is untouched. The tint and the handle use action.primary (10 §1.1). */
+
+.rf-editor .ProseMirror {
+  min-height: 40vh;
+  padding-bottom: 2rem;
+  outline: none;
+}
+
+.rf-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #97a0af;
+  pointer-events: none;
+}
+
+.rf-editor .ProseMirror :is(td, th) {
+  position: relative;
+}
+
+.rf-editor .ProseMirror .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(11, 72, 177, 0.12);
+  pointer-events: none;
+}
+
+.rf-editor .ProseMirror .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -2px;
+  z-index: 3;
+  width: 4px;
+  background-color: #0b48b1;
+  pointer-events: none;
+}
+
+.rf-editor .ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+.rf-editor .ProseMirror-selectednode {
+  outline: 2px solid #0b48b1;
+  outline-offset: 1px;
+}
+
+/* Links do not navigate while editing (openOnClick: false): they are text to click into. */
+.rf-editor .ProseMirror a {
+  cursor: text;
+}
+
+.rf-editor .ProseMirror li[data-type="taskItem"] > label {
+  cursor: pointer;
+}

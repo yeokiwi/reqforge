@@ -2,11 +2,10 @@
 import { isDraftStale, type Draft, type DraftRequest, type DraftResponse } from "@/domain/documents";
 import { ValidationError } from "@/domain/errors";
 import type { Actor } from "@/server/authz/actor";
-import { authorizeSpace } from "@/server/authz/space-permission";
 import { allAttachmentIdsForPage } from "@/server/repositories/attachments";
 import { deleteDraft, getDraft as readDraft, upsertDraft } from "@/server/repositories/drafts";
 import { rootDb } from "@/server/repositories/transaction";
-import { canonicalContent, draftTitle, findPageInSpace, isVersionNumber, resolvePage } from "./shared";
+import { canonicalContent, draftTitle, isVersionNumber, resolvePage } from "./shared";
 
 /** The caller's own unpublished draft of the page, or null. Needs space EDIT (08 §3). */
 // spec: docs/specs/08-api-surface.md section 3 (GET /pages/{id}/draft: { draft: Draft | null }); RD-055
@@ -31,12 +30,11 @@ export async function getDraft(actor: Actor, spaceKey: string, pageId: string): 
  */
 // spec: docs/specs/09-decision-log.md sections RD-055 (autosave writes a mutable DocumentDraft), RD-063; 08 §3 (PUT /pages/{id}/draft)
 export async function saveDraft(actor: Actor, spaceKey: string, pageId: string, input: DraftRequest): Promise<DraftResponse> {
-  const space = await authorizeSpace(actor, spaceKey, "EDIT");
+  const { page } = await resolvePage(actor, spaceKey, pageId, "EDIT");
   const title = draftTitle(input.title);
   if (!isVersionNumber(input.baseVersion)) {
     throw new ValidationError([{ path: "baseVersion", message: "must be a positive integer" }]);
   }
-  const page = await findPageInSpace(rootDb, actor, space, pageId);
   const content = canonicalContent(input.content, await allAttachmentIdsForPage(rootDb, actor.id, page.id));
   const { updatedAt } = await upsertDraft(rootDb, {
     documentId: page.id,

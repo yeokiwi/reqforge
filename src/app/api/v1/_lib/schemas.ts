@@ -45,6 +45,7 @@ export const moveBody = z.object({
 export const copyBody = z.object({ title: z.string().optional() });
 
 /** A `{n}` path segment: a version number, or NotFound (08 §3.2: malformed is not found). */
+// spec: docs/specs/08-api-surface.md section 3.2 (NOT_FOUND: unknown, malformed)
 export function versionSegment(raw: string): number {
   if (!/^[1-9][0-9]{0,9}$/.test(raw)) throw new NotFoundError("Version");
   const n = Number(raw);
@@ -52,16 +53,22 @@ export function versionSegment(raw: string): number {
   return n;
 }
 
-/** The optional `?version=N` query parameter: absent, or a positive integer (else VALIDATION). */
+/**
+ * The optional `?version=N` query parameter: absent, or a positive integer written in decimal
+ * (else VALIDATION — a malformed field). A well-formed number no version has, however large, is
+ * passed on and answered NOT_FOUND by the use case, like any other unknown version.
+ */
+// spec: docs/specs/08-api-surface.md section 3 (GET /pages/{id}?version=N), section 3.2 (VALIDATION, NOT_FOUND)
 export function versionQuery(raw: string | null): number | undefined {
   if (raw === null) return undefined;
-  if (!/^[1-9][0-9]{0,9}$/.test(raw)) throw new ValidationError([{ path: "version", message: "must be a positive integer" }]);
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new ValidationError([{ path: "version", message: "must be a positive integer" }]);
   return Number(raw);
 }
 
 export type PageFormat = "json" | "html";
 
 /** The optional `?format=` query parameter: `json` (default) or `html`. */
+// spec: docs/specs/08-api-surface.md section 3 (?format=html)
 export function formatQuery(raw: string | null): PageFormat {
   if (raw === null || raw === "json") return "json";
   if (raw === "html") return "html";

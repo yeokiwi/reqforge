@@ -8,6 +8,7 @@
 // React hook in use-autosave.ts wires it to the editor and the browser.
 // spec: docs/specs/09-decision-log.md section RD-055 (autosaved drafts); docs/specs/10-ui-reference.md section 5.1
 import type { DraftResponse } from "@/domain/documents/api-types";
+import { AppError } from "@/domain/errors";
 import type { ClientErrorCode } from "./api";
 import type { SaveEvent } from "./save-state";
 
@@ -36,7 +37,8 @@ export interface AutosaveConfig {
   readonly retryMaxMs: number;
 }
 
-// spec: docs/specs/09-decision-log.md section RD-055 (debounce 1.5 s, max wait 10 s)
+// spec: docs/specs/09-decision-log.md section RD-055 (autosave). RD-055 names no timings: 1.5 s,
+// 10 s and the 2 s → 30 s backoff are this slice's choice, reported for a decision-log entry.
 export const AUTOSAVE_CONFIG: AutosaveConfig = Object.freeze({
   debounceMs: 1_500,
   maxWaitMs: 10_000,
@@ -47,7 +49,7 @@ export const AUTOSAVE_CONFIG: AutosaveConfig = Object.freeze({
 export interface AutosaveSchedulerOptions {
   /** Saves the editor's state as it is NOW (title, content, base version). */
   readonly save: (reason: SaveReason) => Promise<DraftResponse>;
-  /** Receives `edited`, `saveStarted`, `saveSucceeded` and `saveFailed` (save-state.ts). */
+  /** Receives `edited`, `saveStarted`, `saveSucceeded`, `saveFailed` and `reset` (save-state.ts). */
   readonly emit: (event: SaveEvent) => void;
   readonly classify: (error: unknown) => ErrorClassification;
   readonly timers?: SchedulerTimers;
@@ -55,7 +57,7 @@ export interface AutosaveSchedulerOptions {
 }
 
 /** Delay before retry number `failures` (1-based): base, 2×base, 4×base, … capped. */
-// spec: docs/specs/09-decision-log.md section RD-055 (retry with capped exponential backoff)
+// spec: docs/specs/09-decision-log.md section RD-055 (autosave; the backoff itself is this slice's choice)
 export function retryDelay(failures: number, config: Pick<AutosaveConfig, "retryBaseMs" | "retryMaxMs"> = AUTOSAVE_CONFIG): number {
   const exponent = Math.min(Math.max(0, failures - 1), 30);
   return Math.min(config.retryMaxMs, config.retryBaseMs * 2 ** exponent);
@@ -68,6 +70,7 @@ const GLOBAL_TIMERS: SchedulerTimers = {
 
 type TimerName = "debounce" | "maxWait" | "retry";
 
+// spec: docs/specs/09-decision-log.md section RD-055 (autosave); docs/specs/10-ui-reference.md section 5.1 (save state)
 export class AutosaveScheduler {
   private readonly config: AutosaveConfig;
   private readonly timers: SchedulerTimers;
@@ -143,6 +146,26 @@ export class AutosaveScheduler {
     this.paused = true;
     this.clearAll();
     while (this.inFlight) await this.inFlight;
+  }
+
+  /**
+   * The editor was reloaded from the server (Revert, Reload latest): everything it now holds is
+   * what the server has, so nothing is unsaved. Only while paused, after pause() resolved (so no
+   * save is in flight); emits `reset` so the footer returns to `Ready to go`.
+   */
+  // spec: docs/specs/09-decision-log.md section RD-055 (Revert to last published deletes the draft)
+  reset(): void {
+    if (this.disposed) return;
+    if (!this.paused || this.inFlight) {
+      throw new AppError("AUTOSAVE_RESET", "reset() needs the scheduler paused with no save in flight");
+    }
+    this.clearAll();
+    this.revision = 0;
+    this.savedRevision = 0;
+    this.failures = 0;
+    this.requested = false;
+    this.finalSave = false;
+    this.options.emit({ type: "reset" });
   }
 
   /** Saving again after pause(); saves at once if anything is unsaved. */

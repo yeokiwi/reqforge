@@ -11,9 +11,10 @@ import { SESSION_COOKIE } from "@/server/auth/cookie-name";
 /** API paths answer 401 problem+json instead of redirecting. The health probe is public. */
 // spec: docs/specs/08-api-surface.md sections 1 (GET /api/health is unauthenticated) and 3.2 (UNAUTHENTICATED: never a redirect on /api paths); RD-064
 function isApiPath(pathname: string): boolean {
-  return pathname.startsWith("/api/") && pathname !== "/api/health";
+  return (pathname === "/api" || pathname.startsWith("/api/")) && pathname !== "/api/health";
 }
 
+// spec: docs/specs/08-api-surface.md section 3.2 (UNAUTHENTICATED); docs/specs/09-decision-log.md section RD-064
 export function middleware(request: NextRequest) {
   if (request.cookies.has(SESSION_COOKIE)) return NextResponse.next();
 

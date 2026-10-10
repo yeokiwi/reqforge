@@ -57,7 +57,18 @@ export interface ResolvedPage {
   readonly page: PageRecord;
 }
 
-/** authorizeSpace(need), then findPageInSpace: 404 for an invisible space or page, 403 for a missing permission. */
+/**
+ * authorizeSpace(need), then findPageInSpace. The order of the answers is fixed:
+ *   1. the URL's space is not visible            → 404 (RD-051)
+ *   2. visible, but the caller lacks `need` there → 403, the same for every page id, so a caller
+ *      without the permission learns nothing about which pages exist
+ *   3. the page is not a visible live page of THAT space → 404 (rule X2; the IDOR check)
+ * Every use case addressed to a page calls this BEFORE its own checks of the request (title rules,
+ * change note, content schema, attachment references — the last depends on the page), so those are
+ * only ever judged for a page the caller may change; then locks are taken. The route has already
+ * refused what is wrong with the request whatever the page (media type, size, JSON syntax, field
+ * types), and those answers reveal nothing about the page.
+ */
 // spec: docs/specs/07-permissions-and-limits.md section 2.4 (page actions); docs/specs/09-decision-log.md section RD-051
 export async function resolvePage(actor: Actor, spaceKey: string, pageId: string, need: SpaceNeed): Promise<ResolvedPage> {
   const space = await authorizeSpace(actor, spaceKey, need);

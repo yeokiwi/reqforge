@@ -20,7 +20,7 @@ import {
 import { buildTree, createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
 import { imageAttachmentIds } from "../copy-content";
-import { PLAT, TEAM, actors, auditRows, expectError, imageDoc, pngBytes, uploadPng, versionNumbers, type Actors } from "./support";
+import { PLAT, TEAM, actors, auditRows, canonical, expectError, imageDoc, pngBytes, uploadPng, versionNumbers, type Actors } from "./support";
 
 let who: Actors;
 beforeEach(async () => {
@@ -42,7 +42,8 @@ describe("copyPage", () => {
       createdBy: { id: who.bob.id },
     });
     const view = await getPageView(who.bob, TEAM, copy.id);
-    expect(view.version.content).toEqual(paragraphDoc("Spec v1"));
+    // The copy holds the source's content in canonical form (RD-063), not the fixture's raw JSON.
+    expect(view.version.content).toEqual(canonical(paragraphDoc("Spec v1")));
     expect(view.version.message).toBeNull();
     // The page only, not its descendants.
     expect((await listPageTree(who.bob, TEAM)).pages).toHaveLength(5);

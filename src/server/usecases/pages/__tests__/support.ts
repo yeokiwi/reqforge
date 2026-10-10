@@ -1,6 +1,7 @@
 // Shared helpers for the pages use-case tests.
 import { expect } from "vitest";
 import type { AppError } from "@/domain/errors";
+import { validateDocumentJson } from "@/editor/schema";
 import type { Actor } from "@/server/authz/actor";
 import { uploadAttachment } from "@/server/usecases/pages";
 import { actorFor, prisma, type Handle } from "@/test-support/fixtures";
@@ -62,6 +63,13 @@ export function imageDoc(...images: { readonly id: string; readonly url: string 
 /** Uploads a PNG to a page through the use case. */
 export async function uploadPng(actor: Actor, spaceKey: string, pageId: string, filename = "diagram.png") {
   return uploadAttachment(actor, spaceKey, pageId, { filename, declaredContentType: "image/png", bytes: pngBytes() });
+}
+
+/** The canonical form the server stores for `doc` (RD-063); throws if `doc` is invalid. */
+export function canonical(doc: unknown): unknown {
+  const result = validateDocumentJson(doc);
+  if (!result.ok) throw new Error(`not a valid document: ${JSON.stringify(result.errors)}`);
+  return result.doc;
 }
 
 /** Audit rows, oldest first, optionally for one object. */

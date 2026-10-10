@@ -4,7 +4,6 @@ import { resolvePublish, type PageDetail, type PublishRequest, type PublishRespo
 import { NotFoundError, ValidationError, VersionConflictError } from "@/domain/errors";
 import { t } from "@/copy";
 import type { Actor } from "@/server/authz/actor";
-import { authorizeSpace } from "@/server/authz/space-permission";
 import { allAttachmentIdsForPage } from "@/server/repositories/attachments";
 import { deleteDraft } from "@/server/repositories/drafts";
 import { watcherCount } from "@/server/repositories/social";
@@ -14,10 +13,10 @@ import {
   auditPage,
   canonicalContent,
   changeNote,
-  findPageInSpace,
   isVersionNumber,
   requireTitle,
   reread,
+  resolvePage,
   toPageDetail,
   toVersionSummary,
 } from "./shared";
@@ -31,13 +30,13 @@ import {
  */
 // spec: docs/specs/09-decision-log.md sections RD-055 (Update; concurrency), RD-061 (notify watchers recorded), RD-063 (canonical content); 08 §3 (PUT /pages/{id}), §3.2
 export async function publishPage(actor: Actor, spaceKey: string, pageId: string, input: PublishRequest): Promise<PublishResponse> {
-  const space = await authorizeSpace(actor, spaceKey, "EDIT");
+  // Existence and permission first (404 / 403 whatever the body), then the body, then locks.
+  const { space, page } = await resolvePage(actor, spaceKey, pageId, "EDIT");
   const title = requireTitle(input.title);
   const message = changeNote(input.message);
   if (!isVersionNumber(input.baseVersion)) {
     throw new ValidationError([{ path: "baseVersion", message: "must be a positive integer" }]);
   }
-  const page = await findPageInSpace(rootDb, actor, space, pageId);
   const content = canonicalContent(input.content, await allAttachmentIdsForPage(rootDb, actor.id, page.id));
   const overwrite = input.overwrite === true;
   const notifyWatchers = input.notifyWatchers === true;
@@ -82,9 +81,8 @@ export interface RenamePageInput {
  */
 // spec: docs/specs/09-decision-log.md section RD-056 (renaming creates a version); 08 §3 (PATCH /pages/{id})
 export async function renamePage(actor: Actor, spaceKey: string, pageId: string, input: RenamePageInput): Promise<PageDetail> {
-  const space = await authorizeSpace(actor, spaceKey, "EDIT");
+  const { space, page } = await resolvePage(actor, spaceKey, pageId, "EDIT");
   const title = requireTitle(input.title);
-  const page = await findPageInSpace(rootDb, actor, space, pageId);
 
   const record = await transaction(async (tx) => {
     const locked = await lockPage(tx, page.id);

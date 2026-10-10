@@ -37,9 +37,12 @@ export interface Conflict {
 
 export type PublishField = "title" | "message" | "content";
 
-/** Why the last Update failed. `TITLE_EMPTY` is the editor's own check, made before sending. */
+/**
+ * Why the last Update failed. `TITLE_EMPTY` and `TITLE_INVALID` are the editor's own checks
+ * (checkTitle, RD-067), made before anything is sent.
+ */
 export interface PublishProblem {
-  readonly code: ClientErrorCode | "TITLE_EMPTY";
+  readonly code: ClientErrorCode | "TITLE_EMPTY" | "TITLE_INVALID";
   /** The field the problem belongs to, when it belongs to one. */
   readonly field: PublishField | null;
   readonly limit: number | null;
@@ -88,7 +91,9 @@ export type SaveEvent =
   | { readonly type: "publishFailed"; readonly problem: PublishProblem }
   | { readonly type: "publishConflict"; readonly currentVersion: number }
   | { readonly type: "discardStarted"; readonly action: DiscardAction }
-  | { readonly type: "discardFailed"; readonly action: DiscardAction; readonly code: ClientErrorCode };
+  | { readonly type: "discardFailed"; readonly action: DiscardAction; readonly code: ClientErrorCode }
+  /** The editor was reloaded from the current version (Revert, Reload latest): a fresh session. */
+  | { readonly type: "reset" };
 
 export const INITIAL_SAVE_STATE: SaveState = Object.freeze({
   revision: 0,
@@ -161,6 +166,8 @@ export function saveReducer(state: SaveState, event: SaveEvent): SaveState {
       return { ...state, activity: "discarding", discardProblem: null, publishProblem: null };
     case "discardFailed":
       return { ...state, activity: "editing", discardProblem: { action: event.action, code: event.code } };
+    case "reset":
+      return INITIAL_SAVE_STATE;
   }
 }
 

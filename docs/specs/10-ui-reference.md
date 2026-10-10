@@ -1118,6 +1118,8 @@ them. Colour names belong to the fixed palettes, seeded from the §1.1 tokens.
 | `editor.presence` | Also editing this page *(ours, `RD-062`)* |
 | `editor.presence.user` | {name} is editing this page *(ours, `RD-062`)* |
 | `editor.presence.invite` | Invite collaborator *(ours)* |
+| `editor.presence.more` | +{n} *(ours, `RD-062`)* |
+| `editor.presence.moreLabel` | {n} more people are editing this page *(ours, `RD-062`)* |
 | `editor.more` | More actions *(ours)* |
 | `editor.more.revert` | Revert to last published |
 | `editor.more.history` | Page history |
@@ -1157,6 +1159,85 @@ them. Colour names belong to the fixed palettes, seeded from the §1.1 tokens.
 | `editor.linkDialog.submit` | Insert *(ours)* |
 | `editor.linkDialog.save` | Save *(ours)* |
 | `editor.linkDialog.remove` | Remove link *(ours)* |
+| `editor.insert.markup` | Markup |
+| `editor.insert.horizontalRule` | Horizontal rule |
+| `editor.insert.date` | Date |
+| `editor.insert.symbol` | Symbol |
+| `editor.insert.mention` | User mention |
+| `editor.insert.externalIssue` | External issue *(ours, `RD-031`: the video's "Jira Issue/Filter", relabelled; later)* |
+| `editor.macro.info` | Info |
+| `editor.macro.status` | Status |
+| `editor.macro.gallery` | Gallery |
+| `editor.macro.toc` | Table of Contents |
+| `editor.macro.requirement` | Requirement |
+| `editor.macro.requirementReport` | Requirement report |
+| `editor.macro.traceabilityMatrix` | Traceability matrix |
+| `editor.macro.baseline` | Baseline |
+| `editor.macroBrowser.title` | Macro browser *(ours)* |
+| `editor.macroBrowser.search` | Search macros *(ours)* |
+| `editor.macroBrowser.list` | Macros *(ours)* |
+| `editor.macroBrowser.none` | No macro is called "{q}". *(ours)* |
+| `editor.dialog.insert` | Insert *(ours)* |
+| `editor.dialog.done` | Done *(ours)* |
+| `editor.dialog.close` | Close *(ours)* |
+| `editor.files.choose` | Choose files to attach *(ours, `RD-058`)* |
+| `editor.upload.region` | File uploads *(ours)* |
+| `editor.upload.uploading` | Uploading "{name}"… *(ours)* |
+| `editor.upload.tooLarge` | "{name}" is too large to attach. A file can be at most {mib} MiB. *(ours, `RD-058`)* |
+| `editor.upload.unsupported` | "{name}" can't be attached: this type of file is not allowed. *(ours, `RD-058`, `RD-071`)* |
+| `editor.upload.empty` | "{name}" is empty, so it was not attached. *(ours, `RD-071`)* |
+| `editor.upload.signedOut` | You've been signed out. Sign in again in another tab, then attach "{name}" again. *(ours)* |
+| `editor.upload.noAccess` | You can no longer add files to this page. *(ours)* |
+| `editor.upload.failed` | Couldn't attach "{name}". Try again. *(ours)* |
+| `editor.upload.dismiss` | Dismiss *(ours)* |
+| `editor.markup.title` | Insert markup *(ours)* |
+| `editor.markup.format` | Format *(ours)* |
+| `editor.markup.markdown` | Markdown *(ours)* |
+| `editor.markup.html` | HTML *(ours)* |
+| `editor.markup.input` | Markdown or HTML to insert *(ours)* |
+| `editor.markup.help` | It is converted to page content. Images from other sites are left out. *(ours, `RD-058`)* |
+| `editor.markup.empty` | Nothing in this markup can go on the page. *(ours)* |
+| `editor.date.title` | Insert a date *(ours)* |
+| `editor.date.editTitle` | Edit date *(ours)* |
+| `editor.date.invalid` | Enter a real date. *(ours, `RD-068`)* |
+| `editor.status.title` | Edit status *(ours)* |
+| `editor.status.text` | Text *(ours)* |
+| `editor.status.colour` | Colour *(ours)* |
+| `editor.status.defaultText` | Status *(ours)* |
+| `editor.status.invalid` | Enter 1 to 60 characters. *(ours, `RD-068`)* |
+| `editor.colour.yellow` | Yellow *(ours)* |
+| `editor.symbol.title` | Insert a symbol *(ours)* |
+| `editor.mention.title` | Mention someone *(ours)* |
+| `editor.mention.search` | Name *(ours)* |
+| `editor.mention.results` | People *(ours)* |
+| `editor.mention.searching` | Searching… *(ours)* |
+| `editor.mention.none` | No one's name starts with "{q}". *(ours)* |
+| `editor.mention.failed` | Couldn't search for people. Try again. *(ours)* |
+| `editor.panel.type` | Panel type *(ours)* |
+| `editor.panel.info` / `.note` / `.success` / `.warning` / `.error` | Info / Note / Success / Warning / Error *(ours)* |
+| `editor.toc.empty` | Add headings to this page to fill the table of contents. *(ours)* |
+| `editor.find.query` | Find *(ours)* |
+| `editor.find.replacement` | Replace with *(ours)* |
+| `editor.find.matchCase` | Match case *(ours)* |
+| `editor.find.previous` | Previous match *(ours)* |
+| `editor.find.next` | Next match *(ours)* |
+| `editor.find.replace` | Replace *(ours)* |
+| `editor.find.replaceAll` | Replace all *(ours)* |
+| `editor.find.close` | Close find and replace *(ours)* |
+| `editor.find.count` | {current} of {total} *(ours)* |
+| `editor.find.capped` | {current} of more than {total} *(ours)* |
+| `editor.find.none` | No results *(ours)* |
+| `editor.shortcuts.action` | Action *(ours)* |
+| `editor.shortcuts.keys` | Keys *(ours)* |
+| `editor.shortcuts.group.formatting` | Text formatting *(ours)* |
+| `editor.shortcuts.group.paragraph` | Paragraphs and lists *(ours)* |
+| `editor.shortcuts.group.editing` | Editing *(ours)* |
+| `editor.shortcuts.group.insert` | Insert and find *(ours)* |
+| `editor.shortcuts.save` | Save your changes as a draft now *(ours, `RD-055`)* |
+| `editor.shortcuts.editNode` | Edit the selected status or date *(ours)* |
+| `editor.shortcuts.lineBreak` | Line break *(ours)* |
+| `editor.key.ctrl` / `.alt` / `.shift` / `.enter` / `.tab` | Ctrl / Alt / Shift / Enter / Tab *(ours)* |
+| `editor.key.macCmd` / `.macOption` / `.macShift` | ⌘ / ⌥ / ⇧ *(ours)* |
 
 ### 13.4 Page tree, space overview, Page history and compare (slice 1)
 
@@ -1167,8 +1248,11 @@ Owner: the tree and history agent. Read `RD-056` and `RD-060` first.
 
 ### 13.5 Server-side messages (slice 1)
 
-Owner: the server agent. Strings the server itself writes: change notes stored on versions,
-and problem-detail titles.
+Owner: the server agent. Strings the server itself writes into stored data: the titles it makes
+up for new and copied pages, and the change notes it stores on versions. Problem-detail titles
+and details are API text, not interface copy: clients branch on the problem's `code` (`08`
+§3.2) and show their own copy-deck strings, so those live in a table in
+`src/app/api/v1/_lib/problem.ts`.
 
 | Id | String |
 |---|---|

@@ -3,7 +3,6 @@ import { copyTitle, type PageDetail } from "@/domain/documents";
 import { NotFoundError } from "@/domain/errors";
 import { t } from "@/copy";
 import type { Actor } from "@/server/authz/actor";
-import { authorizeSpace } from "@/server/authz/space-permission";
 import {
   allAttachmentIdsForPage,
   getAttachmentForRead,
@@ -16,7 +15,7 @@ import { setWatching as setWatchingRow } from "@/server/repositories/social";
 import { lockTree, rootDb, transaction } from "@/server/repositories/transaction";
 import { getVersion as readVersion, insertVersion } from "@/server/repositories/versions";
 import { imageAttachmentIds, rewriteImageAttachments, type CopiedAttachment } from "./copy-content";
-import { auditPage, canonicalContent, findPageInSpace, requireTitle, reread, toPageDetail } from "./shared";
+import { auditPage, canonicalContent, requireTitle, reread, resolvePage, toPageDetail } from "./shared";
 
 /** Copying moves up to many 10 MiB attachments inside one transaction. */
 const COPY_TIMEOUT_MS = 60_000;
@@ -36,9 +35,8 @@ export interface CopyPageInput {
  */
 // spec: docs/specs/09-decision-log.md sections RD-056 (Copy duplicates one page as `Copy of <title>`), RD-058, RD-061; 08 §3 (POST /pages/{id}/copy)
 export async function copyPage(actor: Actor, spaceKey: string, pageId: string, input: CopyPageInput = {}): Promise<PageDetail> {
-  const space = await authorizeSpace(actor, spaceKey, "EDIT");
+  const { space, page: source } = await resolvePage(actor, spaceKey, pageId, "EDIT");
   const explicitTitle = input.title === undefined ? null : requireTitle(input.title);
-  const source = await findPageInSpace(rootDb, actor, space, pageId);
   const version = await readVersion(rootDb, actor.id, source.id, source.currentVersion);
   if (!version) throw new NotFoundError("Page");
 
