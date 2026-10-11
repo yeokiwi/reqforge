@@ -187,6 +187,19 @@ describe("Save for later and Watching (RD-061)", () => {
     expect(button(t("page.saveForLater"))).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("a toggle that sticks refreshes the server's view of the page (Page information reads it); a failed one does not", async () => {
+    header({}, { watching: true });
+    const watch = button(t("page.watching"));
+    fireEvent.click(watch);
+    await waitFor(() => expect(watch).not.toHaveAttribute("aria-busy"));
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+
+    respond = () => problem(500, "INTERNAL");
+    fireEvent.click(watch);
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("pageView.watch.failed"));
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("rolls back when the network is down", async () => {
     header({
       fetchImpl: () => Promise.reject(new TypeError("Failed to fetch")),

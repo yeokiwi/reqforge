@@ -1065,6 +1065,76 @@ Owner: the page-view agent. Read `RD-059` first.
 | `create.failed.forbidden` | You can't create pages in this space. *(ours)* |
 | `create.failed.notFound` | We couldn't find that space. *(ours)* |
 | `create.dismiss` | Dismiss *(ours)* |
+| `pageView.dialog.close` | Close *(ours — the `···` menu's dialogs, `RD-059`)* |
+| `pageView.dialog.cancel` | Cancel *(ours)* |
+| `pageView.dialog.signedOut` | You've been signed out. Sign in again in another tab, then try again. *(ours)* |
+| `pageView.dialog.gone` | This page no longer exists. *(ours, `RD-051`: a page you can no longer see reads the same)* |
+| `pageAttachments.title` | Attachments *(ours — the dialog behind 📎 and `···` → Attachments, `RD-059`)* |
+| `pageAttachments.loading` | Loading attachments… *(ours)* |
+| `pageAttachments.loadFailed` | Couldn't load the attachments. *(ours)* |
+| `pageAttachments.retry` | Try again *(ours)* |
+| `pageAttachments.empty` | This page has no attachments. *(ours)* |
+| `pageAttachments.table` | Attachments of {title} *(ours — the accessible name of the list)* |
+| `pageAttachments.col.name` / `.size` / `.uploadedBy` / `.uploaded` / `.actions` | Name / Size / Uploaded by / Uploaded / Actions *(ours)* |
+| `pageAttachments.size.bytes` / `.kib` / `.mib` | {n} B / {n} KiB / {n} MiB *(ours)* |
+| `pageAttachments.upload` | Upload a file *(ours, `RD-058`)* |
+| `pageAttachments.upload.help` | Images (PNG, JPEG, GIF or WebP) and other files, at most {mib} MiB each. SVG images are not allowed. *(ours, `RD-058`, `RD-071`)* |
+| `pageAttachments.uploading` | Uploading "{name}"… *(ours)* |
+| `pageAttachments.uploaded` | "{name}" was attached. *(ours)* |
+| `pageAttachments.upload.empty` | "{name}" is empty, so it was not attached. *(ours, `RD-071`)* |
+| `pageAttachments.upload.tooLarge` | "{name}" is too large to attach. A file can be at most {mib} MiB. *(ours, `RD-058`)* |
+| `pageAttachments.upload.unsupported` | "{name}" can't be attached: SVG images are not allowed. *(ours, `RD-058`, `RD-071`)* |
+| `pageAttachments.upload.forbidden` | You can't add files to this page. *(ours)* |
+| `pageAttachments.upload.failed` | Couldn't attach "{name}". Try again. *(ours)* |
+| `pageAttachments.hide` | Hide *(ours, `RD-058`: deleting an attachment hides it)* |
+| `pageAttachments.hide.label` | Hide {name} *(ours — the accessible name of a row's Hide)* |
+| `pageAttachments.hide.title` | Hide "{name}"? *(ours)* |
+| `pageAttachments.hide.body` | It will no longer be listed with this page's attachments. The file itself is kept, so versions of the page that show it still do. *(ours, `RD-058`)* |
+| `pageAttachments.hidden` | "{name}" was hidden. *(ours)* |
+| `pageAttachments.hide.forbidden` | You can't hide files on this page. *(ours)* |
+| `pageAttachments.hide.gone` | "{name}" is no longer attached to this page. The list has been refreshed. *(ours)* |
+| `pageAttachments.hide.failed` | Couldn't hide "{name}". Try again. *(ours)* |
+| `pageInfo.title` | Page information *(ours — the dialog's heading, after the `···` item)* |
+| `pageInfo.pageTitle` / `.id` / `.space` / `.createdBy` / `.created` / `.lastModifiedBy` / `.lastModified` / `.version` / `.watching` | Title / Page ID / Space / Created by / Created / Last modified by / Last modified / Current version / Watching *(ours)* |
+| `pageInfo.spaceValue` | {name} ({key}) *(ours)* |
+| `pageInfo.versionValue` | v. {n} *(ours — links to Page History, §23)* |
+| `pageInfo.watching.yes` / `.no` | Yes / No *(ours, `RD-061`)* |
+| `pageCopy.title` | Copy "{title}" *(ours, `RD-056`)* |
+| `pageCopy.body` | Only this page is copied, not its child pages. The copy starts from the current version and is placed last among this page's siblings. Images on the page are copied with it; other attachments are not. *(ours, `RD-056`, `RD-074`)* |
+| `pageCopy.field` | Title of the copy *(ours)* |
+| `pageCopy.field.empty` | Give the copy a title. *(ours, `RD-067`)* |
+| `pageCopy.field.invalid` | This title can't be used. Use at most {max} characters, with no line breaks or control characters. *(ours, `RD-067`)* |
+| `pageCopy.field.taken` | Another page in this space already has this title. *(ours, `RD-056`)* |
+| `pageCopy.submit` | Copy *(ours)* |
+| `pageCopy.busy` | Copying the page… *(ours)* |
+| `pageCopy.tooLarge` | This page can't be copied: the images on it total more than {mib} MiB, the most one copy can carry. *(ours, `RD-074`)* |
+| `pageCopy.tooLarge.unknown` | This page can't be copied: the images on it are too large to copy together. *(ours, `RD-074`)* |
+| `pageCopy.forbidden` | You can't copy pages in this space. *(ours)* |
+| `pageCopy.failed` | Couldn't copy the page. Try again. *(ours)* |
+| `pageMove.title` | Move "{title}" *(ours, `RD-056`)* |
+| `pageMove.body` | Choose its new place in {space}. Its child pages move with it, and it is placed last among its new siblings. *(ours, `RD-056`)* |
+| `pageMove.filter` | Find a page *(ours — the filter field's label)* |
+| `pageMove.list` | New parent page *(ours — the accessible name of the list)* |
+| `pageMove.root` | At the top level *(ours — the space's root, `RD-056`)* |
+| `pageMove.currentTag` | Current *(ours — marks where the page is now)* |
+| `pageMove.none` | No page matches "{q}". *(ours)* |
+| `pageMove.choice.root` | It will move to the top level of {space}. *(ours)* |
+| `pageMove.choice.under` | It will move under "{parent}". *(ours)* |
+| `pageMove.choice.same` | The page is already here. Choose another place. *(ours)* |
+| `pageMove.submit` | Move *(ours)* |
+| `pageMove.busy` | Moving the page… *(ours)* |
+| `pageMove.cycle` | A page can't be moved under itself or under one of its own child pages. *(ours, `RD-056`)* |
+| `pageMove.invalid` | The page can't be moved there: the page tree would be too deep, or that parent page no longer exists. *(ours, `RD-070`)* |
+| `pageMove.forbidden` | You can't move pages in this space. *(ours)* |
+| `pageMove.failed` | Couldn't move the page. Try again. *(ours)* |
+| `pageDelete.title` | Delete "{title}"? *(ours, `RD-056`)* |
+| `pageDelete.body.leaf` | This page will be deleted. *(ours, `RD-056`)* |
+| `pageDelete.body.oneChild` | This page and the page under it will be deleted: 2 pages in all. *(ours, `RD-056`)* |
+| `pageDelete.body.children` | This page and the {d} pages under it will be deleted: {n} pages in all. *(ours, `RD-056`: the confirmation names how many pages will go)* |
+| `pageDelete.confirm` | Delete *(ours)* |
+| `pageDelete.busy` | Deleting the page… *(ours)* |
+| `pageDelete.forbidden` | You can't delete pages in this space. *(ours)* |
+| `pageDelete.failed` | Couldn't delete the page. Try again. *(ours)* |
 
 ### 13.3 Editor toolbar, menus and dialogs (slice 1)
 
@@ -1302,6 +1372,53 @@ Owner: the tree and history agent. Read `RD-056` and `RD-060` first.
 | `tree.moved.under` | "{title}" moved under "{parent}", position {position} of {count}. *(ours)* |
 | `tree.alert.dismiss` | Dismiss *(ours)* |
 | `overview.tree` | Pages in {space} *(ours — the accessible name of the space overview's tree, §11)* |
+| `history.col.version` / `.published` / `.changedBy` / `.comment` / `.actions` | Version / Published / Changed By / Comment / Actions *(§23's column headings: `history.col` above, one id per column)* |
+| `history.version` | v. {n} *(§23: the label of every row but the current one)* |
+| `history.pinned` | Pinned by baseline {n} *(§23: the disabled Delete's tooltip)* |
+| `history.pinned.unknown` | Pinned by a baseline *(ours — until baselines ship (slice 13) the API does not say which baseline pins a version)* |
+| `history.windowTitle` | Page History – {title} *(ours — the browser tab's title)* |
+| `history.breadcrumb` | Breadcrumb *(ours)* |
+| `history.table` | Versions of {title} *(ours — the accessible name of the history table)* |
+| `history.col.select` | Select *(ours — the accessible name of the checkbox column)* |
+| `history.select` | Select v. {n} to compare *(ours)* |
+| `history.compare.hint` | Select exactly two versions to compare. {n} selected. *(ours — why Compare selected versions is unavailable)* |
+| `history.compare.ready` | Compares v. {a} with v. {b}. *(ours)* |
+| `history.restore.label` | Restore v. {n} *(ours — the accessible name of a row's Restore)* |
+| `history.delete.label` | Delete v. {n} *(ours — the accessible name of a row's Delete)* |
+| `history.restore.title` | Restore v. {n}? *(ours)* |
+| `history.restore.body` | This publishes the title and content of v. {n} as a new current version, with the comment "Restored from v. {n}". Every version stays in the history. *(ours, `RD-060`)* |
+| `history.delete.title` | Delete v. {n}? *(ours)* |
+| `history.delete.body` | v. {n} will be removed from the page history for everyone. This can't be undone. *(ours, `RD-060`)* |
+| `history.cancel` | Cancel *(ours)* |
+| `history.restoring` | Restoring v. {n}… *(ours)* |
+| `history.deleting` | Deleting v. {n}… *(ours)* |
+| `history.deleted` | v. {n} was deleted. *(ours)* |
+| `history.restore.failed` | Couldn't restore v. {n}. Try again. *(ours)* |
+| `history.restore.forbidden` | You can't restore versions of this page. *(ours, `RD-060`)* |
+| `history.restore.titleTaken` | v. {n} can't be restored: another page in this space now has its title. *(ours, `RD-056`)* |
+| `history.delete.failed` | Couldn't delete v. {n}. Try again. *(ours)* |
+| `history.delete.forbidden` | You can't delete versions of this page. *(ours, `RD-060`)* |
+| `history.delete.current` | v. {n} is the current version, so it can't be deleted. *(ours, `RD-060`)* |
+| `history.delete.pinned` | v. {n} is pinned by a baseline, so it can't be deleted. *(ours, `RD-060`)* |
+| `history.gone` | v. {n} no longer exists. The page history has been refreshed. *(ours)* |
+| `history.signedOut` | You've been signed out. Sign in again in another tab, then try again. *(ours)* |
+| `history.dismiss` | Dismiss *(ours)* |
+| `history.loading` | Loading the page history… *(ours)* |
+| `history.error` | Couldn't load the page history. *(ours)* |
+| `history.error.retry` | Try again *(ours)* |
+| `compare.title` | Compare v. {a} with v. {b} *(ours, `RD-060`)* |
+| `compare.windowTitle` | Compare v. {a} with v. {b} – {title} *(ours — the browser tab's title)* |
+| `compare.back` | Back to Page History *(ours)* |
+| `compare.table` | Changes from v. {a} to v. {b} *(ours — the accessible name of the side-by-side table)* |
+| `compare.titleChanged` | Title changed *(ours, `RD-060`)* |
+| `compare.summary` | {added} added, {removed} removed, {changed} changed *(ours)* |
+| `compare.identical` | v. {a} and v. {b} have the same content. *(ours)* |
+| `compare.approximate` | These versions are too different to line up exactly, so some unchanged blocks may show as changed, added or removed. *(ours, `RD-066`)* |
+| `compare.status.added` / `.removed` / `.changed` / `.same` | Added / Removed / Changed / Unchanged *(ours, `RD-060`)* |
+| `compare.missing` | Not in v. {n} *(ours — the empty side of an added or removed block)* |
+| `compare.empty` | This version has no content. *(ours)* |
+| `compare.loading` | Loading the comparison… *(ours)* |
+| `compare.error` | Couldn't compare these versions. *(ours)* |
 
 ### 13.5 Server-side messages (slice 1)
 

@@ -74,7 +74,9 @@ export function PageHeader({ space, page, pages, crumbs, viewHref, editHref, fet
           </div>
         }
       />
-      {dialog !== null ? <PageDialogs kind={dialog} page={page} space={space} pages={pages} onClose={() => setDialog(null)} /> : null}
+      {dialog !== null ? (
+        <PageDialogs kind={dialog} page={page} space={space} pages={pages} onClose={() => setDialog(null)} fetchImpl={fetchImpl} />
+      ) : null}
     </div>
   );
 }

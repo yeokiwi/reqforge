@@ -91,7 +91,8 @@ export class PageTreeStore {
   private applied = 0;
   private readonly listeners = new Set<() => void>();
   private chain: Promise<unknown> = Promise.resolve();
-  private creating = false;
+  /** The parent a create is running under (null: the root), or undefined when none is. */
+  private creatingParent: string | null | undefined = undefined;
   private createLockTimer: ReturnType<typeof setTimeout> | null = null;
   private storage: StorageSource | null = null;
   private consumers = 0;
@@ -370,14 +371,16 @@ export class PageTreeStore {
   // spec: docs/specs/09-decision-log.md section RD-056 (a child is created from the tree or the space overview); 08 §3 (POST /pages)
   async createChild(parentId: string | null): Promise<CreateOutcome> {
     if (!this.canEditValue) return { ok: false, code: "FORBIDDEN", busy: false };
-    if (this.creating) return { ok: false, code: "BUSY", busy: true };
-    this.creating = true;
+    if (this.creatingParent !== undefined) return { ok: false, code: "BUSY", busy: true };
+    this.creatingParent = parentId;
+    this.emit();
     let page: PageSummary | null;
     try {
       page = toPageSummary(await callApi("POST", spaceUrls(this.spaceKey).pages, { parentId }, this.fetchImpl));
       if (page === null) throw new ApiError("UNEXPECTED_RESPONSE", 201);
     } catch (error) {
-      this.creating = false;
+      this.creatingParent = undefined;
+      this.emit();
       void this.refresh();
       return { ok: false, code: codeOf(error), busy: false };
     }
@@ -394,18 +397,28 @@ export class PageTreeStore {
   }
 
   isCreating(): boolean {
-    return this.creating;
+    return this.creatingParent !== undefined;
+  }
+
+  /** The parent a create is running under (null: the root of the space), or undefined. */
+  getCreatingParent(): string | null | undefined {
+    return this.creatingParent;
   }
 
   releaseCreateLock(): void {
-    this.creating = false;
     if (this.createLockTimer !== null) clearTimeout(this.createLockTimer);
     this.createLockTimer = null;
+    if (this.creatingParent === undefined) return;
+    this.creatingParent = undefined;
+    this.emit();
   }
 
+  /**
+   * Stops the create-lock timer. Listeners are left alone: under React's StrictMode effects run
+   * twice, and subscribers re-subscribe in their own effects.
+   */
   dispose(): void {
     if (this.createLockTimer !== null) clearTimeout(this.createLockTimer);
     this.createLockTimer = null;
-    this.listeners.clear();
   }
 }

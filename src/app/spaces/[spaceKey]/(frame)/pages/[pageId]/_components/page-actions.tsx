@@ -173,6 +173,7 @@ export interface PageActionsProps {
 type Notice = { readonly kind: "status" | "alert"; readonly message: ParamlessCopyId } | null;
 
 export function PageActions({ page, editHref, viewHref, favouriteUrl, watchUrl, shortcutEnabled, menu, fetchImpl }: PageActionsProps) {
+  const router = useRouter();
   const [notice, setNotice] = useState<Notice>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -190,7 +191,12 @@ export function PageActions({ page, editHref, viewHref, favouriteUrl, watchUrl, 
     if (clearAfterMs !== undefined) timer.current = setTimeout(() => setNotice(null), clearAfterMs);
   };
   const fail = (message: ParamlessCopyId) => show({ kind: "alert", message });
-  const clear = () => setNotice((current) => (current?.kind === "alert" ? null : current));
+  // A toggle that stuck clears its failure and refreshes the server's view of the page, so what
+  // else reads PageDetail (Page information's `Watching`) agrees with the button.
+  const toggled = () => {
+    setNotice((current) => (current?.kind === "alert" ? null : current));
+    router.refresh();
+  };
 
   // The confirmation and the failure float under the row, so neither moves the title when it appears.
   const floating = "absolute right-0 top-full z-20 mt-1 max-w-xs rounded bg-white px-2 py-1 text-right text-xs shadow";
@@ -205,7 +211,7 @@ export function PageActions({ page, editHref, viewHref, favouriteUrl, watchUrl, 
           failedMessage="pageView.favourite.failed"
           icon={(on) => <StarIcon size={18} filled={on} />}
           onFailure={fail}
-          onSuccess={clear}
+          onSuccess={toggled}
           fetchImpl={fetchImpl}
           testId="page-favourite"
         />
@@ -216,7 +222,7 @@ export function PageActions({ page, editHref, viewHref, favouriteUrl, watchUrl, 
           failedMessage="pageView.watch.failed"
           icon={(on) => <WatchIcon on={on} />}
           onFailure={fail}
-          onSuccess={clear}
+          onSuccess={toggled}
           fetchImpl={fetchImpl}
           testId="page-watching"
         />

@@ -6,8 +6,11 @@
 //   Blog                → not built: absent.
 //   SPACE SHORTCUTS     → v1, but there is no shortcut model before the Space tools screens (slice 16a):
 //                         the group renders only when a space has shortcuts, and none can exist yet (RD-050).
-//   PAGE TREE           → v1; the tree itself arrives with documents (slice 1), so it shows its empty state.
-//   TRACEABILITY MATRIXES replaces PAGE TREE on the Requirements screen (slice 8).
+//   PAGE TREE           → v1 (slice 1): the space's pages, from the PageTreeProvider that AppFrame
+//                         renders around the sidebar and the main region (src/ui/page-tree). An empty
+//                         space keeps the empty state, with Create a page for editors (RD-056).
+//   TRACEABILITY MATRIXES replaces PAGE TREE on the Requirements screen (slice 8); until then the
+//                         Requirements screen keeps the PAGE TREE.
 //   `···` in the rail   → omitted: nothing to overflow yet (RD-050).
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -23,6 +26,7 @@ import {
   StarIcon,
 } from "./icons";
 import { Menu, MenuLink } from "./menu";
+import { PageTree } from "./page-tree/page-tree";
 
 export type SidebarSection = "pages" | "requirements";
 
@@ -203,7 +207,7 @@ export function SpaceSidebar({ space, collapsed, current, setCollapsedAction, se
         <h2 id="sidebar-page-tree" className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
           {t("sidebar.pageTree")}
         </h2>
-        <p className="text-sm text-slate-500">{t("sidebar.pageTree.empty")}</p>
+        <PageTree variant="sidebar" label={t("tree.label")} />
       </section>
 
       <div className="flex items-center justify-between border-t border-slate-200 px-2 py-2">

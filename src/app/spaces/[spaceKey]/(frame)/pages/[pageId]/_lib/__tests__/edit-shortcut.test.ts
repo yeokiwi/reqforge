@@ -56,7 +56,11 @@ describe("isEditShortcut", () => {
     ['<div contenteditable="true"><span contenteditable="false"><b>chip</b></span></div>', "b"],
     ['<div role="textbox" tabindex="0"></div>', "div"],
     ['<div role="dialog"><button>OK</button></div>', "button"],
+    ['<div role="alertdialog"><button>OK</button></div>', "button"],
     ['<div role="menu"><a role="menuitem" href="/h">Page History</a></div>', "a"],
+    ['<ul role="tree"><li role="treeitem"><a href="/p">Specifications</a></li></ul>', "a"],
+    ['<ul role="listbox"><li role="option" tabindex="0">One</li></ul>', "li"],
+    ['<table role="grid"><tbody><tr><td tabindex="0">x</td></tr></tbody></table>', "td"],
   ])("never while focus is in %s", (html, selector) => {
     const target = el(html, selector);
     expect(isShortcutBlockedTarget(target)).toBe(true);

@@ -3,7 +3,13 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/copy";
+import type { PageSummary } from "@/domain/documents";
+import { PageTreeProvider } from "@/ui/page-tree/provider";
+import { fakeApi, sampleTree } from "@/ui/page-tree/__tests__/fake-api";
 import { SpaceSidebar, type SpaceSidebarProps } from "@/ui/space-sidebar";
+
+const router = { push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() };
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/spaces/TEAM/pages/h" }));
 
 afterEach(cleanup);
 
@@ -14,7 +20,13 @@ const base: SpaceSidebarProps = {
   setCollapsedAction: vi.fn(),
   setFavouriteAction: vi.fn(),
 };
-const sidebar = (over: Partial<SpaceSidebarProps> = {}) => render(<SpaceSidebar {...base} {...over} />);
+/** The sidebar inside the PageTreeProvider that AppFrame renders around it. */
+const sidebar = (over: Partial<SpaceSidebarProps> = {}, pages: PageSummary[] = [], canEdit = true) =>
+  render(
+    <PageTreeProvider spaceKey="TEAM" canEdit={canEdit} initial={{ status: "ready", pages }} fetchImpl={fakeApi().fetchImpl} storage={() => null}>
+      <SpaceSidebar {...base} {...over} />
+    </PageTreeProvider>,
+  );
 const nav = () => screen.getByRole("complementary", { name: t("sidebar.nav") });
 
 describe("SpaceSidebar — expanded (10 §3.2)", () => {
@@ -41,9 +53,30 @@ describe("SpaceSidebar — expanded (10 §3.2)", () => {
     expect(screen.queryByText(t("sidebar.shortcuts"))).toBeNull();
   });
 
-  it("shows the page tree's empty state until documents exist", () => {
+  it("shows the page tree's empty state in an empty space, with Create a page for editors (RD-056)", () => {
     sidebar();
+    const section = screen.getByRole("region", { name: t("sidebar.pageTree") });
+    expect(within(section).getByText(t("sidebar.pageTree.empty"))).toBeTruthy();
+    expect(within(section).getByRole("button", { name: t("tree.createPage") })).toBeTruthy();
+    cleanup();
+    sidebar({}, [], false);
     expect(screen.getByText(t("sidebar.pageTree.empty"))).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("tree.createPage") })).toBeNull();
+  });
+
+  it("shows the space's pages under PAGE TREE, the current page bold inside its open parent (10 §3.2)", () => {
+    sidebar({}, sampleTree());
+    const section = screen.getByRole("region", { name: t("sidebar.pageTree") });
+    const tree = within(section).getByRole("tree", { name: t("tree.label") });
+    expect(within(tree).getByRole("treeitem", { name: "Specifications" })).toHaveAttribute("aria-expanded", "true");
+    expect(within(tree).getByRole("treeitem", { name: "Page Heading" })).toHaveAttribute("aria-current", "page");
+    expect(within(tree).getByRole("treeitem", { name: "Team" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(t("sidebar.pageTree.empty"))).toBeNull();
+  });
+
+  it("draws no page tree in the collapsed rail", () => {
+    sidebar({ collapsed: true }, sampleTree());
+    expect(screen.queryByRole("tree")).toBeNull();
   });
 
   it("Space tools is for space admins only", () => {

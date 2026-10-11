@@ -16,9 +16,28 @@ export interface ShortcutEvent {
   readonly target: EventTarget | null;
 }
 
-/** Where a key press belongs to the focused widget, not to the page. */
-const BLOCKING =
-  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"], [role="dialog"], [role="menu"]';
+/**
+ * Where a key press belongs to the focused widget, not to the page: form fields, editable
+ * regions, text-like widgets, dialogs, and the composite widgets whose letter keys are
+ * type-ahead (a menu, the sidebar's page tree, a listbox, a grid).
+ */
+const BLOCKING = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="textbox"]',
+  '[role="searchbox"]',
+  '[role="combobox"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="tree"]',
+  '[role="treegrid"]',
+  '[role="listbox"]',
+  '[role="grid"]',
+].join(", ");
 
 interface ElementLike {
   closest(selector: string): unknown;
@@ -31,7 +50,7 @@ function isElementLike(target: unknown): target is ElementLike {
 
 /**
  * Whether focus is somewhere a letter key means something else: a form field, an editable
- * region, a text-like widget, a dialog or an open menu.
+ * region, a text-like widget, a dialog, an open menu, or a type-ahead widget such as the tree.
  */
 // spec: docs/specs/10-ui-reference.md section 4.1 (`E`), and the quality bar's "keyboard first"
 export function isShortcutBlockedTarget(target: EventTarget | null): boolean {

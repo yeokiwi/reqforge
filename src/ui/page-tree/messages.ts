@@ -23,16 +23,20 @@ export function moveFailureMessage(code: string): string {
   }
 }
 
-/** The alert after a failed "+" (create a child page) or Create a page. */
-// spec: docs/specs/08-api-surface.md section 3.2; RD-056 (a child is created from the tree)
-export function createFailureMessage(code: string): string {
+/**
+ * The alert after a failed "+" (create a child page) or Create a page. POST /pages answers
+ * VALIDATION at `parentId` when the parent is no longer a live page of the space (RD-070), and
+ * NOT_FOUND only when the space itself is not visible (RD-051, RD-072's refusal order).
+ */
+// spec: docs/specs/08-api-surface.md section 3.2; RD-056 (a child is created from the tree), RD-072
+export function createFailureMessage(code: string, parentId: string | null): string {
   switch (code) {
     case "FORBIDDEN":
       return t("tree.create.forbidden");
     case "VALIDATION":
+      return parentId === null ? t("tree.create.failed") : t("tree.create.parentGone");
     case "NOT_FOUND":
-      // VALIDATION at parentId: the parent is no longer a live page of this space (RD-070).
-      return t("tree.create.parentGone");
+      return t("create.failed.notFound");
     case "UNAUTHENTICATED":
       return t("tree.signedOut");
     default:

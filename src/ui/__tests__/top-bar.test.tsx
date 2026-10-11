@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/copy";
 import { TopBar, type TopBarProps } from "@/ui/top-bar";
 
+// `Create` is a client component that navigates (create-page-button.tsx); its own behaviour is
+// tested in create-page-button.test.tsx.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+
 afterEach(cleanup);
 
 const base: TopBarProps = {
@@ -101,13 +105,15 @@ describe("TopBar — Spaces ▾", () => {
   });
 });
 
-describe("TopBar — Create (10 §2)", () => {
-  it("outside a space opens a picker of the spaces the user can edit", () => {
+describe("TopBar — Create (10 §2, RD-052, RD-056)", () => {
+  it("outside a space opens a picker of the spaces the user can edit; picking one creates a page there", () => {
     bar({ creatableSpaces: [{ key: "TEAM", name: "Team" }] });
+    const create = screen.getByRole("button", { name: t("shell.create") });
+    expect(create).toHaveAttribute("aria-haspopup", "menu");
     openMenu(t("shell.create"));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toHaveAttribute("href", "/spaces/TEAM");
+    expect(items.map((i) => i.textContent)).toEqual(["Team"]);
+    expect(items[0]?.tagName).toBe("BUTTON");
   });
 
   it("says so when there is nowhere to create", () => {
@@ -116,14 +122,19 @@ describe("TopBar — Create (10 §2)", () => {
     expect(screen.getByRole("menuitem", { name: t("shell.create.noSpace") })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("inside a space the user can edit, holds its slot as a disabled button", () => {
+  it("inside a space the user can edit, is a plain button that creates a page at once", () => {
     bar({ currentSpace: { key: "TEAM", canEdit: true, canAdmin: false } });
-    expect((screen.getByRole("button", { name: t("shell.create") }) as HTMLButtonElement).disabled).toBe(true);
+    const create = screen.getByRole("button", { name: t("shell.create") });
+    expect((create as HTMLButtonElement).disabled).toBe(false);
+    expect(create).not.toHaveAttribute("aria-haspopup");
+    expect(create).not.toHaveAttribute("aria-disabled");
   });
 
   it("inside a read-only space falls back to the picker", () => {
     bar({ currentSpace: { key: "TEAM", canEdit: false, canAdmin: false } });
-    expect((screen.getByRole("button", { name: t("shell.create") }) as HTMLButtonElement).disabled).toBe(false);
+    const create = screen.getByRole("button", { name: t("shell.create") });
+    expect((create as HTMLButtonElement).disabled).toBe(false);
+    expect(create).toHaveAttribute("aria-haspopup", "menu");
   });
 });
 
