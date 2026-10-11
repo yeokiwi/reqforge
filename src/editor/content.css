@@ -431,3 +431,85 @@
 .rf-editor .ProseMirror li[data-type="taskItem"] > label {
   cursor: pointer;
 }
+
+/* Pass 2: find and replace, `{` Macro suggestions, uploads, node views. */
+
+/* Find matches (RD-057 `🔍`): every match tinted, the current one stronger (lozenge.medium). */
+.rf-editor .ProseMirror .rf-find-match {
+  border-radius: 2px;
+  background-color: rgba(255, 214, 0, 0.45);
+}
+
+.rf-editor .ProseMirror .rf-find-match--current {
+  background-color: rgba(238, 132, 28, 0.55);
+  box-shadow: 0 0 0 1px #ee841c;
+}
+
+/* The `{query` being typed while Macro suggestions are open (10 §5.4). */
+.rf-editor .ProseMirror .rf-macro-query {
+  border-radius: 2px;
+  background-color: rgba(11, 72, 177, 0.08);
+}
+
+/* Where an upload will land, while its bytes travel (RD-058). Not content. */
+.rf-editor .ProseMirror .rf-upload-placeholder {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px dashed var(--rf-border);
+  border-radius: 3px;
+  color: var(--rf-subtle);
+  font-size: 0.857em;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Status and date open their editors on click. */
+.rf-editor .ProseMirror :is(.rf-status, .rf-date) {
+  cursor: pointer;
+}
+
+/* The info panel's `Panel type` switcher sits on the panel's top edge, outside the text. */
+.rf-editor .rf-panel__controls {
+  position: absolute;
+  top: -0.8rem;
+  right: 6px;
+  z-index: 1;
+  opacity: 0.6;
+}
+
+.rf-editor .rf-panel:hover .rf-panel__controls,
+.rf-editor .rf-panel:focus-within .rf-panel__controls {
+  opacity: 1;
+}
+
+.rf-editor .rf-panel__controls select {
+  height: 1.4rem;
+  padding: 0 2px;
+  border: 1px solid var(--rf-border);
+  border-radius: 3px;
+  background-color: #fff;
+  color: var(--rf-text);
+  font-size: 11px;
+}
+
+.rf-editor .rf-panel__content > :first-child {
+  margin-top: 0;
+}
+
+/* The table of contents is a live preview: framed, so it reads as a macro, not as typed text. */
+.rf-editor .ProseMirror .rf-toc {
+  padding: 6px 10px;
+  border: 1px dashed var(--rf-border);
+  border-radius: 3px;
+}
+
+.rf-editor .ProseMirror .rf-toc a {
+  cursor: pointer;
+}
+
+.rf-editor .ProseMirror .rf-toc__empty {
+  margin: 0;
+  color: var(--rf-subtle);
+  font-style: italic;
+}

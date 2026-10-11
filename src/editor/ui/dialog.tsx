@@ -3,7 +3,8 @@
 // A small modal dialog (WAI-ARIA dialog pattern): role=dialog, aria-modal, named by its title
 // and described by its body; focus moves in on open (to `data-autofocus`, else the first
 // control), Tab and Shift+Tab stay inside, Escape and a press on the backdrop dismiss it, and
-// focus returns to where it was when the dialog closes.
+// focus returns to where it was when the dialog closes — or, when that control is gone (a menu
+// item that opened the dialog), to `fallbackFocus` (the editor).
 // spec: docs/specs/10-ui-reference.md section 5.1 (Revert to last published asks first; the link dialog)
 import { type KeyboardEvent, type PointerEvent, type ReactNode, useEffect, useId, useRef } from "react";
 import { t } from "@/copy";
@@ -18,25 +19,35 @@ export interface DialogProps {
   readonly onDismiss: () => void;
   readonly children: ReactNode;
   readonly testId?: string;
+  /** `wide` for tables and grids (the keyboard shortcuts, the macro browser). */
+  readonly size?: "normal" | "wide";
+  /** Where focus goes on close when the control that had it before is gone. */
+  readonly fallbackFocus?: () => void;
 }
 
-export function Dialog({ title, description, onDismiss, children, testId }: DialogProps) {
+const SIZE_CLASS = { normal: "max-w-md", wide: "max-w-2xl" } as const;
+
+export function Dialog({ title, description, onDismiss, children, testId, size = "normal", fallbackFocus }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
   const dismissRef = useRef(onDismiss);
+  const fallbackRef = useRef(fallbackFocus);
 
   useEffect(() => {
     dismissRef.current = onDismiss;
+    fallbackRef.current = fallbackFocus;
   });
 
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const active = document.activeElement;
+    const previous = active instanceof HTMLElement && active !== document.body ? active : null;
     const dialog = ref.current;
     const target = dialog?.querySelector<HTMLElement>("[data-autofocus]") ?? dialog?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
     return () => {
       if (previous?.isConnected) previous.focus();
+      else fallbackRef.current?.();
     };
   }, []);
 
@@ -75,7 +86,7 @@ export function Dialog({ title, description, onDismiss, children, testId }: Dial
         aria-describedby={description ? descriptionId : undefined}
         data-testid={testId}
         onKeyDown={onKeyDown}
-        className="w-full max-w-md rounded bg-white p-5 text-slate-900 shadow-xl"
+        className={`max-h-[85vh] w-full overflow-y-auto ${SIZE_CLASS[size]} rounded bg-white p-5 text-slate-900 shadow-xl`}
       >
         <h2 id={titleId} className="text-base font-semibold">
           {title}

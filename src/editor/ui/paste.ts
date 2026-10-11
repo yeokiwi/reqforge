@@ -59,6 +59,7 @@ function dropBadLanguageClasses(element: Element): void {
   for (const name of Array.from(element.classList)) {
     if (name.startsWith("language-") && !isCodeLanguage(name.slice("language-".length))) element.classList.remove(name);
   }
+  if (element.classList.length === 0) element.removeAttribute("class");
 }
 
 function unwrap(element: Element): void {

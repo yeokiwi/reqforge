@@ -5,10 +5,11 @@
 // What a match is: the query, found in the text of one textblock (a paragraph, a heading, a code
 // block, a cell's paragraph), across mark boundaries (`he**llo**` matches `hello`), never across
 // two blocks and never through an inline atom (a status, a date, a mention, an image or a line
-// break stands in as one character no query can contain). Matches do not overlap: searching
-// `aa` in `aaa` finds one, at the start, as a replace-all would consume them. Case-insensitive
-// unless Match case is ticked, with Unicode simple case folding (the `iu` RegExp flags), which
-// keeps every match at its original offsets.
+// break stands in as one character no query can contain). Matches do not overlap: the search
+// runs left to right and resumes after each match, so `aa` in `aaaa` is two matches (at 0 and 2),
+// exactly the ones a Replace all consumes. Case-insensitive unless Match case is ticked, with
+// Unicode simple case folding (the `iu` RegExp flags), which keeps every match at its original
+// offsets.
 //
 // What a replace can never do is produce content the schema refuses (RD-063, RD-068): the
 // replacement is plain text, cleaned of U+0000, unpaired surrogates and line breaks, and it is
@@ -29,7 +30,7 @@ export interface FindMatch {
 export const MAX_FIND_MATCHES = 10_000;
 
 /** Stands in for an inline atom in a textblock's searchable text: one position, never matched. */
-const ATOM = "￼";
+const ATOM = "\uFFFC";
 
 export interface FindResult {
   readonly matches: readonly FindMatch[];
@@ -37,8 +38,13 @@ export interface FindResult {
   readonly capped: boolean;
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
+/**
+ * The query as a literal pattern. Only RegExp syntax characters are escaped: under the `u` flag
+ * an identity escape of anything else (`\-`, `\#`) is a SyntaxError, which would make a query
+ * like `REQ-001` find nothing.
+ */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
 }
 
 /** The query as it is searched: the atom placeholder removed (nothing could match it). */
@@ -92,7 +98,7 @@ export function findMatches(doc: PMNode, query: string, caseSensitive: boolean, 
 /** Replacement text as it may be written: storable (RD-068), on one line. */
 // spec: docs/specs/09-decision-log.md section RD-068 (strings the database cannot hold)
 export function cleanReplacement(text: string): string {
-  return stripUnstorable(text).replace(/[\r\n  ]+/g, " ");
+  return stripUnstorable(text).replace(/[\r\n\u2028\u2029]+/g, " ");
 }
 
 // ------------------------------------------------------------------------------- the plugin
@@ -185,6 +191,7 @@ function selectMatch(tr: Transaction, match: FindMatch | undefined): Transaction
 }
 
 /** Searches; the current match is the first at or after the selection, and is selected. */
+// spec: docs/specs/09-decision-log.md section RD-057 (`🔍`)
 export function setFindQuery(state: EditorState, dispatch: Dispatch, query: string, caseSensitive: boolean): void {
   const tr = state.tr.setMeta(findKey, { type: "search", query, caseSensitive, from: state.selection.from } satisfies FindMeta);
   tr.setMeta("addToHistory", false);
@@ -193,6 +200,7 @@ export function setFindQuery(state: EditorState, dispatch: Dispatch, query: stri
 }
 
 /** Next (+1) or previous (-1) match, wrapping; selects it and scrolls to it. */
+// spec: docs/specs/09-decision-log.md section RD-057 (`🔍`)
 export function moveFindMatch(state: EditorState, dispatch: Dispatch, delta: 1 | -1): boolean {
   const find = findState(state);
   if (find.matches.length === 0) return false;
@@ -208,12 +216,14 @@ export function clearFind(state: EditorState, dispatch: Dispatch): void {
   dispatch(state.tr.setMeta(findKey, { type: "clear" } satisfies FindMeta).setMeta("addToHistory", false));
 }
 
-/** Writes `replacement` over one match, in `tr`, keeping the marks the match began with. */
+/** Writes `replacement` over one match, in `tr`, keeping the marks of the match's first character. */
 function replaceIn(tr: Transaction, match: FindMatch, replacement: string): void {
-  const $from = tr.doc.resolve(match.from);
-  const marks = $from.marksAcross(tr.doc.resolve(match.to)) ?? $from.marks();
-  if (replacement.length === 0) tr.delete(match.from, match.to);
-  else tr.replaceWith(match.from, match.to, tr.doc.type.schema.text(replacement, marks));
+  if (replacement.length === 0) {
+    tr.delete(match.from, match.to);
+    return;
+  }
+  const marks = tr.doc.nodeAt(match.from)?.marks ?? [];
+  tr.replaceWith(match.from, match.to, tr.doc.type.schema.text(replacement, marks));
 }
 
 /** Replaces the current match and moves to the next one after the replacement. */
@@ -246,4 +256,18 @@ export function replaceAllMatches(state: EditorState, dispatch: Dispatch, replac
   }
   dispatch(tr.scrollIntoView());
   return find.matches.length;
+}
+
+/** What the find bar's count says, from the plugin state (null: say nothing). */
+export type FindCount =
+  | { readonly kind: "none" }
+  | { readonly kind: "count"; readonly current: number; readonly total: number }
+  | { readonly kind: "capped"; readonly current: number; readonly total: number };
+
+// spec: docs/specs/09-decision-log.md section RD-057 (`🔍`: a match count)
+export function findCount(find: FindState): FindCount | null {
+  if (find.query.length === 0) return null;
+  if (find.matches.length === 0) return { kind: "none" };
+  const current = find.current + 1;
+  return find.capped ? { kind: "capped", current, total: find.matches.length } : { kind: "count", current, total: find.matches.length };
 }

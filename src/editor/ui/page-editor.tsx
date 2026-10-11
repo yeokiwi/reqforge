@@ -15,18 +15,26 @@
 // the page keeping the draft; Revert to last published deletes the draft and reloads the current
 // version. A conflict offers Overwrite or Reload latest. The TipTap editor is created on the
 // client only (immediatelyRender: false), so server and client markup agree.
-// spec: docs/specs/10-ui-reference.md section 5.1; docs/specs/09-decision-log.md sections RD-055, RD-057, RD-061, RD-062, RD-063
+//
+// Inserting (10 §5.3–5.5): the `+ ▾` menu, the `{` Macro suggestions and the macro browser; the
+// dialogs behind Markup, Date, Symbol, User mention and Status; files from `🖼`, the menu, a paste
+// or a drop, all uploaded through one path (RD-058). `🔍` and Ctrl/Cmd+F open the find bar, `?`
+// and Ctrl/Cmd+/ the keyboard shortcuts (RD-057). The extensions reach this component through
+// one EditorUiBridge (ui-bridge.ts).
+// spec: docs/specs/10-ui-reference.md sections 5.1, 5.4 and 5.5; docs/specs/09-decision-log.md sections RD-055, RD-057, RD-058, RD-061, RD-062, RD-063
 import "../content.css";
 import type { Editor, JSONContent } from "@tiptap/core";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { useRouter } from "next/navigation";
 import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
 import { t } from "@/copy";
-import type { GetPageResponse } from "@/domain/documents/api-types";
+import type { GetPageResponse, UserRef } from "@/domain/documents/api-types";
 import { LIMITS } from "@/domain/documents/limits";
 import { truncateCodePoints } from "@/domain/documents/text";
 import { checkTitle } from "@/domain/documents/title";
+import { STATUS_COLOURS, type StatusColour } from "@/editor/schema";
 import { ApiError, createPageApi, toApiError } from "./api";
 import type { SaveReason } from "./autosave-scheduler";
 import { type LinkTarget, applyLink, linkTarget, removeLink, toolbarState } from "./commands";
@@ -35,12 +43,38 @@ import { ConfirmDialog } from "./dialog";
 import { EditorFooter } from "./editor-footer";
 import { EditorHeader } from "./editor-header";
 import { buildEditorExtensions } from "./extensions";
+import { FindBar } from "./find-bar";
+import {
+  findNodePos,
+  insertDate,
+  insertMacro,
+  insertMention,
+  insertText,
+  runInsert,
+  todayValue,
+  updateDate,
+  updateStatus,
+} from "./insert-commands";
+import { InsertMenu, type InsertMenuActions } from "./insert-menu";
 import { LinkDialog } from "./link-dialog";
-import { EditorToolbar, TableToolbar } from "./toolbar";
+import { MacroBrowser } from "./macro-browser";
+import { insertMarkupHtml, markupToHtml } from "./markdown";
+import { MarkupDialog } from "./markup-dialog";
+import { MentionDialog } from "./mention-dialog";
 import { footerMessages, messageText, publishProblemOf, titleMessage } from "./messages";
+import { DateDialog, StatusDialog } from "./node-dialogs";
+import { imageAttachmentIds } from "./paste";
 import { type DiscardAction, INITIAL_SAVE_STATE, canPublish, saveLabel, saveReducer } from "./save-state";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { MacroSuggestionController } from "./suggestion";
+import { MacroSuggestionList } from "./suggestion-list";
+import { SymbolDialog } from "./symbol-dialog";
+import { EditorToolbar, TableToolbar } from "./toolbar";
+import { EditorUiBridge, type NodeEditTarget } from "./ui-bridge";
+import { UploadStatus } from "./upload-status";
 import { useAutosave } from "./use-autosave";
 import { usePresence } from "./use-presence";
+import { useUploads } from "./use-uploads";
 
 export interface PageEditorProps {
   readonly space: { readonly key: string; readonly name: string };
@@ -69,7 +103,26 @@ export interface PageEditorProps {
 /** Saves that may outlive the page (the tab is closing): sent with `keepalive`. */
 const KEEPALIVE_REASONS: ReadonlySet<SaveReason> = new Set<SaveReason>(["dispose", "hidden"]);
 
-type OpenDialog = { readonly kind: "link"; readonly target: LinkTarget } | { readonly kind: "revert" } | { readonly kind: "closeUnsaved" };
+type OpenDialog =
+  | { readonly kind: "link"; readonly target: LinkTarget }
+  | { readonly kind: "revert" }
+  | { readonly kind: "closeUnsaved" }
+  | { readonly kind: "markup" | "symbol" | "mention" | "macroBrowser" | "shortcuts" }
+  /** Inserting a date (`node` null) or editing the date node `node`. */
+  | { readonly kind: "date"; readonly node: PMNode | null; readonly value: string }
+  | { readonly kind: "status"; readonly node: PMNode; readonly text: string; readonly colour: StatusColour };
+
+/** Text the find bar starts with: the selection, when it is short and on one line. */
+export function initialFindQuery(editor: Editor): string {
+  const { from, to, empty } = editor.state.selection;
+  if (empty || to - from > 200) return "";
+  const text = editor.state.doc.textBetween(from, to, "\n");
+  return text.includes("\n") ? "" : text;
+}
+
+function statusColourOf(value: unknown): StatusColour {
+  return (STATUS_COLOURS as readonly unknown[]).includes(value) ? (value as StatusColour) : "grey";
+}
 
 function asContent(value: unknown): JSONContent | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as JSONContent) : null;
@@ -101,12 +154,17 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
   const [changeNote, setChangeNote] = useState("");
   const [notifyWatchers, setNotifyWatchers] = useState(true);
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
+  const [find, setFind] = useState<{ readonly initialQuery: string } | null>(null);
   const titleId = useId();
   const titleErrorId = useId();
 
   const rootRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  // The one object the editor's extensions hold to reach this component (ui-bridge.ts).
+  const [ui] = useState(() => new EditorUiBridge(new MacroSuggestionController()));
   // Read by the draft save and by Update, which must see the newest values, not a render's.
   const titleRef = useRef(initial.title);
   const baseVersionRef = useRef(initial.baseVersion);
@@ -126,7 +184,7 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
   });
 
   // useEditor re-applies its options on every render: keep them the same objects.
-  const [extensions] = useState(() => buildEditorExtensions({ placeholder: t("editor.placeholder") }));
+  const [extensions] = useState(() => buildEditorExtensions({ placeholder: t("editor.placeholder"), ui }));
   const [editorProps] = useState(() => ({
     attributes: { role: "textbox", "aria-multiline": "true", "aria-label": t("editor.content.label") },
   }));
@@ -142,7 +200,9 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
 
   useEffect(() => {
     editorRef.current = editor;
-  }, [editor]);
+    // The images the page opened with are its attachments: a paste may keep them (RD-058).
+    if (editor) for (const id of imageAttachmentIds(editor.state.doc)) ui.rememberAttachment(id);
+  }, [editor, ui]);
 
   const toolbar = useEditorState({ editor, selector: ({ editor: current }) => (current ? toolbarState(current) : null) });
 
@@ -165,6 +225,8 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
   }, [api, initial.fromDraft]);
 
   const others = usePresence((signal) => api.heartbeat(signal), me.id);
+  const uploads = useUploads(api, editorRef, ui);
+  const searchPeople = useCallback((q: string, signal: AbortSignal) => api.searchPeople(q, signal), [api]);
 
   // ------------------------------------------------------------------------------ actions
 
@@ -237,6 +299,7 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
       const latest: GetPageResponse = await api.getPage();
       await api.discardDraft();
       loadDocument(current, latest.version.content);
+      for (const id of imageAttachmentIds(current.state.doc)) ui.rememberAttachment(id);
       titleRef.current = latest.version.title;
       setTitle(latest.version.title);
       baseVersionRef.current = latest.version.number;
@@ -266,6 +329,85 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
     if (current) setDialog({ kind: "link", target: linkTarget(current) });
   };
 
+  const focusEditor = useCallback(() => {
+    const current = editorRef.current;
+    if (current && !current.isDestroyed) current.commands.focus();
+  }, []);
+
+  /** `🔍` and Ctrl/Cmd+F: open the find bar, or focus it when it is open. */
+  const openFind = () => {
+    const current = editorRef.current;
+    if (!current) return;
+    if (find) {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+      return;
+    }
+    setFind({ initialQuery: initialFindQuery(current) });
+  };
+
+  const closeFind = () => {
+    setFind(null);
+    focusEditor();
+  };
+
+  /** A status or a date asked to be edited (a click, or Enter while it is selected). */
+  const editNode = (target: NodeEditTarget) => {
+    const current = editorRef.current;
+    const node = current?.state.doc.nodeAt(target.pos);
+    if (!current || !current.isEditable || !node) return;
+    if (target.kind === "status" && node.type.name === "status") {
+      setDialog({ kind: "status", node, text: typeof node.attrs.text === "string" ? node.attrs.text : "", colour: statusColourOf(node.attrs.colour) });
+    } else if (target.kind === "date" && node.type.name === "date") {
+      setDialog({ kind: "date", node, value: typeof node.attrs.value === "string" ? node.attrs.value : todayValue() });
+    }
+  };
+
+  const chooseFiles = () => fileInputRef.current?.click();
+
+  const insertActions: InsertMenuActions = {
+    chooseFiles,
+    openLink,
+    openMarkup: () => setDialog({ kind: "markup" }),
+    openDate: () => setDialog({ kind: "date", node: null, value: todayValue() }),
+    openSymbol: () => setDialog({ kind: "symbol" }),
+    openMention: () => setDialog({ kind: "mention" }),
+    openMacroBrowser: () => setDialog({ kind: "macroBrowser" }),
+  };
+
+  // The extensions call these through the bridge; they are swapped in on every render so they
+  // always see the current state.
+  useEffect(() => {
+    ui.setHandlers({
+      openLink,
+      openFind,
+      openShortcuts: () => setDialog({ kind: "shortcuts" }),
+      openMacroBrowser: () => setDialog({ kind: "macroBrowser" }),
+      editNode,
+      uploadFiles: (files, pos) => uploads.upload(files, pos),
+    });
+  });
+
+  // The find bar takes focus when it opens.
+  useEffect(() => {
+    if (!find) return;
+    findInputRef.current?.focus();
+    findInputRef.current?.select();
+  }, [find]);
+
+  /** Runs `change` on the editor and closes the dialog. */
+  const closeDialogAfter = (change: (editor: Editor) => unknown) => {
+    setDialog(null);
+    const current = editorRef.current;
+    if (current) change(current);
+  };
+
+  /** The node a dialog was opened for, where it is now (null when it has gone). */
+  const nodePos = (node: PMNode): number | null => {
+    const current = editorRef.current;
+    return current ? findNodePos(current.state.doc, node) : null;
+  };
+
   // Leaving the editor shell (not moving between its own controls) saves what is pending.
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {
     const next = event.relatedTarget;
@@ -288,9 +430,34 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-surface-page" onBlur={onBlur} data-testid="page-editor">
       <div className="shrink-0">
-        <EditorToolbar editor={editor} state={toolbar} readOnly={busy} onOpenLink={openLink} />
+        <EditorToolbar
+          editor={editor}
+          state={toolbar}
+          readOnly={busy}
+          onOpenLink={openLink}
+          onChooseFiles={chooseFiles}
+          insertMenu={<InsertMenu editor={editor} ui={ui} disabled={busy || toolbar === null} actions={insertActions} />}
+          onToggleFind={() => (find ? closeFind() : openFind())}
+          findOpen={find !== null}
+          onOpenShortcuts={() => setDialog({ kind: "shortcuts" })}
+        />
         {editor && toolbar?.table ? <TableToolbar editor={editor} table={toolbar.table} readOnly={busy} /> : null}
+        {editor && find ? <FindBar editor={editor} readOnly={busy} initialQuery={find.initialQuery} queryRef={findInputRef} onClose={closeFind} /> : null}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        tabIndex={-1}
+        aria-label={t("editor.files.choose")}
+        data-testid="file-input"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length > 0) uploads.upload(files, null);
+        }}
+      />
       {save.conflict ? (
         <ConflictBanner
           currentVersion={save.conflict.currentVersion}
@@ -325,6 +492,8 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
           <EditorContent editor={editor} className="rf-content rf-editor mt-6" />
         </div>
       </div>
+      {ui.suggestions ? <MacroSuggestionList controller={ui.suggestions} /> : null}
+      <UploadStatus uploads={uploads.items} onDismiss={uploads.dismiss} />
       <EditorFooter
         label={saveLabel(save)}
         messages={footerMessages(save)}
@@ -369,6 +538,75 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
           testId="revert-dialog"
         />
       ) : null}
+      {dialog?.kind === "markup" ? (
+        <MarkupDialog
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onSubmit={(source, format) => {
+            const current = editorRef.current;
+            if (!current) return false;
+            const ok = insertMarkupHtml(current, markupToHtml(source, format), { keepImage: (id) => ui.isKnownAttachment(id) });
+            if (ok) setDialog(null);
+            return ok;
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "date" ? (
+        <DateDialog
+          value={dialog.value}
+          editing={dialog.node !== null}
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onSubmit={(value) => {
+            const node = dialog.node;
+            closeDialogAfter((e) => {
+              if (node === null) {
+                runInsert(e, (tr) => insertDate(tr, value), (pos) => pos !== null);
+                return;
+              }
+              const pos = nodePos(node);
+              if (pos !== null) e.chain().focus().command(({ tr }) => updateDate(tr, pos, value)).run();
+            });
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "status" ? (
+        <StatusDialog
+          text={dialog.text}
+          colour={dialog.colour}
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onSubmit={(input) => {
+            const pos = nodePos(dialog.node);
+            closeDialogAfter((e) => {
+              if (pos !== null) e.chain().focus().command(({ tr }) => updateStatus(tr, pos, input)).run();
+            });
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "symbol" ? (
+        <SymbolDialog
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onPick={(symbol) => closeDialogAfter((e) => runInsert(e, (tr) => insertText(tr, symbol)))}
+        />
+      ) : null}
+      {dialog?.kind === "mention" ? (
+        <MentionDialog
+          search={searchPeople}
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onPick={(user: UserRef) => closeDialogAfter((e) => runInsert(e, (tr) => insertMention(tr, user), (pos) => pos !== null))}
+        />
+      ) : null}
+      {dialog?.kind === "macroBrowser" ? (
+        <MacroBrowser
+          fallbackFocus={focusEditor}
+          onCancel={() => setDialog(null)}
+          onChoose={(id) => closeDialogAfter((e) => insertMacro(e, id, { ui }))}
+        />
+      ) : null}
+      {dialog?.kind === "shortcuts" ? <ShortcutsDialog fallbackFocus={focusEditor} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === "closeUnsaved" ? (
         <ConfirmDialog
           title={t("editor.closeUnsaved.title")}

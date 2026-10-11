@@ -4,6 +4,7 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import { afterEach } from "vitest";
 import { buildEditorExtensions } from "../extensions";
+import type { EditorUiBridge } from "../ui-bridge";
 
 /** Stubs the layout APIs ProseMirror measures with; jsdom implements none of them. */
 export function stubLayout(): void {
@@ -29,11 +30,11 @@ afterEach(() => {
 });
 
 /** An editor with the UI's extensions, attached to the document so focus works. */
-export function newEditor(content?: JSONContent): Editor {
+export function newEditor(content?: JSONContent, ui?: EditorUiBridge): Editor {
   stubLayout();
   const element = document.createElement("div");
   document.body.appendChild(element);
-  const editor = new Editor({ element, extensions: buildEditorExtensions({ placeholder: "Type here" }), content: content ?? null });
+  const editor = new Editor({ element, extensions: buildEditorExtensions({ placeholder: "Type here", ui }), content: content ?? null });
   editors.push(editor);
   return editor;
 }

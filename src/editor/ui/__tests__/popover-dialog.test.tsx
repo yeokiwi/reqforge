@@ -247,3 +247,29 @@ describe("toolbar menus through the UI", () => {
     expect(JSON.stringify(editor.getJSON())).not.toContain('"bold"');
   });
 });
+
+describe("Dialog focus fallback (pass 2)", () => {
+  it("returns focus to the control that had it; when that control is gone, calls fallbackFocus", () => {
+    const fallback = vi.fn();
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const first = render(
+      <Dialog title="T" onDismiss={() => undefined} fallbackFocus={fallback}>
+        <button type="button">in</button>
+      </Dialog>,
+    );
+    first.unmount();
+    expect(document.activeElement).toBe(opener);
+    expect(fallback).not.toHaveBeenCalled();
+    opener.focus();
+    const second = render(
+      <Dialog title="T" onDismiss={() => undefined} fallbackFocus={fallback}>
+        <button type="button">in</button>
+      </Dialog>,
+    );
+    opener.remove(); // a menu item that opened the dialog and then went away
+    second.unmount();
+    expect(fallback).toHaveBeenCalledTimes(1);
+  });
+});

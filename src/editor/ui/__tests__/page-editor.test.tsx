@@ -243,11 +243,16 @@ describe("layout and initial state (10 §5.1)", () => {
     expect(JSON.stringify(editor.getJSON())).toContain('"bold"');
   });
 
-  it("slots for the next pass are drawn, named and inert", async () => {
+  it("the controls pass 2 wired are live: 🖼, + ▾, 🔍 and ?", async () => {
     await mount();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Insert more content" }).getAttribute("aria-disabled")).toBeNull());
     for (const name of ["Files and images", "Insert more content", "Find and replace", "Keyboard shortcuts"]) {
-      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("button", { name }).getAttribute("aria-disabled")).toBeNull();
     }
+    expect(screen.queryByTestId("slot-files")).toBeNull();
+    expect(screen.queryByTestId("slot-insert-more")).toBeNull();
+    expect(screen.queryByTestId("slot-find")).toBeNull();
+    expect(screen.queryByTestId("slot-help")).toBeNull();
   });
 });
 

@@ -257,3 +257,21 @@ export const TableWidthIcon = (p: IconProps) => (
     <path d="M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3" />
   </Svg>
 );
+/** Find and replace: previous match. */
+export const ArrowUpIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+);
+/** Find and replace: next match. */
+export const ArrowDownIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 5v14M6 13l6 6 6-6" />
+  </Svg>
+);
+/** Close a bar. */
+export const CloseIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </Svg>
+);

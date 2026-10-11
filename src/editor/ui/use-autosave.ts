@@ -11,6 +11,7 @@ import type { DraftResponse } from "@/domain/documents/api-types";
 import { isRetryable, toApiError } from "./api";
 import { AutosaveScheduler, type AutosaveConfig, type ErrorClassification, type SaveReason, type SchedulerTimers } from "./autosave-scheduler";
 import type { SaveEvent } from "./save-state";
+import { matchesShortcut, shortcutFor } from "./shortcuts";
 
 export interface UseAutosaveOptions {
   /** Saves the editor's current title and content as the draft. */
@@ -41,10 +42,13 @@ export function classifySaveError(error: unknown): ErrorClassification {
   return { code: apiError.code, retryable: isRetryable(apiError), limit: apiError.limit };
 }
 
-/** Ctrl+S or Cmd+S with no other modifier. */
-// spec: docs/specs/09-decision-log.md section RD-055 (flush on Ctrl/Cmd+S)
+/**
+ * Ctrl+S or Cmd+S with no other modifier, on any platform: the `save` entry of the shortcuts table
+ * (shortcuts.ts), which the `?` dialog lists, so the two cannot disagree.
+ */
+// spec: docs/specs/09-decision-log.md section RD-055 (flush on Ctrl/Cmd+S); RD-057 (`?`)
 export function isSaveShortcut(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): boolean {
-  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s";
+  return shortcutFor("save").keys.some((key) => matchesShortcut(event, key, { modEither: true }));
 }
 
 // spec: docs/specs/09-decision-log.md section RD-055 (autosave: debounce, max wait, flush, beforeunload)

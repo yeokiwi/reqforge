@@ -31,7 +31,8 @@ export function nextGridIndex(key: string, index: number, columns: number, count
   }
 }
 
-function moveInGrid(event: KeyboardEvent<HTMLElement>, columns: number): void {
+/** Arrow-key movement between the buttons of a grid (the size grid, emoji, symbols). */
+export function moveInGrid(event: KeyboardEvent<HTMLElement>, columns: number): void {
   const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
   const next = nextGridIndex(event.key, buttons.indexOf(event.target as HTMLButtonElement), columns, buttons.length);
   if (next === null) return;

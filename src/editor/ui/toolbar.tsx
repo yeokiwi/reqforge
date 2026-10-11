@@ -130,10 +130,29 @@ export interface EditorToolbarProps {
   /** Nothing can be changed (an Update or a reload is in progress). */
   readonly readOnly: boolean;
   readonly onOpenLink: () => void;
+  /** `🖼`: open the file picker (RD-058). Without it the control is drawn inert. */
+  readonly onChooseFiles?: () => void;
+  /** `+ ▾`: the Insert More Content menu (10 §5.5). Without it the control is drawn inert. */
+  readonly insertMenu?: ReactNode;
+  /** `🔍`: open or close the find bar (RD-057); `findOpen` is its pressed state. */
+  readonly onToggleFind?: () => void;
+  readonly findOpen?: boolean;
+  /** `?`: the keyboard shortcuts (RD-057). */
+  readonly onOpenShortcuts?: () => void;
 }
 
 // spec: docs/specs/10-ui-reference.md section 5.1 (toolbar row 1); RD-057
-export function EditorToolbar({ editor, state, readOnly, onOpenLink }: EditorToolbarProps) {
+export function EditorToolbar({
+  editor,
+  state,
+  readOnly,
+  onOpenLink,
+  onChooseFiles,
+  insertMenu,
+  onToggleFind,
+  findOpen = false,
+  onOpenShortcuts,
+}: EditorToolbarProps) {
   const off = readOnly || editor === null || state === null;
   const run = (command: (editor: Editor) => unknown) => () => {
     if (editor && !off) command(editor);
@@ -260,10 +279,16 @@ export function EditorToolbar({ editor, state, readOnly, onOpenLink }: EditorToo
       </ToolbarButton>
       <ToolbarSeparator />
 
-      {/* SLOT (editor pass 2): `🖼` opens the attachment picker and uploads (RD-058). Inert until then. */}
-      <ToolbarSlot label={t("editor.files")} testId="slot-files">
-        <ImageIcon />
-      </ToolbarSlot>
+      {/* `🖼` opens the attachment picker and uploads (RD-058). */}
+      {onChooseFiles ? (
+        <ToolbarButton label={t("editor.files")} disabled={off} onPress={onChooseFiles} testId="toolbar-files">
+          <ImageIcon />
+        </ToolbarButton>
+      ) : (
+        <ToolbarSlot label={t("editor.files")} testId="slot-files">
+          <ImageIcon />
+        </ToolbarSlot>
+      )}
       <ToolbarButton label={t("editor.link")} pressed={state?.link ?? false} disabled={off} onPress={onOpenLink}>
         <LinkIcon />
       </ToolbarButton>
@@ -275,11 +300,13 @@ export function EditorToolbar({ editor, state, readOnly, onOpenLink }: EditorToo
       </Popover>
       <ToolbarSeparator />
 
-      {/* SLOT (editor pass 2): the `+ ▾` Insert More Content menu (10 §5.5). Inert until then. */}
-      <ToolbarSlot label={t("editor.insertMore")} testId="slot-insert-more">
-        <PlusIcon />
-        <ChevronDown size={12} />
-      </ToolbarSlot>
+      {/* The `+ ▾` Insert More Content menu (10 §5.5). */}
+      {insertMenu ?? (
+        <ToolbarSlot label={t("editor.insertMore")} testId="slot-insert-more">
+          <PlusIcon />
+          <ChevronDown size={12} />
+        </ToolbarSlot>
+      )}
       <ToolbarSeparator />
 
       <ToolbarButton label={t("editor.undo")} disabled={off || !state.canUndo} onPress={run((e) => e.chain().focus().undo().run())}>
@@ -290,13 +317,26 @@ export function EditorToolbar({ editor, state, readOnly, onOpenLink }: EditorToo
       </ToolbarButton>
 
       <span className="ml-auto" />
-      {/* SLOT (editor pass 2): `🔍` find and replace, `?` keyboard shortcuts (RD-057). Inert until then. */}
-      <ToolbarSlot label={t("editor.find")} testId="slot-find">
-        <SearchIcon size={18} />
-      </ToolbarSlot>
-      <ToolbarSlot label={t("editor.help")} testId="slot-help">
-        <HelpIcon size={18} />
-      </ToolbarSlot>
+      {/* `🔍` find and replace, `?` keyboard shortcuts (RD-057). Neither changes the page, so
+          both work while the page is read-only. */}
+      {onToggleFind ? (
+        <ToolbarButton label={t("editor.find")} pressed={findOpen} disabled={editor === null} onPress={onToggleFind} testId="toolbar-find">
+          <SearchIcon size={18} />
+        </ToolbarButton>
+      ) : (
+        <ToolbarSlot label={t("editor.find")} testId="slot-find">
+          <SearchIcon size={18} />
+        </ToolbarSlot>
+      )}
+      {onOpenShortcuts ? (
+        <ToolbarButton label={t("editor.help")} onPress={onOpenShortcuts} testId="toolbar-help">
+          <HelpIcon size={18} />
+        </ToolbarButton>
+      ) : (
+        <ToolbarSlot label={t("editor.help")} testId="slot-help">
+          <HelpIcon size={18} />
+        </ToolbarSlot>
+      )}
     </Toolbar>
   );
 }
