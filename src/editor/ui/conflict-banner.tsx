@@ -11,7 +11,7 @@ import { primaryButtonClass, secondaryButtonClass } from "./dialog";
 export interface ConflictBannerProps {
   /** The page's current version number, newer than the one this editor opened from. */
   readonly currentVersion: number;
-  /** An Update or a reload is in flight. */
+  /** An Update or a reload is in flight, or a file is uploading (RD-058). */
   readonly busy: boolean;
   readonly onOverwrite: () => void;
   readonly onReload: () => void;

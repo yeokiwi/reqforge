@@ -11,7 +11,9 @@
 //     placeholders (uploads.ts);
 //   - a paste and drop filter (paste.ts): text the database cannot store is stripped (RD-068),
 //     HTML is sanitised, remote images are dropped (RD-058), code-block languages the server
-//     refuses are cleared, and files are uploaded rather than pasted.
+//     refuses are cleared, structure that would land deeper than 64 is flattened (RD-063), and
+//     files are uploaded rather than pasted;
+//   - the depth backstop (depth.ts): no transaction may nest content deeper than 64 (RD-063).
 // spec: docs/specs/03-authoring-and-indexing.md section 1.4 (RD-063, RD-068); docs/specs/10-ui-reference.md sections 5.1, 5.4 and 5.5
 import { type AnyExtension, Extension, type Mark, type Node } from "@tiptap/core";
 import type { LinkOptions } from "@tiptap/extension-link";
@@ -23,6 +25,7 @@ import type { EditorView } from "@tiptap/pm/view";
 import { StarterKit } from "@tiptap/starter-kit";
 import { STARTER_KIT_BEHAVIOUR_ONLY, schemaExtensions } from "@/editor/schema";
 import { isCodeLanguage } from "@/editor/schema/rules";
+import { DepthGuard, fitSliceToDepth } from "./depth";
 import { findPlugin } from "./find-replace";
 import { DateView, InfoPanelView, MentionView, type NodeViewContext, StatusView, TableOfContentsView } from "./node-views";
 import { cleanPastedSlice, filesToUpload, sanitizeHtml, stripUnstorable } from "./paste";
@@ -98,7 +101,9 @@ export function pasteFilterExtension(ui: EditorUiBridge): Extension {
           props: {
             transformPastedText: (text) => stripUnstorable(text),
             transformPastedHTML: (html) => sanitizeHtml(html),
-            transformPasted: (slice: Slice) => cleanPastedSlice(slice, { keepImage: (id) => ui.isKnownAttachment(id) }),
+            // Cleaned, then flattened where its structure would land deeper than RD-063 allows.
+            transformPasted: (slice: Slice, view: EditorView) =>
+              fitSliceToDepth(view.state, cleanPastedSlice(slice, { keepImage: (id) => ui.isKnownAttachment(id) })),
             handlePaste: (view, event) => {
               const files = filesToUpload(event.clipboardData);
               if (files.length > 0) return ui.call("uploadFiles", files, null);
@@ -204,5 +209,6 @@ export function buildEditorExtensions({ placeholder, ui = new EditorUiBridge() }
     macroSuggestionsExtension(ui),
     FindAndReplace,
     UploadPlaceholders,
+    DepthGuard,
   ];
 }

@@ -810,3 +810,181 @@ including a 40,000-block scale test — use under 1% of the budget and stay exac
 - **`Content-Disposition`** carries an ASCII `filename=` fallback (NFKD with accents
   stripped; `"`, `\`, `%`, `/` and anything non-printable become `_`; leading dots trimmed)
   and the real UTF-8 name in `filename*`. Images are `inline`, files `attachment`.
+
+### RD-072 — Pages API conventions where `08 §3` is silent
+**accepted.** Extends `RD-051`, `RD-055` to `RD-064`. Recorded from the Phase 2 build.
+
+- **Refusal order for a page-addressed request:** the URL's space is not visible → 404
+  (`RD-051`); visible but the permission is missing → 403, the same answer for every page id so
+  it reveals nothing; the page is not a live page *of that space* → 404 (the IDOR check);
+  page-dependent body checks (title rules, change note, content schema, attachment references)
+  → 422 / 413 / 415; then locks. Syntactic checks that do not depend on the page (media type,
+  size cap, JSON syntax, field types) run first. A bad body sent to a page the caller cannot
+  see therefore answers 404, never 422.
+- **Origin gate (`RD-064`):** runs *before* authentication. It compares `host[:port]` only,
+  not the scheme, so TLS terminated at a proxy still works; `REQFORGE_TRUSTED_ORIGINS` adds
+  origins for proxies that rewrite `Host`. A missing `Origin`, the opaque `null` and non-http(s)
+  schemes are refused. `GET`, `HEAD` and `OPTIONS` are exempt.
+- **Response bodies:** `POST …/pages`, `POST …/copy` and an upload → 201; `PATCH` rename and
+  `POST …/move` → 200 `PageDetail`; restore → 200 `PublishResponse`; `DELETE` page → 200
+  `{ deletedCount }`; `DELETE` of a draft, version or attachment, and every `PUT` / `DELETE` of
+  `watch` and `favourite` → 204; `POST …/presence` → `{ others }`; `GET …/people` →
+  `{ people }`; `GET …/draft` → `{ draft }`; `GET …/pages` → a bare `PageSummary[]`.
+- **Malformed input:** `?version` must be a positive decimal integer (else 422 at `version`);
+  a well-formed number no version has, at any size, is 404. A malformed `{n}` path segment, and
+  an id that is not `[A-Za-z0-9_-]{1,64}`, are 404 (path segments are resources, query
+  parameters are fields). `?format` other than `json` / `html` is 422 at `format`.
+- **Body-less creates:** `POST …/pages` and `POST …/copy` accept no body and no `Content-Type`
+  as `{}`; a body without a `Content-Type` is 415; `application/json` with an empty body is 422.
+- **Content error paths** are `content.` plus the validator's JSON-pointer tokens joined by
+  dots (`content.content.0.attrs.src`): the request field is `content` and the document's own
+  children are also `content`.
+- **Normalisation:** change notes are NFC and trimmed, blank → `null`, at most 500 code points;
+  draft titles are NFC and trimmed, at most 255 code points, and may be empty or contain
+  control characters until publish. U+0000 or a lone surrogate in either is 422. People search
+  `q` is NFC, trimmed, cut to 100 code points; `LIKE` wildcards match literally.
+- **Catch-all and 405:** an unserved `/api/v1/**` path answers a `problem+json` 404, behind the
+  same `ORIGIN_MISMATCH` and 401 gates as a real route (a concrete route always wins in Next, so
+  the catch-all cannot shadow one). An unsupported method on a real route gets Next's bare 405;
+  `08 §3.2` gets no `METHOD_NOT_ALLOWED` code.
+- **Problem text is API text, not interface copy.** Titles and details are English, in a table
+  in `src/app/api/v1/_lib/problem.ts`; clients branch on `code` and show deck strings. 401
+  carries no `WWW-Authenticate` (cookie auth has no registered scheme); revisit with Bearer
+  tokens (slice 17). An unknown error is a 500 `INTERNAL` with a generic detail, never a
+  message, stack or SQL.
+- **Conditional requests on attachment bytes:** `If-None-Match` uses weak comparison and `*`
+  matches; a 304 is given only after the visibility check and carries the validators and
+  security headers but no body.
+- **Presence pruning:** each heartbeat deletes that page's rows older than the 45 s window.
+
+### RD-073 — Audit scope for per-user state
+**accepted.** Narrows `07 §6` ("every state-changing operation"), which now says so.
+
+Every change to *content, structure or access* is audited, in the same transaction as the
+change: create, update, rename, move, copy, delete, restore-version, delete-version,
+attachment upload and hide. Per-user state is audited **only when it actually changes**:
+watch, unwatch, favourite, unfavourite, and a discard that removed a draft (parameters:
+`baseVersion`). **Not audited:** draft autosave and the presence heartbeat. They fire every
+few seconds per open editor into a log that is append-only and never pruned; the publish that
+ends a draft is audited, and presence is ephemeral (`RD-062`). Do not "fix" this by auditing
+heartbeats.
+
+### RD-074 — Page move, rename and copy details
+**accepted.** Extends `RD-056`, `RD-058`, `RD-070`.
+
+- **No-ops write nothing.** A move to where the page already is, and a rename to the identical
+  normalised title, create no version and no audit row and return the page. A case-only rename
+  (`spec` → `Spec`) is a rename and creates a version.
+- **Copy placement:** under the source's parent, at the end of its siblings; the copier watches
+  the copy.
+- **Copy carries only referenced images.** It duplicates the attachments that image nodes
+  reference (live or hidden; a hidden one stays hidden on the copy) as new rows with the same
+  bytes, and re-points `attachmentId` and `src`, which is what keeps the copy publishable
+  (`RD-058`). Other attachments on the page are not copied.
+- **Copy budget:** the referenced attachment bytes may total at most **50 MiB**
+  (`COPY_ATTACHMENT_BYTES_MAX`); more is 413 `TOO_LARGE` with `limit: 52428800`. The copy runs
+  inside the request and holds the space's tree lock while it inserts the bytes (about 3.6 s
+  for 50 MiB), and bytes are read under the lock one attachment at a time. Moving large copies
+  to a job is a candidate for the jobs slice.
+- **The source is re-checked under the tree lock:** a page deleted while the copy waited is
+  404 and nothing is written.
+
+### RD-075 — Attachment caching and the request-body transport cap
+**accepted.** Extends `RD-058`, `RD-063`, `RD-070`.
+
+- **Attachment bytes are `Cache-Control: private, no-cache`** with a SHA-256 `ETag`: the
+  browser may keep the bytes but must revalidate every use, so "every read checks space `VIEW`"
+  and "a deleted page reads as not found, including its attachments" (`RD-070`) hold even for
+  a cached image after sign-out or a lost membership. A deployment that must also keep the
+  bytes off disk would use `no-store`; that is not built.
+- **The 5 MiB content limit is decided on the parsed content** as compact UTF-8
+  (`validateDocumentJson`), never on the request's raw bytes, so a document is accepted or
+  refused the same way however the client escaped or indented its JSON. The raw-body
+  *transport* cap is `3 × 5 MiB + 64 KiB` (ASCII-escaping non-ASCII at most triples a
+  document); a body over it is 413 `TOO_LARGE` reporting the documented content limit
+  (5 MiB), not the cap. Very pretty-printed bodies (indent 4 or more) can exceed the cap; that
+  is accepted. Uploads stay capped at `10 MiB + 64 KiB`.
+- **The middleware runs only for requests without the session cookie.** Next copies a request
+  body for middleware and truncates it at 10 MiB, which would corrupt a 10 MiB upload or a
+  large JSON body; signed-in requests skip the middleware and every route authenticates itself
+  in `apiRoute`. The no-cookie behaviour (401 `problem+json` for `/api`, redirect for pages) is
+  unchanged.
+
+### RD-076 — The editor's save, conflict and exit behaviour
+**accepted.** Fills the gaps in `RD-055`; the numbers are ours.
+
+- **Autosave:** 1.5 s after the last change, at most 10 s without a save while changing, one
+  save in flight. Retry after 2 s doubling to a 30 s cap for network failures and 5xx,
+  429, 408 and 401 answers; a refusal (`VALIDATION`, `TOO_LARGE`, `FORBIDDEN`, `NOT_FOUND`,
+  `ORIGIN_MISMATCH`) is not retried and waits for the next edit. A flush happens on window
+  blur, on focus leaving the editor shell, on tab hidden and on unmount (those last two with
+  `keepalive`), on `Ctrl/Cmd+S` and on Close. Autosave is paused while Update is in flight, so
+  a late save cannot recreate the draft the publish just deleted.
+- **Conflict banner** is raised by a refused publish (`VERSION_CONFLICT`), by a draft save that
+  answers `stale: true`, and on opening a stale draft. It cannot be dismissed. *Overwrite*
+  publishes at once with `overwrite: true`, the original `baseVersion`, the change note and the
+  Notify choice. *Reload latest* needs no confirmation (Revert does). If the conflict arrives
+  without `currentVersion`, the banner shows `baseVersion + 1`.
+- **Revert and Reload latest:** fetch the page, then delete the draft, then load; a failure at
+  either step changes nothing. The loaded version replaces the editor state with a fresh undo
+  history; the change note and Notify choice are kept.
+- **Close** flushes first; if that save fails a confirm asks "Close without saving?"
+  (*Close anyway* / *Keep editing*).
+- **While a file upload is in flight** Update, Close, `···`, Overwrite and Reload latest are
+  disabled, and closing or reloading the tab raises the browser's leave-page prompt: the file
+  is in no version and no draft until the upload lands, so publishing or closing would lose it
+  silently. Navigating away through an in-app link still cannot be intercepted (the App Router
+  has no blocking hook); that gap is known.
+- **Limits as you type:** title 255 and change note 500 code points are clamped (grapheme-safe,
+  as the server counts); an empty or control-character title is refused with the message under
+  the title. The editor is read-only while Update or a reload is in flight.
+
+### RD-077 — How the editor keeps content inside the schema limits
+**accepted.** Fills the gap in `RD-063` (depth 64) and `RD-058`.
+
+- **Depth.** A paste, drop or Markup whose structure would land deeper than 64 at the selection
+  is *flattened*: its paragraphs, headings, code blocks and leaf blocks are kept in order with
+  their text and marks, and the quotes, lists, panels and tables around them are dropped.
+  Content that fits is never flattened. `⇥` on a list item is disabled at the limit. A
+  `filterTransaction` backstop refuses, whole, any other transaction that would go deeper
+  (Tab in a deep list, a typed `> ` in a deep quote). No message is shown for these rare paths.
+- **Pasted code blocks** are filtered by the editor before the schema's own paste handler runs
+  (a pasted `vscode-editor-data` language is checked, U+0000 is stripped).
+- **Images from paste or Markup** are kept only if they are attachments the page opened with or
+  were uploaded in this editor session; any other `/api/v1/attachments/…` image is dropped. This
+  is stricter than the server (the editor does not list hidden attachments).
+- **Uploads:** empty files and files over 10 MiB are refused before sending; when a paste
+  carries both text and files (spreadsheet cells come with a picture), the text wins; a
+  placeholder holds the upload's place and, if that text is deleted meanwhile, the attachment
+  lands at the caret; a pasted image with no name is uploaded as `image.<type>`; progress is an
+  indeterminate bar (`fetch` reports no upload progress).
+- **Markup lands** as text at the caret when it converts to one paragraph, otherwise as whole
+  blocks; markup that yields nothing inserts nothing and says so.
+
+### RD-078 — The editor's chrome and small controls
+**accepted.** Fills the gaps in `RD-057`; confirms the breadcrumb reading below.
+
+- **Breadcrumb.** The trail ends with the page itself, not its parent, as a non-link crumb:
+  view mode `Pages / <ancestors> / <title>`; the editor adds the space in front,
+  `<space> / Pages / <ancestors> / <title>`. The space and `Pages` link to the space overview,
+  ancestors to their page views. In the editor the last crumb is the stored title, so it does
+  not follow a title being edited. Label and restriction icons are inert buttons titled "Not
+  available yet"; the padlock is closed and red when restricted.
+- **Presence:** at most 5 avatars then a `+N` chip; after a failed heartbeat the last list is
+  kept until it is older than the 45 s window; avatar colour comes from the user id; the `+`
+  invite button is disabled (later).
+- **Toolbar:** controls use `aria-disabled` (still focusable); dropdowns that show a value are
+  named "label value"; Files and images (until wired), the `+` menu entries not yet built,
+  Gallery and Requirement are drawn disabled and skipped by the arrow keys. Table size grid
+  10×8, new tables get a header row; 48 emoji, 60 symbols, 7 text colours and 6 cell fills,
+  all fixed sets; align-left is the stored default.
+- **`{` macro suggestions** open at the start of a text or after a space, never in code, allow
+  spaces in the query, close when nothing matches, and `Escape` closes them until another `{`
+  is typed. Recency is kept in `localStorage` (`reqforge.editor.recentMacros`, 5 entries).
+- **Find and replace:** case-insensitive with Unicode simple case folding; matches run left to
+  right without overlap and never cross a block or an inline atom; capped at 10,000 matches; a
+  replacement is plain text taking the marks of the match's first character; no regex or
+  whole-word options.
+- **Shortcuts that are ours:** `Mod-K` link dialog, `Mod-F` find, `Mod-/` shortcut list, `Enter`
+  on a selected status or date opens its editor; the rest is TipTap's default (justify's
+  `Mod-Shift-J` is unbound).

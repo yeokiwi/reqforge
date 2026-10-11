@@ -7,7 +7,7 @@ export { getPageView, getEditorState } from "./view";
 export type { PageView, EditorState, EditorInitialState } from "./view";
 export { publishPage, renamePage } from "./publish";
 export type { RenamePageInput } from "./publish";
-export { copyPage } from "./copy";
+export { COPY_ATTACHMENT_BYTES_MAX, copyPage } from "./copy";
 export type { CopyPageInput } from "./copy";
 export { getDraft, saveDraft, discardDraft } from "./drafts";
 export { listVersions, getVersion, restoreVersion, deleteVersion, compareVersions } from "./versions";

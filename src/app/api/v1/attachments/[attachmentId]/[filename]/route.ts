@@ -22,6 +22,7 @@ function matches(ifNoneMatch: string | null, etag: string): boolean {
   });
 }
 
+// spec: docs/specs/09-decision-log.md sections RD-058 (every read checks space VIEW on the page), RD-070 (a deleted page's attachments are not found)
 export const GET = apiRoute<Params>(async ({ request, actor, params }) => {
   // The visibility check (readAttachment) comes before any conditional answer: a 304 must not
   // confirm that an attachment the caller cannot see exists.
@@ -31,7 +32,10 @@ export const GET = apiRoute<Params>(async ({ request, actor, params }) => {
     "Content-Disposition": contentDisposition(file.kind, file.filename),
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Cache-Control": "private, max-age=3600",
+    // `no-cache`: a browser may keep the bytes but must ask before every use, so EVERY read runs
+    // the check above — a cached copy cannot outlive a sign-out, a removed membership or a deleted
+    // page. The ETag keeps the asking cheap: a 304, decided after the check.
+    "Cache-Control": "private, no-cache",
     ETag: etag,
   });
   if (matches(request.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers });

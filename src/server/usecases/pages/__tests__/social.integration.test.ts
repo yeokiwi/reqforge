@@ -1,5 +1,5 @@
 // setWatching, setFavourite, heartbeatPresence, listPeople.
-// spec: 08 §3 (watch, favourite, presence, GET /people); RD-061 (watching, save for later), RD-062 (presence), RD-070
+// spec: 08 §3 (watch, favourite, presence, GET /people); 07 §6 (audit); RD-061 (watching, save for later), RD-062 (presence), RD-070
 import { beforeEach, describe, expect, it } from "vitest";
 import { LIMITS } from "@/domain/documents";
 import { NotFoundError, ValidationError } from "@/domain/errors";
@@ -31,11 +31,32 @@ describe("setWatching and setFavourite (RD-061)", () => {
     expect((await getPageView(who.carol, TEAM, page.id)).page).toMatchObject({ watching: false, favourite: false });
   });
 
-  it("are personal state, not page history: no audit row", async () => {
+  it("write an audit row for each change, and none for a toggle that changes nothing (07 §6)", async () => {
     const page = await createPageAs("alice", "team", { title: "Spec" });
-    await setWatching(who.carol, TEAM, page.id, true);
-    await setFavourite(who.carol, TEAM, page.id, true);
-    expect(await auditRows()).toEqual([]);
+    const teamId = (await demoIds()).spaces.team;
+    for (const on of [true, false]) {
+      await setWatching(who.carol, TEAM, page.id, on);
+      await setWatching(who.carol, TEAM, page.id, on);
+      await setFavourite(who.carol, TEAM, page.id, on);
+      await setFavourite(who.carol, TEAM, page.id, on);
+    }
+    // Turning off what was never on changes nothing either.
+    await setWatching(who.bob, TEAM, page.id, false);
+    await setFavourite(who.bob, TEAM, page.id, false);
+    const rows = await auditRows();
+    expect(rows.map((r) => [r.operation, r.objectType, r.objectId, r.actorId, r.spaceId])).toEqual([
+      ["page.watch", "page", page.id, who.carol.id, teamId],
+      ["page.favourite", "page", page.id, who.carol.id, teamId],
+      ["page.unwatch", "page", page.id, who.carol.id, teamId],
+      ["page.unfavourite", "page", page.id, who.carol.id, teamId],
+    ]);
+  });
+
+  it("audit a change made by a read-only member too, and nothing for a refused one", async () => {
+    const plat = await createPageAs("alice", "plat", { title: "Plat" });
+    await setWatching(who.bob, PLAT, plat.id, true);
+    await expectError(setFavourite(who.carol, PLAT, plat.id, true), NotFoundError);
+    expect((await auditRows()).map((r) => [r.operation, r.actorId])).toEqual([["page.watch", who.bob.id]]);
   });
 
   it("need only VIEW: a read-only member may watch and save", async () => {
@@ -92,6 +113,13 @@ describe("heartbeatPresence (RD-062)", () => {
     await expectError(heartbeatPresence(who.carol, PLAT, plat.id), NotFoundError);
     await expectError(heartbeatPresence(who.carol, TEAM, plat.id), NotFoundError);
     expect(await prisma.documentPresence.count()).toBe(0);
+    expect(await auditRows()).toEqual([]);
+  });
+
+  it("writes no audit row: a heartbeat every 15 s would flood a log that is never pruned (decision pending, see the phase report)", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    await heartbeatPresence(who.bob, TEAM, page.id, at(0));
+    await heartbeatPresence(who.bob, TEAM, page.id, at(15_000));
     expect(await auditRows()).toEqual([]);
   });
 });

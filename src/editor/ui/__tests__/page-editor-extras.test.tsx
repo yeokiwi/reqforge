@@ -144,6 +144,18 @@ describe("the `+ ▾` menu's dialogs", () => {
     expect(validateDocumentJson(editor.getJSON()).ok).toBe(true);
   });
 
+  it("Markup: 70 nested quotes go in flattened, so the page can still be saved (RD-063)", async () => {
+    const editor = await mount();
+    caretAtEnd(editor);
+    openInsertItem("Markup");
+    const dialog = screen.getByRole("dialog", { name: "Insert markup" });
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: `${"> ".repeat(70)}deep` } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Insert" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(editor.getText()).toContain("deep");
+    expect(validateDocumentJson(editor.getJSON()).ok).toBe(true);
+  });
+
   it("Date: inserts today by default", async () => {
     const editor = await mount();
     caretAtEnd(editor);
@@ -358,6 +370,120 @@ describe("files and images (RD-058)", () => {
       if (node.type.name === "image") ids.push(node.attrs.attachmentId as string);
     });
     expect(ids).toEqual(["mine", "mine"]);
+  });
+});
+
+describe("an upload in flight (RD-058, RD-055): nothing may publish or leave without the file", () => {
+  const png = () => new File([new Uint8Array([137, 80, 78])], "diagram.png", { type: "image/png" });
+  const USER = { id: "u1", name: "Alice Admin" };
+  const PUBLISHED = {
+    page: {
+      id: "p1",
+      title: "Specifications",
+      parentId: null,
+      ordinal: 0,
+      currentVersion: 4,
+      lastModifiedAt: "t",
+      spaceKey: "TEAM",
+      ancestors: [],
+      createdBy: USER,
+      createdAt: "t",
+      lastModifiedBy: USER,
+      descendantCount: 0,
+      watching: true,
+      favourite: false,
+      hasDraft: false,
+      permissions: { canEdit: true, canAdmin: false },
+    },
+    version: { number: 4, title: "Specifications", message: null, author: USER, createdAt: "t", current: true, pinned: false },
+    diagnostics: [],
+  };
+  const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
+  const publishCalls = () => calls.filter((c) => c.method === "PUT" && c.url === PAGE_URL);
+
+  beforeEach(() => {
+    router.push.mockClear();
+    router.refresh.mockClear();
+  });
+
+  /** Starts an upload whose response the test sends with the returned function. */
+  async function startUpload(editor: Editor): Promise<(response: Response) => Promise<void>> {
+    let finish: (r: Response) => void = () => undefined;
+    route("POST", ATTACHMENTS_URL, () => new Promise<Response>((resolve) => (finish = resolve)));
+    caretAtEnd(editor);
+    chooseFiles(png());
+    const region = screen.getByRole("region", { name: "File uploads" });
+    await within(region).findByText('Uploading "diagram.png"…', { selector: "span" });
+    return async (response) => {
+      await act(async () => {
+        finish(response);
+      });
+      await waitFor(() => expect(within(region).queryByText('Uploading "diagram.png"…', { selector: "span" })).toBeNull());
+    };
+  }
+
+  function beforeUnloadPrevented(): boolean {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("Update, Close and ··· are disabled until the upload lands; the version then carries the image", async () => {
+    route("PUT", PAGE_URL, () => json(200, PUBLISHED));
+    const editor = await mount();
+    const finish = await startUpload(editor);
+    expect(button("Update").disabled).toBe(true);
+    expect(button("Close").disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button("Update"));
+    fireEvent.click(button("Close"));
+    expect(publishCalls()).toHaveLength(0);
+    expect(router.push).not.toHaveBeenCalled();
+
+    await finish(json(201, attachment()));
+    expect(button("Update").disabled).toBe(false);
+    expect(button("Close").disabled).toBe(false);
+    fireEvent.click(button("Update"));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/spaces/TEAM/pages/p1"));
+    expect(publishCalls()).toHaveLength(1);
+    expect(JSON.stringify(publishCalls()[0]?.body)).toContain('"attachmentId":"att9"');
+  });
+
+  it("a failed upload releases Update again", async () => {
+    const editor = await mount();
+    const finish = await startUpload(editor);
+    expect(button("Update").disabled).toBe(true);
+    await finish(problem(500, "INTERNAL"));
+    expect(button("Update").disabled).toBe(false);
+  });
+
+  it("Overwrite and Reload latest wait for the upload too", async () => {
+    route("PUT", PAGE_URL, () => problem(409, "VERSION_CONFLICT", { currentVersion: 7 }));
+    const editor = await mount();
+    fireEvent.click(button("Update"));
+    const banner = await screen.findByTestId("conflict-banner");
+    await waitFor(() => expect(editor.isEditable).toBe(true));
+    const finish = await startUpload(editor);
+    expect((within(banner).getByRole("button", { name: "Overwrite" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(banner).getByRole("button", { name: "Reload latest" }) as HTMLButtonElement).disabled).toBe(true);
+    await finish(json(201, attachment()));
+    expect((within(banner).getByRole("button", { name: "Overwrite" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("leaving the tab while a file uploads asks first (beforeunload)", async () => {
+    const editor = await mount();
+    expect(beforeUnloadPrevented()).toBe(false);
+    const finish = await startUpload(editor);
+    expect(beforeUnloadPrevented()).toBe(true);
+    await finish(json(201, attachment()));
+    // The image is now an unsaved edit; once the draft has it, leaving is quiet again.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    await waitFor(() => expect(screen.getByTestId("save-state").textContent).toBe("Changes saved"));
+    expect(beforeUnloadPrevented()).toBe(false);
+    const draft = calls.filter((c) => c.method === "PUT" && c.url === `${PAGE_URL}/draft`).at(-1);
+    expect(JSON.stringify(draft?.body)).toContain('"attachmentId":"att9"');
   });
 });
 

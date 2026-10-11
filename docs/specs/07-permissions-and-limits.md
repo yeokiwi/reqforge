@@ -142,6 +142,7 @@ numbers where they exist, because they were derived from real deployments.
 | Page content | 5 MiB serialised, nesting depth 64 (`RD-063`) | ours |
 | Change note | 500 characters | ours |
 | Attachment | 10 MiB (`RD-058`) | ours |
+| Attachments carried over by one page copy | 50 MiB in total (`RD-074`) | ours |
 | Inline transform occurrences without confirmation | 200 | ours (`03` §6.3) |
 | Dependency matrix web cells | 40,000 | RY |
 | Traversal depth (`->`) | 4 | ours (`02` §5.1) |
@@ -174,7 +175,8 @@ CI fails on a >25% regression against the recorded baseline for any of these.
 ## 6. Auditability
 
 Every state-changing operation writes an audit row: actor, at, object, operation,
-parameters. Audit rows are append-only and are never pruned by the history retention
+parameters — except draft autosave and presence heartbeats, and per-user watch / favourite
+state only when it actually changes (`RD-073`). Audit rows are append-only and are never pruned by the history retention
 policy. Freeze, refreeze, rename, restriction change, permission change and export are
 the operations an auditor will ask about, and each must be reconstructable from the
 audit log alone.

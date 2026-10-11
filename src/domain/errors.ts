@@ -52,7 +52,7 @@ export class ThrottledError extends AppError {
 
 // ---- Pages (slice 1). Codes and extras are the table in spec 08 §3.2. ----------------------
 
-/** One malformed field. `path` names the request field (`title`, `content.0.attrs.src`, …). */
+/** One malformed field. `path` names the request field (`title`, `content.content.0.attrs.src`, …). */
 export interface ValidationIssue {
   readonly path: string;
   readonly message: string;

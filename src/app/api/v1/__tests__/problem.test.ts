@@ -89,6 +89,12 @@ describe("problemFromError", () => {
     expect(p).toMatchObject({ code: "TOO_LARGE", status: 413, limit: 5_242_880 });
   });
 
+  it("names the limit in TOO_LARGE's detail without claiming the request is what is too large (a copy's images can be)", () => {
+    const p = problemFromError(new TooLargeError(52_428_800));
+    expect(p.detail).toContain("52428800 bytes");
+    expect(p.detail).not.toMatch(/request/i);
+  });
+
   it("never derives the detail from an error's message", () => {
     const p = problemFromError(new NotFoundError("the secret project page"));
     expect(JSON.stringify(p)).not.toContain("secret");

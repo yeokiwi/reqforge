@@ -80,6 +80,23 @@ export async function auditRows(objectId?: string) {
   });
 }
 
+/**
+ * Resolves once another session of this test database is blocked waiting for a lock — how a
+ * test knows that a use case it started has reached the lock the test is holding, so it can
+ * change the data under it deterministically, with no sleeps.
+ */
+export async function untilSomeoneWaitsForALock(timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
+      SELECT count(*)::int AS "waiting" FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()`;
+    if ((row?.waiting ?? 0) > 0) return;
+    if (Date.now() > deadline) throw new Error("no session started waiting for a lock");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 /** Version numbers of a page, oldest first. */
 export async function versionNumbers(documentId: string): Promise<number[]> {
   const rows = await prisma.documentVersion.findMany({ where: { documentId }, orderBy: { number: "asc" }, select: { number: true } });

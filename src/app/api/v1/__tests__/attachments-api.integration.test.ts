@@ -1,7 +1,7 @@
 // Attachments through the REST API (spec 08 §3; RD-058, RD-070, RD-071): upload, list, hide, and
 // the bytes route with its headers — verified image types inline, everything else a nosniff
-// octet-stream download, a sandboxing CSP, a private cache, an ETag, and a 304 that is only ever
-// given after the visibility check.
+// octet-stream download, a sandboxing CSP, `private, no-cache` (every read revalidates), an ETag,
+// and a 304 that is only ever given after the visibility check.
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AttachmentRef } from "@/domain/documents";
@@ -79,6 +79,37 @@ describe("POST /pages/{id}/attachments", () => {
   });
 });
 
+describe("the Origin gate on attachment writes (RD-064, CSRF)", () => {
+  const FOREIGN = [null, "https://evil.example", "http://reqforge.test:8080", "null"];
+
+  it("refuses an upload without an Origin, or with a foreign one, and stores nothing", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    for (const origin of FOREIGN) {
+      const req = uploadRequest(attachmentsUrl("TEAM", page.id), { name: "csrf.png", type: "image/png", bytes: PNG }, { session: session.bob, origin });
+      expect(req.headers.get("origin")).toBe(origin);
+      await expectProblem(await listRoute.POST(req, routeContext({ spaceKey: "TEAM", id: page.id })), 403, "ORIGIN_MISMATCH");
+    }
+    expect(await prisma.attachment.count()).toBe(0);
+    expect(await prisma.auditEvent.count()).toBe(0);
+    // The same upload from this site goes through: the refusals above were the Origin's.
+    expect((await upload("bob", "TEAM", page.id, { name: "ok.png", type: "image/png", bytes: PNG })).status).toBe(201);
+  });
+
+  it("refuses to hide an attachment without an Origin, or with a foreign one, and leaves it listed", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const ref = await readJson<AttachmentRef>(await upload("bob", "TEAM", page.id, { name: "a.png", bytes: PNG }));
+    const params = { spaceKey: "TEAM", id: page.id, attachmentId: ref.id };
+    for (const origin of FOREIGN) {
+      const res = await send(hideRoute.DELETE, "DELETE", `${attachmentsUrl("TEAM", page.id)}/${ref.id}`, params, { session: session.bob, origin });
+      await expectProblem(res, 403, "ORIGIN_MISMATCH");
+    }
+    expect((await prisma.attachment.findUniqueOrThrow({ where: { id: ref.id } })).deletedAt).toBeNull();
+    expect(await prisma.auditEvent.count({ where: { operation: "attachment.delete" } })).toBe(0);
+    const hidden = await send(hideRoute.DELETE, "DELETE", `${attachmentsUrl("TEAM", page.id)}/${ref.id}`, params, { session: session.bob });
+    expect(hidden.status).toBe(204);
+  });
+});
+
 describe("GET and DELETE /pages/{id}/attachments", () => {
   it("lists live attachments newest first; hiding is an idempotent 204", async () => {
     const page = await createPageAs("alice", "team", { title: "Spec" });
@@ -106,7 +137,7 @@ describe("GET and DELETE /pages/{id}/attachments", () => {
 });
 
 describe("GET /api/v1/attachments/{attachmentId}/{filename}", () => {
-  it("serves a verified image inline with its type, nosniff, a sandboxing CSP, a private cache and an ETag", async () => {
+  it("serves a verified image inline with its type, nosniff, a sandboxing CSP, private no-cache and an ETag", async () => {
     const page = await createPageAs("alice", "team", { title: "Spec" });
     const ref = await readJson<AttachmentRef>(await upload("bob", "TEAM", page.id, { name: "diagram é.png", type: "image/png", bytes: PNG }));
     const res = await getBytes("carol", ref, "diagram é.png");
@@ -115,7 +146,7 @@ describe("GET /api/v1/attachments/{attachmentId}/{filename}", () => {
     expect(res.headers.get("content-disposition")).toBe(`inline; filename="diagram e.png"; filename*=UTF-8''diagram%20%C3%A9.png`);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
-    expect(res.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(res.headers.get("cache-control")).toBe("private, no-cache");
     expect(res.headers.get("etag")).toBe(`"${createHash("sha256").update(PNG).digest("hex")}"`);
     expect(res.headers.get("content-length")).toBe(String(PNG.byteLength));
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
@@ -140,9 +171,23 @@ describe("GET /api/v1/attachments/{attachmentId}/{filename}", () => {
       const res = await getBytes("carol", ref, "a.png", { "if-none-match": inm });
       expect(res.status, inm).toBe(304);
       expect(res.headers.get("etag")).toBe(etag);
+      expect(res.headers.get("cache-control")).toBe("private, no-cache");
       expect(await res.text()).toBe("");
     }
     expect((await getBytes("carol", ref, "a.png", { "if-none-match": '"stale"' })).status).toBe(200);
+  });
+
+  it("never lets a browser reuse the bytes without asking: every read goes through the visibility check (RD-058, RD-070)", async () => {
+    // A cached copy used without revalidation would outlive a sign-out, a removed membership or a
+    // deleted page. no-cache (or no-store) forces the request; the 304 above keeps it cheap.
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const ref = await readJson<AttachmentRef>(await upload("bob", "TEAM", page.id, { name: "a.png", bytes: PNG }));
+    for (const res of [await getBytes("carol", ref), await getBytes("carol", { id: ref.id }, "a.png", { "if-none-match": "*" })]) {
+      const directives = (res.headers.get("cache-control") ?? "").split(",").map((d) => d.trim().toLowerCase());
+      expect(directives).toContain("private");
+      expect(directives.some((d) => d === "no-cache" || d === "no-store"), directives.join(", ")).toBe(true);
+      expect(directives.filter((d) => /^(s-)?max-age=[1-9]/.test(d) || d === "public" || d.startsWith("immutable") || d.startsWith("stale-"))).toEqual([]);
+    }
   });
 
   it("checks visibility BEFORE any 304: a caller who cannot see the page gets 404 even with the right ETag", async () => {

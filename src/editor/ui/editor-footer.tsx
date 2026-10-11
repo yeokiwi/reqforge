@@ -35,11 +35,11 @@ export interface EditorFooterProps {
   readonly changeNoteInvalid: boolean;
   readonly notifyWatchers: boolean;
   readonly onNotifyWatchers: (value: boolean) => void;
-  /** Update may be pressed (false while a publish or a reload is in flight). */
+  /** Update may be pressed (false while a publish or a reload is in flight, or a file is uploading). */
   readonly canUpdate: boolean;
   /** A publish is in flight. */
   readonly publishing: boolean;
-  /** Close and the `···` actions may be used. */
+  /** Close and the `···` actions may be used (not while busy, nor while a file is uploading). */
   readonly canLeave: boolean;
   readonly onUpdate: () => void;
   readonly onClose: () => void;

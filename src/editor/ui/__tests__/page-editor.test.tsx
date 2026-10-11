@@ -31,6 +31,7 @@ interface Call {
   readonly method: string;
   readonly url: string;
   readonly body: unknown;
+  readonly keepalive: boolean;
 }
 
 type Handler = (call: Call) => Response | Promise<Response>;
@@ -97,7 +98,7 @@ beforeEach(() => {
     vi.fn(async (input: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
-      const call = { method, url: input, body };
+      const call = { method, url: input, body, keepalive: init?.keepalive === true };
       calls.push(call);
       const handler = handlers[`${method} ${input}`];
       if (!handler) throw new TypeError(`unexpected ${method} ${input}`);
@@ -111,6 +112,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+  Reflect.deleteProperty(document, "visibilityState");
 });
 
 async function mount(props: Partial<PageEditorProps> = {}): Promise<Editor> {
@@ -353,6 +356,84 @@ describe("autosave (RD-055)", () => {
     expect(banner.textContent).toContain("Someone published version 6 of this page while you were editing.");
     expect(within(banner).getByRole("button", { name: "Overwrite" })).toBeTruthy();
     expect(within(banner).getByRole("button", { name: "Reload latest" })).toBeTruthy();
+  });
+
+  it("the tab being hidden saves at once, with keepalive (the tab may be closing); Ctrl+S does not need it", async () => {
+    const editor = await mount();
+    await edit(editor, "!");
+    await pressSave();
+    expect(callsTo("PUT", DRAFT_URL).map((c) => c.keepalive)).toEqual([false]);
+    await edit(editor, "?");
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(callsTo("PUT", DRAFT_URL).map((c) => c.keepalive)).toEqual([false, true]);
+    expect(callsTo("PUT", DRAFT_URL)[1]?.body).toMatchObject({ content: editor.getJSON() });
+  });
+
+  it("closing the editor some other way (unmount) saves a pending change one last time, with keepalive", async () => {
+    const editor = await mount();
+    await edit(editor, " last words");
+    const content = editor.getJSON();
+    cleanup();
+    await act(async () => undefined);
+    const puts = callsTo("PUT", DRAFT_URL);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.keepalive).toBe(true);
+    expect(puts[0]?.body).toMatchObject({ content });
+  });
+
+  it("focus leaving the editor shell saves at once; moving between the editor's own controls does not", async () => {
+    const editor = await mount();
+    await edit(editor, "!");
+    const title = screen.getByRole("textbox", { name: "Page title" });
+    const note = screen.getByRole("textbox", { name: "What did you change?" });
+    fireEvent.blur(title, { relatedTarget: note });
+    await act(async () => undefined);
+    expect(callsTo("PUT", DRAFT_URL)).toHaveLength(0);
+
+    const outside = document.body.appendChild(document.createElement("button"));
+    try {
+      fireEvent.blur(title, { relatedTarget: outside });
+      await act(async () => undefined);
+      expect(callsTo("PUT", DRAFT_URL)).toHaveLength(1);
+      await waitFor(() => expect(saveState()).toBe("Changes saved"));
+      // Focus going nowhere (a click on the page around the editor) counts as leaving too.
+      await edit(editor, "?");
+      fireEvent.blur(editor.view.dom, { relatedTarget: null });
+      await act(async () => undefined);
+      expect(callsTo("PUT", DRAFT_URL)).toHaveLength(2);
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it("no draft is saved while Update is in flight, whatever asks for one, so a late save cannot recreate the draft", async () => {
+    let finish: (response: Response) => void = () => undefined;
+    route("PUT", PAGE_URL, () => new Promise<Response>((resolve) => (finish = resolve)));
+    const editor = await mount();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    await edit(editor, "!"); // pending: the debounce and max-wait timers are running
+    fireEvent.click(updateButton());
+    await waitFor(() => expect(callsTo("PUT", PAGE_URL)).toHaveLength(1));
+    await pressSave();
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    fireEvent.blur(editor.view.dom, { relatedTarget: null });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000); // past the debounce, the max wait and any retry
+    });
+    expect(callsTo("PUT", DRAFT_URL)).toHaveLength(0);
+    await act(async () => {
+      finish(json(200, { page: PAGE_DETAIL, version: VERSION, diagnostics: [] }));
+    });
+    await waitFor(() => expect(router.push).toHaveBeenCalled());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(callsTo("PUT", DRAFT_URL)).toHaveLength(0);
   });
 
   it("reopening a stale draft raises the banner at once", async () => {

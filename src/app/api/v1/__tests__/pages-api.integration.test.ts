@@ -16,6 +16,7 @@ import type {
 import { createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance, type Handle } from "@/test-support/fixtures";
 import { expectProblem, readJson, send, sessionFor, streamOf } from "@/test-support/api-harness";
+import { JSON_BODY_CAP } from "../_lib/body";
 import * as pagesRoute from "../spaces/[spaceKey]/pages/route";
 import * as pageRoute from "../spaces/[spaceKey]/pages/[id]/route";
 import * as moveRoute from "../spaces/[spaceKey]/pages/[id]/move/route";
@@ -217,11 +218,77 @@ describe("PUT /pages/{id} (publish)", () => {
   });
 });
 
+/** Python's `json.dumps` defaults (what `requests.put(url, json=...)` sends): ASCII only, `", "` and `": "` separators. */
+function pythonDumps(value: unknown): string {
+  const str = (s: string) => JSON.stringify(s).replace(/[\u0080-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  if (value === null || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);
+  if (typeof value === "string") return str(value);
+  if (Array.isArray(value)) return `[${value.map(pythonDumps).join(", ")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).map(([k, v]) => `${str(k)}: ${pythonDumps(v)}`).join(", ")}}`;
+  }
+  throw new Error(`not JSON: ${typeof value}`);
+}
+
+const utf8Bytes = (s: string) => new TextEncoder().encode(s).byteLength;
+
+/** A canonical table of `rows` × 8 cells: the shape whose pretty-printed form is heaviest. */
+function tableDoc(rows: number): unknown {
+  const cell = (type: string, i: number) => ({
+    type,
+    attrs: { colspan: 1, rowspan: 1, colwidth: null, background: null },
+    content: [{ type: "paragraph", attrs: { textAlign: null, indent: 0 }, content: [{ type: "text", text: `c${i}` }] }],
+  });
+  const row = { type: "tableRow", content: Array.from({ length: 8 }, (_, i) => cell(i === 0 ? "tableHeader" : "tableCell", i)) };
+  return { type: "doc", content: [{ type: "table", attrs: { widthMode: "responsive", numberedColumn: false }, content: Array.from({ length: rows }, () => row) }] };
+}
+
+describe("the 5 MiB content limit is the content's, not the request's (RD-063, RD-068)", () => {
+  const put = (id: string, body: string) =>
+    send(pageRoute.PUT, "PUT", pageUrl("TEAM", id), { spaceKey: "TEAM", id }, { session: session.bob, body, contentType: "application/json" });
+  const OLD_CAP = 5 * 1024 * 1024 + 64 * 1024;
+
+  it("publishes the same 3 MB document whether the client sends it compact or ASCII-escaped (Python's default)", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const content = paragraphDoc("中".repeat(1_000_000));
+    const escaped = pythonDumps({ title: "Spec", content, baseVersion: 1 });
+    expect(utf8Bytes(JSON.stringify(content))).toBeLessThan(3_100_000);
+    expect(utf8Bytes(escaped)).toBeGreaterThan(OLD_CAP);
+
+    const viaPython = await put(page.id, escaped);
+    expect((await readJson<PublishResponse>(viaPython)).version.number).toBe(2);
+    const compact = await put(page.id, JSON.stringify({ title: "Spec", content, baseVersion: 2 }));
+    expect((await readJson<PublishResponse>(compact)).version.number).toBe(3);
+    const stored = await prisma.documentVersion.findMany({ where: { documentId: page.id, number: { in: [2, 3] } }, orderBy: { number: "asc" } });
+    expect(stored).toHaveLength(2);
+    expect(stored[0]?.content).toEqual(stored[1]?.content);
+    expect(JSON.stringify(stored[0]?.content)).toContain(JSON.stringify("中".repeat(1_000_000)));
+  });
+
+  it("publishes a table-heavy document sent pretty-printed (JSON.stringify(doc, null, 2)) though the request is over 5 MiB", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const content = tableDoc(1200);
+    const pretty = JSON.stringify({ title: "Spec", content, baseVersion: 1 }, null, 2);
+    expect(utf8Bytes(JSON.stringify(content))).toBeLessThan(2 * 1024 * 1024);
+    expect(utf8Bytes(pretty)).toBeGreaterThan(OLD_CAP);
+    expect((await readJson<PublishResponse>(await put(page.id, pretty))).version.number).toBe(2);
+  });
+
+  it("still refuses content over 5 MiB however it is encoded, with 413 and the 5 MiB limit", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const content = paragraphDoc("中".repeat(1_800_000)); // 5.4 MB as compact UTF-8
+    for (const wire of [JSON.stringify({ title: "Spec", content, baseVersion: 1 }), pythonDumps({ title: "Spec", content, baseVersion: 1 })]) {
+      expect((await expectProblem(await put(page.id, wire), 413, "TOO_LARGE")).limit).toBe(5_242_880);
+    }
+    expect(await prisma.documentVersion.count({ where: { documentId: page.id } })).toBe(1);
+  });
+});
+
 describe("oversized and mistyped bodies", () => {
   it("is 413 for a JSON body over the cap, declared or not, and 413 for a chunked body with no Content-Length", async () => {
     const page = await createPageAs("alice", "team", { title: "Spec" });
     const params = { spaceKey: "TEAM", id: page.id };
-    const huge = JSON.stringify({ title: "Spec", content: paragraphDoc("y".repeat(6 * 1024 * 1024)), baseVersion: 1 });
+    const huge = JSON.stringify({ title: "Spec", content: paragraphDoc("y".repeat(JSON_BODY_CAP)), baseVersion: 1 });
     const declared = await send(pageRoute.PUT, "PUT", pageUrl("TEAM", page.id), params, {
       session: session.bob,
       body: huge,

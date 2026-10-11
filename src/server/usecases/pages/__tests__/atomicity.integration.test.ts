@@ -4,7 +4,18 @@
 // the test checks that nothing of the operation survives: no version, no draft change, no page,
 // no attachment, no watch, no audit row.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { copyPage, createPage, publishPage, renamePage, restoreVersion, saveDraft, uploadAttachment } from "@/server/usecases/pages";
+import {
+  copyPage,
+  createPage,
+  discardDraft,
+  publishPage,
+  renamePage,
+  restoreVersion,
+  saveDraft,
+  setFavourite,
+  setWatching,
+  uploadAttachment,
+} from "@/server/usecases/pages";
 import { createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
 import { TEAM, actors, auditRows, imageDoc, pngBytes, rejection, uploadPng, versionNumbers, type Actors } from "./support";
@@ -97,6 +108,19 @@ describe("the other state changes are atomic too", () => {
     expect(await rejection(renamePage(who.alice, TEAM, page.id, { title: "Renamed" }))).toBeInstanceOf(Error);
     expect(await rejection(restoreVersion(who.alice, TEAM, page.id, 1))).toBeInstanceOf(Error);
     expect(await snapshot()).toEqual(before);
+  });
+
+  it("setWatching, setFavourite and discardDraft: a failed audit leaves the watch, favourite and draft as they were", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    await saveDraft(who.bob, TEAM, page.id, { title: "Spec", content: paragraphDoc("draft"), baseVersion: 1 });
+    const favourites = () => prisma.documentFavourite.count();
+    const before = await snapshot();
+    await failOn("AuditEvent", "INSERT");
+    expect(await rejection(setWatching(who.bob, TEAM, page.id, true))).toBeInstanceOf(Error);
+    expect(await rejection(setFavourite(who.bob, TEAM, page.id, true))).toBeInstanceOf(Error);
+    expect(await rejection(discardDraft(who.bob, TEAM, page.id))).toBeInstanceOf(Error);
+    expect(await snapshot()).toEqual(before);
+    expect(await favourites()).toBe(0);
   });
 
   it("uploadAttachment: a failed audit leaves no attachment", async () => {

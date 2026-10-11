@@ -3,11 +3,13 @@
 // then the HTML goes through the same sanitiser as a paste, and is parsed by the schema's own
 // parser, then cleaned like a pasted slice: a remote image is dropped (RD-058), an image of an
 // attachment this page does not have is dropped, a refused link keeps its text, a code language
-// the server refuses is cleared (RD-068), raw HTML in the Markdown gets no special pass.
-// spec: docs/specs/10-ui-reference.md section 5.5 (Markup); docs/specs/09-decision-log.md sections RD-058, RD-068
+// the server refuses is cleared (RD-068), structure that would land deeper than 64 is flattened
+// (RD-063), raw HTML in the Markdown gets no special pass.
+// spec: docs/specs/10-ui-reference.md section 5.5 (Markup); docs/specs/09-decision-log.md sections RD-058, RD-063, RD-068
 import type { Editor } from "@tiptap/core";
 import { DOMParser as SchemaParser, type ResolvedPos, type Schema, Slice } from "@tiptap/pm/model";
 import { Marked } from "marked";
+import { exceedsDepth, fitSliceToDepth } from "./depth";
 import { type SliceCleanup, cleanPastedSlice, sanitizeHtml, stripUnstorable } from "./paste";
 
 export type MarkupFormat = "markdown" | "html";
@@ -65,15 +67,17 @@ export function markupInsertSlice(slice: Slice): Slice {
 }
 
 /**
- * Inserts converted markup at the selection, as ONE transaction (one undo step). Returns false,
- * changing nothing, when the markup yields nothing that can go on the page.
+ * Inserts converted markup at the selection, as ONE transaction (one undo step). Structure that
+ * would land deeper than RD-063 allows is flattened to its paragraphs, headings and code. Returns
+ * false, changing nothing, when the markup yields nothing that can go on the page there.
  */
-// spec: docs/specs/10-ui-reference.md section 5.5 (Markup)
+// spec: docs/specs/10-ui-reference.md section 5.5 (Markup); docs/specs/09-decision-log.md section RD-063
 export function insertMarkupHtml(editor: Editor, html: string, cleanup: SliceCleanup): boolean {
   if (!editor.isEditable) return false;
   const slice = markupSlice(editor.schema, html, cleanup, editor.state.selection.$from);
   if (!slice || isEmptySlice(slice)) return false;
-  const insert = markupInsertSlice(slice);
+  const insert = fitSliceToDepth(editor.state, markupInsertSlice(slice));
+  if (exceedsDepth(editor.state.tr.replaceSelection(insert))) return false;
   return editor
     .chain()
     .focus()

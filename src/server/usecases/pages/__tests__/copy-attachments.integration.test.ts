@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { attachmentUrl } from "@/domain/documents";
 import { ForbiddenError, NotFoundError, TitleTakenError, TooLargeError, UnsupportedMediaError, ValidationError } from "@/domain/errors";
 import { sha256Hex } from "@/server/repositories/attachments";
+import { softDeleteSubtree } from "@/server/repositories/documents";
+import { lockTree, transaction } from "@/server/repositories/transaction";
 import {
+  COPY_ATTACHMENT_BYTES_MAX,
   copyPage,
   createPage,
   deletePage,
@@ -17,10 +20,23 @@ import {
   readAttachment,
   uploadAttachment,
 } from "@/server/usecases/pages";
-import { buildTree, createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
+import { buildTree, createPageAs, demoIds, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
 import { imageAttachmentIds } from "../copy-content";
-import { PLAT, TEAM, actors, auditRows, canonical, expectError, imageDoc, pngBytes, uploadPng, versionNumbers, type Actors } from "./support";
+import {
+  PLAT,
+  TEAM,
+  actors,
+  auditRows,
+  canonical,
+  expectError,
+  imageDoc,
+  pngBytes,
+  untilSomeoneWaitsForALock,
+  uploadPng,
+  versionNumbers,
+  type Actors,
+} from "./support";
 
 let who: Actors;
 beforeEach(async () => {
@@ -107,6 +123,73 @@ describe("copyPage", () => {
     await expectError(copyPage(who.bob, TEAM, plat.id), NotFoundError);
     await expectError(copyPage(who.bob, PLAT, plat.id), ForbiddenError);
     expect(await prisma.document.count()).toBe(2);
+  });
+});
+
+describe("copyPage's cost is bounded (07 §5: it runs in the request, holding the space's tree lock)", () => {
+  const MIB = 1024 * 1024;
+  /** A 10 MiB PNG; `n` makes each one's bytes (and hash) different. */
+  const bigPng = (n: number) => {
+    const bytes = new Uint8Array(10 * MIB);
+    bytes.set(pngBytes(), 0);
+    bytes[64] = n;
+    return bytes;
+  };
+  const writes = async () => ({
+    documents: await prisma.document.count(),
+    attachments: await prisma.attachment.count(),
+    copies: (await auditRows()).filter((r) => r.operation === "page.copy").length,
+  });
+
+  it("refuses a copy whose images carry more than 50 MiB with TOO_LARGE naming the limit, and writes nothing", async () => {
+    expect(COPY_ATTACHMENT_BYTES_MAX).toBe(50 * MIB);
+    const ids = await demoIds();
+    const source = await createPage(who.alice, TEAM, { title: "Spec" });
+    const refs = [];
+    for (let i = 0; i < 6; i++) refs.push(await uploadAttachment(who.alice, TEAM, source.id, { filename: `big ${i}.png`, bytes: bigPng(i) }));
+    await publishPage(who.alice, TEAM, source.id, { title: "Spec", content: imageDoc(...refs), baseVersion: 1 });
+    const before = await writes();
+
+    // 60 MiB of live attachments: refused from their sizes alone, before the tree lock — so even
+    // with another change holding the lock, the refusal does not wait for it.
+    await transaction(async (tx) => {
+      expect(await lockTree(tx, ids.spaces.team)).toBe(true);
+      expect((await expectError(copyPage(who.bob, TEAM, source.id), TooLargeError)).limit).toBe(COPY_ATTACHMENT_BYTES_MAX);
+    });
+    expect(await writes()).toEqual(before);
+
+    // Hide one: 50 MiB live, but the copy still carries the hidden one the images show (RD-058).
+    // Its size is only known once it is read, so this refusal comes mid-copy — and rolls back.
+    await hideAttachment(who.alice, TEAM, source.id, refs[5]?.id as string);
+    expect((await expectError(copyPage(who.bob, TEAM, source.id), TooLargeError)).limit).toBe(COPY_ATTACHMENT_BYTES_MAX);
+    expect(await writes()).toEqual(before);
+
+    // Exactly at the limit is allowed.
+    await publishPage(who.alice, TEAM, source.id, { title: "Spec", content: imageDoc(...refs.slice(0, 5)), baseVersion: 2 });
+    const copy = await copyPage(who.bob, TEAM, source.id);
+    expect(await prisma.attachment.count({ where: { documentId: copy.id } })).toBe(5);
+  }, 120_000);
+
+  it("reads the source under the tree lock: a source deleted while the copy waits for the lock is NotFound, and nothing is written", async () => {
+    const ids = await demoIds();
+    const source = await createPage(who.alice, TEAM, { title: "Spec" });
+    const image = await uploadPng(who.alice, TEAM, source.id);
+    await publishPage(who.alice, TEAM, source.id, { title: "Spec", content: imageDoc(image), baseVersion: 1 });
+    const plain = await createPage(who.alice, TEAM, { title: "Plain" });
+
+    for (const page of [source, plain]) {
+      const before = await writes();
+      let copying: Promise<unknown> | undefined;
+      await transaction(async (tx) => {
+        expect(await lockTree(tx, ids.spaces.team)).toBe(true);
+        copying = copyPage(who.bob, TEAM, page.id);
+        copying.catch(() => undefined); // awaited below
+        await untilSomeoneWaitsForALock();
+        await softDeleteSubtree(tx, { documentId: page.id, deletedById: ids.users.alice });
+      });
+      await expectError(copying ?? Promise.resolve(), NotFoundError);
+      expect(await writes()).toEqual(before);
+    }
   });
 });
 

@@ -170,7 +170,7 @@ PAGE TREE
 
 | Element | Status | Behaviour |
 |---|---|---|
-| Breadcrumb `Pages / <ancestors>` | v1 | |
+| Breadcrumb `Pages / <ancestors> / <title>` | v1 | ends with the page itself, not a link (`RD-078`) |
 | Byline 🔓 restrictions | v1 | opens §10; icon is a closed red padlock when restricted |
 | Byline 📎 attachments | v1 | |
 | Byline ⛹ requirements | v1 | opens the product panel, §4.4 |
@@ -253,18 +253,20 @@ Clicking the product icon in the byline opens a panel headed by the product logo
 | Toolbar row 1, all groups as drawn | v1 | `Paragraph ▾` = Normal, H1–H6, Quote, Preformatted |
 | Toolbar row 2, table tools | v1 | appears **only while the caret is in a table** |
 | `Responsive ▾` / `Fixed width ▾` | v1 | table width mode |
-| Breadcrumb with label and restriction icons | v1 | |
+| Breadcrumb with label and restriction icons | v1 | `<space> / Pages / <ancestors> / <title>` (`RD-078`) |
 | Presence avatars | v1 | shows who else has the page open |
 | `+` invite collaborator | later | real-time co-editing is phase 3; v1 detects a concurrent save and offers merge or overwrite |
 | Save state | v1 | exactly three strings: **`Ready to go`**, **`Saving changes`**, **`Changes saved`** |
 | `What did you change?` | v1 | becomes the version's change note |
 | `☑ Notify watchers` | v1 | checked by default |
-| **`Update`** | v1 | publishes the version and returns to view mode |
+| **`Update`** | v1 | publishes the version and returns to view mode; disabled while a file is uploading (`RD-076`) |
 | `Close` | v1 | returns to view mode, keeping the draft |
 | `···` | v1 | Revert to last published, Page history |
 
 Where a glyph is not self-explanatory, the reading chosen is in `RD-057`. Autosave, `Update`,
-`Close`, conflict handling and `Revert to last published` follow `RD-055`.
+`Close`, conflict handling and `Revert to last published` follow `RD-055`; their timings,
+the upload guard and the leave-page prompt are `RD-076`. Pasted, dropped and Markup content
+that would nest deeper than 64 levels is flattened to its text blocks (`RD-077`).
 
 ### 5.2 Macro chips
 

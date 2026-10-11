@@ -239,7 +239,13 @@ export type PageOperation =
   | "page.copy"
   | "page.delete"
   | "page.restore-version"
-  | "page.delete-version";
+  | "page.delete-version"
+  // A user's own state (RD-055, RD-061): written only when it actually changes.
+  | "page.watch"
+  | "page.unwatch"
+  | "page.favourite"
+  | "page.unfavourite"
+  | "page.discard-draft";
 
 export type AttachmentOperation = "attachment.upload" | "attachment.delete";
 

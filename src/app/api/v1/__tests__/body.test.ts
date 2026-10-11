@@ -111,6 +111,49 @@ describe("readJsonBody", () => {
   });
 });
 
+/**
+ * What Python's `json.dumps` writes by default (and so `requests.put(url, json=...)`): ASCII only
+ * (`ensure_ascii=True`, every other UTF-16 unit as `\uXXXX`) with `", "` and `": "` separators.
+ */
+function pythonDumps(value: unknown): string {
+  const str = (s: string) => JSON.stringify(s).replace(/[\u0080-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  if (value === null || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);
+  if (typeof value === "string") return str(value);
+  if (Array.isArray(value)) return `[${value.map(pythonDumps).join(", ")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).map(([k, v]) => `${str(k)}: ${pythonDumps(v)}`).join(", ")}}`;
+  }
+  throw new Error(`not JSON: ${typeof value}`);
+}
+
+const utf8 = (s: string) => new TextEncoder().encode(s).byteLength;
+
+describe("readJsonBody: the cap bounds the request, not the content (RD-063, RD-068)", () => {
+  const OLD_CAP = 5 * MIB + 64 * 1024;
+  const body = (text: string) => ({ title: "Spec", content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] }, baseVersion: 1 });
+
+  it("accepts an ASCII-escaped body over 5 MiB whose content is 3 MB (Python's requests.put(json=...))", async () => {
+    const value = body("中".repeat(1_000_000));
+    const wire = pythonDumps(value);
+    expect(utf8(JSON.stringify(value.content))).toBeLessThan(3_100_000);
+    expect(utf8(wire)).toBeGreaterThan(OLD_CAP);
+    expect(await readJsonBody(post(wire, { "content-type": "application/json" }))).toEqual(value);
+  });
+
+  it("accepts escaping at its worst — two-byte characters, three times their UTF-8 size — for content right up to 5 MiB", async () => {
+    // Content of just under 5 MiB as compact UTF-8, which is what validateDocumentJson measures.
+    const value = body("é".repeat(Math.floor((5 * MIB - 200) / 2)));
+    expect(utf8(JSON.stringify(value.content))).toBeLessThanOrEqual(5 * MIB);
+    const wire = pythonDumps(value);
+    expect(utf8(wire)).toBeGreaterThan(15_700_000);
+    expect(await readJsonBody(post(wire, { "content-type": "application/json" }))).toEqual(value);
+  });
+
+  it("is three times the content limit plus a 64 KiB envelope", () => {
+    expect(JSON_BODY_CAP).toBe(3 * 5 * MIB + 64 * 1024);
+  });
+});
+
 describe("readOptionalJsonBody", () => {
   it("reads no body and no Content-Type as {}", async () => {
     expect(await readOptionalJsonBody(new Request(URL_, { method: "POST" }))).toEqual({});

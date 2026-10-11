@@ -7,8 +7,18 @@ import { TooLargeError, UnsupportedMediaError, ValidationError, type ValidationI
 
 const ENVELOPE = 64 * 1024;
 
-/** A JSON body may carry 5 MiB of content plus 64 KiB of everything else (RD-063). */
-export const JSON_BODY_CAP = LIMITS.contentMaxBytes + ENVELOPE;
+/**
+ * The most a JSON body may weigh ON THE WIRE. This is a transport bound that keeps a request's
+ * memory finite, NOT the content limit: the 5 MiB of RD-063 is the parsed content measured as
+ * compact UTF-8 (RD-068), and validateDocumentJson decides it, so a document weighs the same
+ * however the client encoded it. Escaping every non-ASCII character as `\uXXXX` (Python's
+ * `json.dumps` default) at most triples a document — two-byte characters and surrogate pairs
+ * are the worst case — so the bound is 3 × 5 MiB plus 64 KiB for the rest of the body.
+ * Pretty-printing inflates too (indent 2 of a dense table is about 3.2×); such a body is
+ * accepted while it fits. A body over the bound is TOO_LARGE with the documented 5 MiB limit.
+ */
+// spec: docs/specs/08-api-surface.md section 3.2 (TOO_LARGE: content over 5 MiB); docs/specs/09-decision-log.md sections RD-063, RD-068 (size is UTF-8 bytes of the JSON)
+export const JSON_BODY_CAP = 3 * LIMITS.contentMaxBytes + ENVELOPE;
 /** A multipart upload may carry a 10 MiB file plus 64 KiB of framing (RD-058). */
 export const UPLOAD_BODY_CAP = LIMITS.attachmentMaxBytes + ENVELOPE;
 
@@ -59,7 +69,8 @@ export async function readCapped(request: Request, cap: number, limit: number): 
 
 /**
  * A JSON request body: Content-Type must be application/json (415 otherwise), at most
- * JSON_BODY_CAP bytes (413 with limit 5 MiB), valid UTF-8 and valid JSON (422 otherwise).
+ * JSON_BODY_CAP bytes (413 with limit 5 MiB), valid UTF-8 and valid JSON (422 otherwise). Whether
+ * the CONTENT is over 5 MiB is decided after parsing, by the use case (canonicalContent).
  */
 // spec: docs/specs/08-api-surface.md section 3.2 (UNSUPPORTED_MEDIA: a non-JSON body; TOO_LARGE: content over 5 MiB); RD-063
 export async function readJsonBody(request: Request): Promise<unknown> {

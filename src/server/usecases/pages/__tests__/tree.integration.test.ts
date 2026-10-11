@@ -1,12 +1,15 @@
 // listPageTree, createPage, movePage, deletePage.
 // spec: 08 §3 (GET/POST /pages, move, DELETE); RD-056 (tree rules), RD-061 (creator watches), RD-067, RD-070
 import { beforeEach, describe, expect, it } from "vitest";
+import type { PageDetail } from "@/domain/documents";
 import { CycleError, ForbiddenError, NotFoundError, TitleTakenError, ValidationError } from "@/domain/errors";
 import { emptyDocument } from "@/editor/schema";
+import { applyOrdinals } from "@/server/repositories/documents";
+import { lockTree, transaction } from "@/server/repositories/transaction";
 import { createPage, deletePage, getPageView, listPageTree, movePage } from "@/server/usecases/pages";
-import { buildTree, createPageAs } from "@/test-support/documents-fixtures";
+import { buildTree, createPageAs, demoIds } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
-import { PLAT, TEAM, actors, auditRows, expectError, type Actors } from "./support";
+import { PLAT, TEAM, actors, auditRows, expectError, untilSomeoneWaitsForALock, type Actors } from "./support";
 
 let who: Actors;
 beforeEach(async () => {
@@ -203,6 +206,52 @@ describe("movePage", () => {
     await expectError(movePage(who.alice, TEAM, plat.id, { parentId: null, index: 0 }), NotFoundError);
     const team = await createPageAs("alice", "team", { title: "T" });
     await expectError(movePage(who.carol, TEAM, team.id, { parentId: null, index: 0 }), ForbiddenError);
+  });
+});
+
+describe("movePage takes the tree lock BEFORE it reads the tree (RD-070), so ordinals stay dense (RD-056)", () => {
+  const rootOrder = async () =>
+    (await listPageTree(who.alice, TEAM)).pages.filter((p) => p.parentId === null).map((p) => [p.title, p.ordinal]);
+
+  it("plans from the tree as it is once it holds the lock, not as it was when the move began", async () => {
+    const ids = await buildTree("alice", "team", [{ title: "A" }, { title: "B" }, { title: "C" }, { title: "D" }]);
+    const teamId = (await demoIds()).spaces.team;
+    const id = (title: string) => ids[title] as string;
+    let move: Promise<PageDetail> | undefined;
+
+    // Another tree change holds the lock; the move starts, and blocks on it.
+    await transaction(async (tx) => {
+      expect(await lockTree(tx, teamId)).toBe(true);
+      move = movePage(who.bob, TEAM, id("C"), { parentId: null, index: 0 });
+      move.catch(() => undefined); // awaited below
+      await untilSomeoneWaitsForALock();
+      // Before it lets go, that change moves D to the front: D A B C.
+      await applyOrdinals(tx, teamId, ["D", "A", "B", "C"].map((t, ordinal) => ({ id: id(t), parentId: null, ordinal })));
+    });
+
+    // C goes to the front of D A B C. Planned from the stale A B C D it would have written
+    // C 0, A 1, B 2 over D 0: two pages at 0 and none at 3.
+    expect((await move)?.ordinal).toBe(0);
+    expect(await rootOrder()).toEqual([
+      ["C", 0],
+      ["D", 1],
+      ["A", 2],
+      ["B", 3],
+    ]);
+  });
+
+  // A probe, not the guard: the test above pins the lock order deterministically. This one only
+  // usually catches a regression (it did in 4 of 5 runs with the lock taken after the read).
+  it("keeps sibling ordinals dense and unique under many concurrent moves", async () => {
+    const titles = ["P0", "P1", "P2", "P3", "P4", "P5"];
+    const ids = await buildTree("alice", "team", titles.map((title) => ({ title })));
+    await Promise.all(
+      Array.from({ length: 24 }, (_, i) =>
+        movePage(i % 2 ? who.alice : who.bob, TEAM, ids[titles[i % titles.length] as string] as string, { parentId: null, index: (i * 5) % 7 }),
+      ),
+    );
+    expect((await rootOrder()).map(([, ordinal]) => ordinal)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(new Set((await rootOrder()).map(([title]) => title))).toEqual(new Set(titles));
   });
 });
 

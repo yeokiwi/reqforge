@@ -35,7 +35,8 @@ const PROBLEMS: Readonly<Record<ApiErrorCode, ProblemSpec>> = {
   CYCLE: { status: 409, title: "Cycle", detail: "A page cannot be moved under itself or one of its descendants." },
   CURRENT_VERSION: { status: 409, title: "Current version", detail: "The current version cannot be deleted." },
   PINNED_VERSION: { status: 409, title: "Pinned version", detail: "The version is pinned by a baseline and cannot be deleted." },
-  TOO_LARGE: { status: 413, title: "Too large", detail: "The request is larger than the limit." },
+  // The content, an uploaded file, or the attachments a copy would carry (08 §3.2): see `limit`.
+  TOO_LARGE: { status: 413, title: "Too large", detail: "It is larger than the limit." },
   UNSUPPORTED_MEDIA: {
     status: 415,
     title: "Unsupported media type",
@@ -76,7 +77,7 @@ export function problemFromError(error: unknown): ProblemDetails {
     return { ...base, detail: `${base.detail} The current version is ${error.currentVersion}.`, currentVersion: error.currentVersion };
   }
   if (error instanceof TooLargeError) {
-    return { ...base, detail: `The request is larger than the limit of ${error.limit} bytes.`, limit: error.limit };
+    return { ...base, detail: `It is larger than the limit of ${error.limit} bytes.`, limit: error.limit };
   }
   return base;
 }

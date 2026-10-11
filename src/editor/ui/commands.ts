@@ -6,8 +6,11 @@
 // spec: docs/specs/10-ui-reference.md section 5.1 (toolbar rows 1 and 2); docs/specs/09-decision-log.md section RD-057
 import { type Editor, getMarkRange } from "@tiptap/core";
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
+import { sinkListItem } from "@tiptap/pm/schema-list";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { TableMap, cellAround, columnIsHeader, findTable, rowIsHeader } from "@tiptap/pm/tables";
 import { INDENT_MAX, TABLE_WIDTH_MODES, isAllowedHref, type TableWidthMode, type TextAlignment } from "@/editor/schema";
+import { exceedsDepth } from "./depth";
 
 // ------------------------------------------------------------------------- paragraph style
 
@@ -115,14 +118,30 @@ function indentableBlocks(doc: PMNode, from: number, to: number): Array<{ node: 
 }
 
 /**
- * `⇤` `⇥`: in a list item, lift or sink the item; elsewhere change the `indent` attribute of
- * every selected paragraph and heading by one step, within 0–6.
+ * Whether the list item at the selection can be sunk: the list command allows it, and the
+ * result is no deeper than RD-063's 64 (each level adds a list and an item).
  */
-// spec: docs/specs/09-decision-log.md section RD-057 (`⇤ ⇥`: lists lift/sink; paragraphs and headings change indent level 0–6)
+// spec: docs/specs/09-decision-log.md sections RD-057 (`⇥` sinks a list item) and RD-063 (nesting depth at most 64)
+function canSink(state: EditorState, item: "listItem" | "taskItem"): boolean {
+  const type = state.schema.nodes[item];
+  if (!type) return false;
+  const made: { tr: Transaction | null } = { tr: null };
+  sinkListItem(type)(state, (tr) => {
+    made.tr = tr;
+  });
+  return made.tr !== null && !exceedsDepth(made.tr);
+}
+
+/**
+ * `⇤` `⇥`: in a list item, lift or sink the item (never past RD-063's depth); elsewhere change
+ * the `indent` attribute of every selected paragraph and heading by one step, within 0–6.
+ */
+// spec: docs/specs/09-decision-log.md section RD-057 (`⇤ ⇥`: lists lift/sink; paragraphs and headings change indent level 0–6); RD-063
 export function shiftIndent(editor: Editor, delta: 1 | -1): boolean {
   const item = innermostListItem(editor.state.selection.$from);
   if (item) {
-    return delta > 0 ? editor.chain().focus().sinkListItem(item).run() : editor.chain().focus().liftListItem(item).run();
+    if (delta > 0) return canSink(editor.state, item) && editor.chain().focus().sinkListItem(item).run();
+    return editor.chain().focus().liftListItem(item).run();
   }
   return editor
     .chain()
@@ -146,7 +165,7 @@ export function shiftIndent(editor: Editor, delta: 1 | -1): boolean {
 export function canShiftIndent(editor: Editor, delta: 1 | -1): boolean {
   const { selection, doc } = editor.state;
   const item = innermostListItem(selection.$from);
-  if (item) return delta > 0 ? editor.can().sinkListItem(item) : editor.can().liftListItem(item);
+  if (item) return delta > 0 ? canSink(editor.state, item) : editor.can().liftListItem(item);
   return indentableBlocks(doc, selection.from, selection.to).some(({ node }) => {
     const indent = indentOf(node);
     return delta > 0 ? indent < INDENT_MAX : indent > 0;

@@ -21,9 +21,11 @@ import {
   saveDraft,
   setWatching,
 } from "@/server/usecases/pages";
-import { createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
+import { softDeleteSubtree } from "@/server/repositories/documents";
+import { lockPage, lockTree, transaction } from "@/server/repositories/transaction";
+import { createPageAs, demoIds, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
-import { PLAT, TEAM, actors, auditRows, expectError, imageDoc, uploadPng, versionNumbers, type Actors } from "./support";
+import { PLAT, TEAM, actors, auditRows, expectError, imageDoc, untilSomeoneWaitsForALock, uploadPng, versionNumbers, type Actors } from "./support";
 
 let who: Actors;
 beforeEach(async () => {
@@ -130,6 +132,27 @@ describe("publishPage", () => {
     expect(await versionNumbers(page.id)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     const row = await prisma.document.findUniqueOrThrow({ where: { id: page.id }, include: { currentVersion: true } });
     expect(row.currentVersion?.number).toBe(7);
+  });
+
+  it("is NotFound, and writes nothing, when the page is deleted while the publish waits for the page lock (RD-070)", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const ids = await demoIds();
+    let publishing: Promise<unknown> | undefined;
+
+    // A delete holds the tree and page locks (the RD-070 order); the publish has already found
+    // the page live, starts, and blocks on the page lock.
+    await transaction(async (tx) => {
+      expect(await lockTree(tx, ids.spaces.team)).toBe(true);
+      expect(await lockPage(tx, page.id)).toMatchObject({ deleted: false });
+      publishing = publishPage(who.bob, TEAM, page.id, publish({ content: paragraphDoc("late"), baseVersion: 1 }));
+      publishing.catch(() => undefined); // awaited below
+      await untilSomeoneWaitsForALock();
+      expect(await softDeleteSubtree(tx, { documentId: page.id, deletedById: ids.users.alice })).toBe(1);
+    });
+
+    await expectError(publishing ?? Promise.resolve(), NotFoundError);
+    expect(await versionNumbers(page.id)).toEqual([1]);
+    expect((await auditRows(page.id)).filter((r) => r.operation === "page.update")).toEqual([]);
   });
 
   it.each([

@@ -17,6 +17,7 @@ import {
   discardDraft,
   getDraft,
   getVersion,
+  hideAttachment,
   listVersions,
   publishPage,
   renamePage,
@@ -25,7 +26,8 @@ import {
 } from "@/server/usecases/pages";
 import { createPageAs, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
-import { PLAT, TEAM, actors, auditRows, expectError, versionNumbers, type Actors } from "./support";
+import { imageAttachmentIds } from "../copy-content";
+import { PLAT, TEAM, actors, auditRows, expectError, imageDoc, uploadPng, versionNumbers, type Actors } from "./support";
 
 let who: Actors;
 beforeEach(async () => {
@@ -80,6 +82,30 @@ describe("drafts (RD-055)", () => {
     expect(await prisma.documentDraft.count()).toBe(0);
   });
 
+  it("lets images reference this page's attachments only, exactly like a publish (RD-058)", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec" });
+    const other = await createPageAs("alice", "team", { title: "Other" });
+    const plat = await createPageAs("alice", "plat", { title: "Plat" });
+    const own = await uploadPng(who.alice, TEAM, page.id, "own.png");
+    const hidden = await uploadPng(who.alice, TEAM, page.id, "hidden.png");
+    await hideAttachment(who.alice, TEAM, page.id, hidden.id);
+    const sameSpace = await uploadPng(who.alice, TEAM, other.id, "same-space.png");
+    const otherSpace = await uploadPng(who.alice, PLAT, plat.id, "other-space.png");
+
+    // The page's own attachments, hidden ones included (old versions still show them).
+    await saveDraft(who.bob, TEAM, page.id, { title: "Spec", content: imageDoc(own, hidden), baseVersion: 1 });
+    for (const foreign of [sameSpace, otherSpace]) {
+      const error = await expectError(
+        saveDraft(who.bob, TEAM, page.id, { title: "Spec", content: imageDoc(own, foreign), baseVersion: 1 }),
+        ValidationError,
+      );
+      expect(error.errors.map((e) => e.path)).toEqual([expect.stringMatching(/^content\.content\.1\.content\.1\.attrs/)]);
+    }
+    // The refused saves stored nothing: the draft the editor would open is still the valid one.
+    const draft = await getDraft(who.bob, TEAM, page.id);
+    expect(imageAttachmentIds(draft?.content)).toEqual(new Set([own.id, hidden.id]));
+  });
+
   it("saves over a stale base and reports it stale, rather than refusing", async () => {
     const page = await createPageAs("alice", "team", { title: "Spec", versions: 3 });
     const saved = await saveDraft(who.bob, TEAM, page.id, { title: "Spec", content: paragraphDoc("old"), baseVersion: 1 });
@@ -102,6 +128,18 @@ describe("drafts (RD-055)", () => {
     await discardDraft(who.bob, TEAM, page.id);
     expect(await getDraft(who.bob, TEAM, page.id)).toBeNull();
     expect(await getDraft(who.alice, TEAM, page.id)).not.toBeNull();
+  });
+
+  it("audits a discard that removed a draft (07 §6), and nothing for a discard with nothing to remove", async () => {
+    const page = await createPageAs("alice", "team", { title: "Spec", versions: 2 });
+    await discardDraft(who.bob, TEAM, page.id);
+    expect(await auditRows(page.id)).toEqual([]);
+    await saveDraft(who.bob, TEAM, page.id, { title: "Spec", content: paragraphDoc("wip"), baseVersion: 2 });
+    await discardDraft(who.bob, TEAM, page.id);
+    await discardDraft(who.bob, TEAM, page.id);
+    const rows = await auditRows(page.id);
+    expect(rows.map((r) => [r.operation, r.objectType, r.actorId])).toEqual([["page.discard-draft", "page", who.bob.id]]);
+    expect(rows[0]?.parameters).toEqual({ baseVersion: 2 });
   });
 
   it("needs EDIT for all three, and is NotFound across spaces", async () => {

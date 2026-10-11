@@ -5,7 +5,10 @@
 // POST /pages/{id}/attachments, and on success inserted there as an image or a link, as ONE
 // transaction (one undo step) that also drops the mark. A failure drops the mark and leaves a
 // message, in the copy deck's words for its problem code, until the user dismisses it.
-// spec: docs/specs/10-ui-reference.md section 5.5 (Files and images); docs/specs/09-decision-log.md sections RD-058 and RD-071
+//
+// A file is not in the document until its upload lands, so while one is in flight the editor
+// must not publish or close (page-editor.tsx reads `pending`), and leaving the tab asks first.
+// spec: docs/specs/10-ui-reference.md section 5.5 (Files and images); docs/specs/09-decision-log.md sections RD-055, RD-058 and RD-071
 import type { Editor } from "@tiptap/core";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { AttachmentRef } from "@/domain/documents/api-types";
@@ -32,6 +35,10 @@ export interface UploadsApi {
 
 export interface Uploads {
   readonly items: readonly Upload[];
+  /** Some upload is in flight (for rendering: Update, Close and ··· wait for it). */
+  readonly pending: boolean;
+  /** The same, read now rather than at the last render (for a guard in an event handler). */
+  hasPending(): boolean;
   /** Uploads and inserts files; `pos` is where (null: at the selection). */
   upload(files: readonly File[], pos: number | null): void;
   dismiss(id: string): void;
@@ -39,14 +46,23 @@ export interface Uploads {
 
 let uploadCount = 0;
 
-// spec: docs/specs/09-decision-log.md section RD-058
+// spec: docs/specs/09-decision-log.md sections RD-055 and RD-058
 export function useUploads(api: UploadsApi, editorRef: RefObject<Editor | null>, ui: EditorUiBridge): Uploads {
   const [items, setItems] = useState<readonly Upload[]>([]);
   const controllers = useRef(new Set<AbortController>());
 
   useEffect(() => {
     const pending = controllers.current;
+    // Closing the tab now would lose the file: it is in no draft until it lands.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (pending.size === 0) return;
+      event.preventDefault();
+      // Older browsers need returnValue set to show the prompt.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
       for (const controller of pending) controller.abort();
       pending.clear();
     };
@@ -106,6 +122,8 @@ export function useUploads(api: UploadsApi, editorRef: RefObject<Editor | null>,
   );
 
   const dismiss = useCallback((id: string) => setItems((list) => list.filter((u) => u.id !== id)), []);
+  const hasPending = useCallback(() => controllers.current.size > 0, []);
+  const pending = items.some((u) => u.status === "uploading");
 
-  return { items, upload, dismiss };
+  return { items, pending, hasPending, upload, dismiss };
 }

@@ -28,7 +28,19 @@ export function middleware(request: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+// Everything except the sign-in page, the health probe and Next's own assets — and only requests
+// WITHOUT a session cookie, the only ones this function acts on. A request with one does not run
+// the middleware at all, and that matters: to hand a body to middleware Next copies it, and past
+// `middlewareClientMaxBodySize` (10 MiB) the route handler then reads a TRUNCATED body — which a
+// 10 MiB attachment with its multipart framing (RD-058) or an ASCII-escaped JSON body under
+// JSON_BODY_CAP (RD-063) would be. Next reads this object statically at build time: literals
+// only. "rf_session" is SESSION_COOKIE (middleware.test.ts checks it through Next's matcher).
+// spec: docs/specs/08-api-surface.md sections 1 and 3.2; docs/specs/09-decision-log.md sections RD-058, RD-063, RD-064
 export const config = {
-  // Everything except the sign-in page, the health probe and Next's own assets.
-  matcher: ["/((?!login$|login/|api/health$|_next/|favicon\\.ico$).*)"],
+  matcher: [
+    {
+      source: "/((?!login$|login/|api/health$|_next/|favicon\\.ico$).*)",
+      missing: [{ type: "cookie", key: "rf_session" }],
+    },
+  ],
 };

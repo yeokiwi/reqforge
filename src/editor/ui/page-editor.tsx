@@ -13,8 +13,9 @@
 // Saving follows RD-055: edits autosave a draft (use-autosave.ts); Update publishes a version
 // from the editor's own state (not from the draft) and returns to the page; Close returns to
 // the page keeping the draft; Revert to last published deletes the draft and reloads the current
-// version. A conflict offers Overwrite or Reload latest. The TipTap editor is created on the
-// client only (immediatelyRender: false), so server and client markup agree.
+// version. A conflict offers Overwrite or Reload latest. While a file is uploading, none of those
+// can be pressed: the file is in no version and no draft until it lands (RD-058). The TipTap
+// editor is created on the client only (immediatelyRender: false), so server and client markup agree.
 //
 // Inserting (10 §5.3–5.5): the `+ ▾` menu, the `{` Macro suggestions and the macro browser; the
 // dialogs behind Markup, Date, Symbol, User mention and Status; files from `🖼`, the menu, a paste
@@ -242,11 +243,14 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
     router.refresh();
   };
 
-  /** Update (and Overwrite): publish the editor's current title and content as a new version. */
-  // spec: docs/specs/09-decision-log.md section RD-055 (Update publishes; VERSION_CONFLICT offers Overwrite); RD-061, RD-067
+  /**
+   * Update (and Overwrite): publish the editor's current title and content as a new version. Not
+   * while a file is uploading: it is not in the content until it lands (RD-058).
+   */
+  // spec: docs/specs/09-decision-log.md section RD-055 (Update publishes; VERSION_CONFLICT offers Overwrite); RD-058, RD-061, RD-067
   const publish = async (overwrite: boolean) => {
     const current = editorRef.current;
-    if (!current || busyRef.current) return;
+    if (!current || busyRef.current || uploads.hasPending()) return;
     const checked = checkTitle(titleRef.current);
     if (!checked.ok) {
       dispatch({
@@ -290,7 +294,7 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
   // spec: docs/specs/09-decision-log.md section RD-055 (Revert to last published deletes the draft; Reload latest)
   const discard = async (action: DiscardAction) => {
     const current = editorRef.current;
-    if (!current || busyRef.current) return;
+    if (!current || busyRef.current || uploads.hasPending()) return;
     busyRef.current = true;
     dispatch({ type: "discardStarted", action });
     await autosave.pause();
@@ -312,10 +316,13 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
     }
   };
 
-  /** Close: back to the page, keeping the draft (RD-055). Saves what is pending first. */
-  // spec: docs/specs/09-decision-log.md section RD-055 (Close keeps the draft)
+  /**
+   * Close: back to the page, keeping the draft (RD-055). Saves what is pending first. Not while a
+   * file is uploading: leaving would abort it, and it is in no draft yet (RD-058).
+   */
+  // spec: docs/specs/09-decision-log.md section RD-055 (Close keeps the draft); RD-058
   const close = async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || uploads.hasPending()) return;
     const saved = await autosave.flush("close");
     if (!saved && autosave.isDirty()) {
       setDialog({ kind: "closeUnsaved" });
@@ -426,6 +433,9 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
 
   const titleProblem = titleMessage(save);
   const publishing = save.activity === "publishing";
+  // A file in flight is in no version and no draft yet: Update, Overwrite, Reload latest, Close
+  // and ··· wait for it (RD-058). The upload region says what is uploading.
+  const waitForUploads = busy || uploads.pending;
 
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-surface-page" onBlur={onBlur} data-testid="page-editor">
@@ -461,7 +471,7 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
       {save.conflict ? (
         <ConflictBanner
           currentVersion={save.conflict.currentVersion}
-          busy={busy}
+          busy={waitForUploads}
           onOverwrite={() => void publish(true)}
           onReload={() => void discard("reload")}
         />
@@ -502,9 +512,9 @@ export function PageEditor({ space, page, initial, me, viewHref, historyHref }: 
         changeNoteInvalid={save.publishProblem?.field === "message"}
         notifyWatchers={notifyWatchers}
         onNotifyWatchers={setNotifyWatchers}
-        canUpdate={editor !== null && canPublish(save)}
+        canUpdate={editor !== null && canPublish(save) && !uploads.pending}
         publishing={publishing}
-        canLeave={!busy}
+        canLeave={!waitForUploads}
         onUpdate={() => void publish(false)}
         onClose={() => void close()}
         onRevert={() => setDialog({ kind: "revert" })}

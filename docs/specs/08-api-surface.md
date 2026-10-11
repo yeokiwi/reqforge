@@ -150,8 +150,12 @@ RFC 9457 `application/problem+json`: `{ type, title, status, detail, code, ...ex
 | `CYCLE` | 409 | | move under itself or a descendant |
 | `CURRENT_VERSION` | 409 | | delete of the current version |
 | `PINNED_VERSION` | 409 | | delete of a version pinned by a baseline |
-| `TOO_LARGE` | 413 | `limit: number` | content over 5 MiB or an attachment over 10 MiB (`RD-063`, `RD-058`) |
+| `TOO_LARGE` | 413 | `limit: number` | content over 5 MiB, an attachment over 10 MiB, or a copy whose images carry over 50 MiB (`RD-063`, `RD-058`, `RD-074`); a request body past the transport cap reports the 5 MiB content limit (`RD-075`) |
 | `UNSUPPORTED_MEDIA` | 415 | | a refused attachment type (SVG) or a non-JSON body |
+| `INTERNAL` | 500 | | anything unexpected; a generic detail, never a message, stack or SQL (`RD-072`) |
+| `RENDER_UNSUPPORTED` | 500 | | `?format=html` met a node the server renderer cannot draw (`RD-069`) |
+
+An unsupported method on a real route gets Next's bare 405 without a problem body (`RD-072`).
 
 ## 4. Baselines
 

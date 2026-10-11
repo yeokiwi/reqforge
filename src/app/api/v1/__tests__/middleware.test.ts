@@ -1,13 +1,23 @@
 // src/middleware.ts (spec 08 §1 and §3.2, RD-064): with no session cookie, an /api path answers
 // 401 problem+json — never a redirect to the sign-in page — while every other path still
-// redirects. The middleware runs on the Edge runtime, so the second half of this file walks its
-// import graph and fails on anything that needs Node (node:crypto, Prisma, next/headers, …).
+// redirects. The middle of this file asks Next's own build-time analyser and request matcher WHEN
+// the middleware runs (only without a session cookie, so Next never truncates a signed-in
+// request's body). The middleware runs on the Edge runtime, so the last part walks its import
+// graph and fails on anything that needs Node (node:crypto, Prisma, next/headers, …).
 import { readFileSync, statSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { builtinModules } from "node:module";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { getPageStaticInfo } from "next/dist/build/analysis/get-page-static-info";
+import type { PAGE_TYPES } from "next/dist/lib/page-types";
+import { getCloneableBody } from "next/dist/server/body-streams";
+import { getMiddlewareRouteMatcher } from "next/dist/shared/lib/router/utils/middleware-route-matcher";
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
-import { config, middleware } from "@/middleware";
+import { describe, expect, it, vi } from "vitest";
+import { middleware } from "@/middleware";
+import { SESSION_COOKIE } from "@/server/auth/cookie-name";
+import { JSON_BODY_CAP, UPLOAD_BODY_CAP } from "../_lib/body";
 
 const ORIGIN = "http://reqforge.test";
 
@@ -60,21 +70,76 @@ describe("middleware", () => {
     expect(middleware(request("/apiary")).status).toBe(307);
   });
 
-  it("is not configured to run for the sign-in page, the health probe or Next's assets, and runs for the API", () => {
-    // The matcher is one path-to-regexp pattern whose only group is a plain regular expression.
-    const matcher = config.matcher[0];
-    expect(config.matcher).toHaveLength(1);
-    const runs = (pathname: string) => new RegExp(`^${matcher}$`).test(pathname);
-    for (const p of ["/login", "/login/x", "/api/health", "/_next/static/x.js", "/favicon.ico"]) expect(runs(p)).toBe(false);
-    for (const p of ["/", "/api/v1/spaces/TEAM/pages", "/api/v1/attachments/a/b.png", "/api/healthz", "/spaces/TEAM"]) {
-      expect(runs(p)).toBe(true);
+});
+
+// ------------------------------------------------------------------------------ when Next runs it
+
+const SRC = path.resolve(__dirname, "../../../..");
+const MIB = 1024 * 1024;
+
+/**
+ * Whether Next would run the middleware for a request, decided by Next itself: its build-time
+ * analysis of src/middleware.ts (so the config must be statically readable, as `next build` needs
+ * it), then the matcher the server applies to each request.
+ */
+async function nextRunsMiddleware(): Promise<(pathname: string, cookie?: string) => boolean> {
+  const info = await getPageStaticInfo({
+    pageFilePath: path.join(SRC, "middleware.ts"),
+    nextConfig: {},
+    isDev: false,
+    page: "/middleware",
+    pageType: "root" as PAGE_TYPES, // PAGE_TYPES.ROOT: an ambient const enum, so its value is spelled out
+  });
+  const matchers = info.middleware?.matchers ?? [];
+  expect(matchers.length).toBeGreaterThan(0);
+  const match = getMiddlewareRouteMatcher(matchers);
+  type MatchRequest = Parameters<typeof match>[1];
+  return (pathname, cookie) => match(pathname, { headers: cookie === undefined ? {} : { cookie } } as unknown as MatchRequest, {});
+}
+
+describe("when Next runs the middleware", () => {
+  it("runs it for pages and the API only when the request has no session cookie", async () => {
+    const runs = await nextRunsMiddleware();
+    for (const p of ["/", "/spaces/TEAM", "/api/v1/spaces/TEAM/pages", "/api/v1/attachments/a/b.png", "/api/healthz", "/api/other"]) {
+      expect(runs(p), `${p} without a cookie`).toBe(true);
+      expect(runs(p, "theme=dark"), `${p} with another cookie`).toBe(true);
+      expect(runs(p, `${SESSION_COOKIE}=anything`), `${p} with a session cookie`).toBe(false);
+      expect(runs(p, `theme=dark; ${SESSION_COOKIE}=anything`), `${p} with a session cookie among others`).toBe(false);
     }
+  });
+
+  it("never runs it for the sign-in page, the health probe or Next's assets", async () => {
+    const runs = await nextRunsMiddleware();
+    for (const p of ["/login", "/login/x", "/api/health", "/_next/static/x.js", "/favicon.ico"]) {
+      expect(runs(p), p).toBe(false);
+      expect(runs(p, `${SESSION_COOKIE}=anything`), p).toBe(false);
+    }
+  });
+
+  it("must not run it for a signed-in request: Next would cut the request body at 10 MiB to copy it for the middleware", async () => {
+    // Why the session cookie keeps the middleware out of the way. To hand a body to middleware,
+    // Next copies it, and past middlewareClientMaxBodySize (10 MiB by default) it ends BOTH
+    // copies: the route handler then reads a truncated body. A 10 MiB attachment in its multipart
+    // framing (RD-058), or a JSON body of ASCII-escaped content near 5 MiB (RD-063), is over it.
+    const total = 10 * MIB + 4096;
+    function* chunks(): Generator<Buffer> {
+      for (let sent = 0; sent < total; sent += 64 * 1024) yield Buffer.alloc(Math.min(64 * 1024, total - sent), 0x20);
+    }
+    const request = Readable.from(chunks()) as unknown as IncomingMessage;
+    const body = getCloneableBody(request);
+    body.cloneBodyStream().resume();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await body.finalize();
+    warn.mockRestore();
+    let read = 0;
+    for await (const chunk of request as unknown as AsyncIterable<Buffer>) read += chunk.byteLength;
+    expect(read).toBe(10 * MIB);
+    expect(UPLOAD_BODY_CAP).toBeGreaterThan(10 * MIB);
+    expect(JSON_BODY_CAP).toBeGreaterThan(10 * MIB);
   });
 });
 
 // ------------------------------------------------------------------------------ Edge safety
-
-const SRC = path.resolve(__dirname, "../../../..");
 
 /** Bare imports the middleware graph may use. Everything else bare is refused. */
 const ALLOWED_PACKAGES = new Set(["next/server"]);
