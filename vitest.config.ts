@@ -24,6 +24,9 @@ export default defineConfig({
         },
       },
       {
+        // The JSX transform is here too: API integration tests reach the server renderer
+        // (`?format=html`), which is TSX.
+        plugins: [react()],
         resolve: { alias },
         test: {
           name: "integration",
