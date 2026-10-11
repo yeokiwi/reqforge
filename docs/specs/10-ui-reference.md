@@ -1030,6 +1030,41 @@ Owner: the page-view agent. Read `RD-059` first.
 
 | Id | String |
 |---|---|
+| `pageView.breadcrumb` | Breadcrumb *(ours)* |
+| `pageView.actions` | Page actions *(ours)* |
+| `pageView.byline.requirements` | Requirements *(ours — the ⛹ byline icon, `RD-059`)* |
+| `pageView.version.banner` | You are viewing an old version of this page (v. {n}). *(ours, `RD-060`)* |
+| `pageView.version.current` | Back to the current version *(ours, `RD-060`)* |
+| `pageView.draft.notice` | You have unpublished changes to this page. *(ours, `RD-055`)* |
+| `pageView.draft.continue` | Continue editing *(ours, `RD-055`)* |
+| `pageView.draft.discard` | Discard draft *(ours, `RD-055`)* |
+| `pageView.draft.discard.title` | Discard your unpublished changes? *(ours)* |
+| `pageView.draft.discard.body` | Your draft of this page will be deleted. The published version does not change. *(ours)* |
+| `pageView.draft.discard.confirm` | Discard *(ours)* |
+| `pageView.draft.discard.cancel` | Keep draft *(ours)* |
+| `pageView.draft.discard.failed` | Couldn't discard your draft. Try again. *(ours)* |
+| `pageView.favourite.failed` | Couldn't update Save for later. Try again. *(ours)* |
+| `pageView.watch.failed` | Couldn't update Watching. Try again. *(ours)* |
+| `pageView.error` | Couldn't load this page. *(ours)* |
+| `pageView.error.retry` | Try again *(ours)* |
+| `pageView.loading` | Loading the page… *(ours)* |
+| `pageView.editTitle` | Editing {title} *(ours — the editor's window title)* |
+| `pageShare.copied` | Link copied *(ours, `RD-061`)* |
+| `pageShare.failed` | Couldn't copy the link. Copy it from the address bar. *(ours)* |
+| `pageMenu.label` | More actions *(ours — the `···` button)* |
+| `pageMenu.attachments` | Attachments |
+| `pageMenu.history` | Page History |
+| `pageMenu.restrictions` | Restrictions |
+| `pageMenu.peopleWhoCanView` | People who can view |
+| `pageMenu.info` | Page information |
+| `pageMenu.hierarchy` | View in Hierarchy |
+| `pageMenu.exportWord` | Export to Word |
+| `pageMenu.reqforge` | Reqforge *(video: "Requirement Yogi" — our product name, `RD-031`)* |
+| `pageMenu.copy` / `.move` / `.delete` | Copy / Move / Delete |
+| `create.failed` | Couldn't create a page. Try again. *(ours, `RD-056`)* |
+| `create.failed.forbidden` | You can't create pages in this space. *(ours)* |
+| `create.failed.notFound` | We couldn't find that space. *(ours)* |
+| `create.dismiss` | Dismiss *(ours)* |
 
 ### 13.3 Editor toolbar, menus and dialogs (slice 1)
 
@@ -1247,6 +1282,26 @@ Owner: the tree and history agent. Read `RD-056` and `RD-060` first.
 
 | Id | String |
 |---|---|
+| `tree.label` | Page tree *(ours — the accessible name of the sidebar's tree)* |
+| `tree.keyboardHelp` | Enter opens a page. Alt + Up Arrow and Alt + Down Arrow move it among its siblings, Alt + Shift + Right Arrow moves it under the page above it, and Alt + Shift + Left Arrow moves it up a level. *(ours — the keyboard route for "drag to reorder and re-parent", §3.2)* |
+| `tree.loading` | Loading pages… *(ours)* |
+| `tree.error` | Couldn't load the page tree. *(ours)* |
+| `tree.retry` | Try again *(ours)* |
+| `tree.createChild` | Create a page under "{title}" *(ours, `RD-056`)* |
+| `tree.createPage` | Create a page *(ours, `RD-056`)* |
+| `tree.create.failed` | Couldn't create the page. Try again. *(ours)* |
+| `tree.create.forbidden` | You can't create pages in this space. *(ours)* |
+| `tree.create.parentGone` | That page no longer exists, so no page was created under it. *(ours)* |
+| `tree.move.cycle` | A page can't be moved under itself or under one of its own child pages. The move was undone. *(ours, `RD-056`)* |
+| `tree.move.invalid` | The page can't be moved there: the page tree would be too deep, or the new parent page no longer exists. The move was undone. *(ours, `RD-070`)* |
+| `tree.move.forbidden` | You can't move pages in this space. The move was undone. *(ours)* |
+| `tree.move.notFound` | That page no longer exists. The page tree has been refreshed. *(ours)* |
+| `tree.move.failed` | Couldn't move the page, so the move was undone. Try again. *(ours)* |
+| `tree.signedOut` | You've been signed out. Sign in again in another tab, then try again. *(ours)* |
+| `tree.moved.root` | "{title}" moved to the top level, position {position} of {count}. *(ours)* |
+| `tree.moved.under` | "{title}" moved under "{parent}", position {position} of {count}. *(ours)* |
+| `tree.alert.dismiss` | Dismiss *(ours)* |
+| `overview.tree` | Pages in {space} *(ours — the accessible name of the space overview's tree, §11)* |
 
 ### 13.5 Server-side messages (slice 1)
 

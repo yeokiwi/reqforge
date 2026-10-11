@@ -4,9 +4,11 @@
 //
 // Status per element (10 §2): app switcher `not built` → absent. `People` and `🔔` are `later`
 // → drawn, inert, with their slot held so shipping them reflows nothing. `⚙` is for instance
-// administrators only.
+// administrators only. `Create` is a small client component (create-page-button.tsx); the bar
+// itself stays a server component.
 import Link from "next/link";
 import { t } from "@/copy";
+import { CreatePageButton } from "./create-page-button";
 import { BellIcon, ChevronDown, Dots, GearIcon, HelpIcon, LogoMark, SearchIcon } from "./icons";
 import { initials } from "./initials";
 import { Menu, MenuItemDisabled, MenuLabel, MenuLink, MenuSeparator, menuItemButtonClass } from "./menu";
@@ -30,11 +32,9 @@ const barButton =
   "inline-flex items-center gap-1 rounded px-3 py-2 text-sm font-medium text-white no-underline hover:bg-white/10";
 const iconButton = "inline-flex h-9 w-9 items-center justify-center rounded text-white no-underline hover:bg-white/10";
 const inert = "inline-flex cursor-not-allowed items-center rounded px-3 py-2 text-sm font-medium text-white/50";
-const createClass =
-  "inline-flex items-center rounded bg-action-create px-4 py-2 text-sm font-semibold text-white no-underline hover:brightness-110";
 
 export function TopBar({ user, recentSpaces, creatableSpaces, currentSpace, signOutAction, searchQuery }: TopBarProps) {
-  const createInSpace = currentSpace?.canEdit === true;
+  const createIn = currentSpace?.canEdit === true ? currentSpace.key : null;
   const showTypes = user.isInstanceAdmin || currentSpace?.canAdmin === true;
 
   return (
@@ -64,25 +64,8 @@ export function TopBar({ user, recentSpaces, creatableSpaces, currentSpace, sign
           {t("shell.people")}
         </span>
 
-        {createInSpace ? (
-          // 10 §2: "new page in the current space". Pages arrive in slice 1; the button holds its slot.
-          <button type="button" disabled title={t("shell.later")} className={`${createClass} cursor-not-allowed opacity-60`}>
-            {t("shell.create")}
-          </button>
-        ) : (
-          <Menu label={t("shell.create")} trigger={t("shell.create")} triggerClassName={createClass}>
-            <MenuLabel>{t("shell.create.pickSpace")}</MenuLabel>
-            {creatableSpaces.length > 0 ? (
-              creatableSpaces.map((space) => (
-                <MenuLink key={space.key} href={`/spaces/${space.key}`}>
-                  {space.name}
-                </MenuLink>
-              ))
-            ) : (
-              <MenuItemDisabled>{t("shell.create.noSpace")}</MenuItemDisabled>
-            )}
-          </Menu>
-        )}
+        {/* 10 §2, RD-056: a new page in the current space at once, or the space picker outside one. */}
+        <CreatePageButton spaceKey={createIn} creatableSpaces={creatableSpaces} />
 
         <Menu label={t("shell.more")} trigger={<Dots />} triggerClassName={iconButton}>
           <MenuItemDisabled title={t("shell.later")}>{t("shell.more.templates")}</MenuItemDisabled>
