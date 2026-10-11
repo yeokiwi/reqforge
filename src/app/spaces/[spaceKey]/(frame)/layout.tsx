@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AppFrame } from "../../_components/app-frame";
+import { AppFrame } from "../../../_components/app-frame";
 
 export default async function SpaceLayout({
   children,
