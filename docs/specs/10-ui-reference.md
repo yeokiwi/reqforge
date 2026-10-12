@@ -170,7 +170,7 @@ PAGE TREE
 
 | Element | Status | Behaviour |
 |---|---|---|
-| Breadcrumb `Pages / <ancestors> / <title>` | v1 | ends with the page itself, not a link (`RD-078`) |
+| Breadcrumb `Pages / <ancestors>` | v1 | the page itself is *not* in it in view mode (frames 0:19, 1:46; `RD-084`) |
 | Byline 🔓 restrictions | v1 | opens §10; icon is a closed red padlock when restricted |
 | Byline 📎 attachments | v1 | |
 | Byline ⛹ requirements | v1 | opens the product panel, §4.4 |
@@ -253,7 +253,7 @@ Clicking the product icon in the byline opens a panel headed by the product logo
 | Toolbar row 1, all groups as drawn | v1 | `Paragraph ▾` = Normal, H1–H6, Quote, Preformatted |
 | Toolbar row 2, table tools | v1 | appears **only while the caret is in a table** |
 | `Responsive ▾` / `Fixed width ▾` | v1 | table width mode |
-| Breadcrumb with label and restriction icons | v1 | `<space> / Pages / <ancestors> / <title>` (`RD-078`) |
+| Breadcrumb with label and restriction icons | v1 | `<space> / Pages / <ancestors> / <title>` (frame 0:46; `RD-078`, `RD-084`) |
 | Presence avatars | v1 | shows who else has the page open |
 | `+` invite collaborator | later | real-time co-editing is phase 3; v1 detects a concurrent save and offers merge or overwrite |
 | Save state | v1 | exactly three strings: **`Ready to go`**, **`Saving changes`**, **`Changes saved`** |

@@ -1130,3 +1130,20 @@ edit until pages exist"); `10` §2's `Create` row says so. Extends `RD-056`.
 - **Names:** row buttons are "Restore v. N" / "Delete v. N" (visible text "Restore" / "Delete");
   tab titles "Page History – {title}" and "Compare v. a with v. b – {title}". The deck's single
   `history.col` is kept as the record of the frame; the screen uses `history.col.*` per column.
+
+### RD-084 — Corrections from the reference frames
+**accepted.** The four screencasts are now available locally (`docs/research/*.mp4`, git-ignored,
+`ry-screencast.mp4` being the main one); frames are pulled with `ffmpeg -ss <t> -i … -frames:v 1`
+(index: `requirement-yogi-video.md` §10a). Three readings made before the video was at hand were
+wrong, and this entry supersedes them:
+
+- **The view-mode breadcrumb does not include the page itself.** It is `Pages / <ancestors>`, as
+  `10` §4.1 said: for the root page *Specifications* the frame (0:19) shows only `Pages`; for its
+  child *Page Heading* it shows `Pages / Specifications` (1:46). This supersedes the view-mode half
+  of `RD-078`. The **editor** breadcrumb does include the page: `<space> / Pages / <ancestors> /
+  <title>` (0:46, `Team / Pages / Specifications`), as `RD-078` said.
+- **The editor shows the global top bar** (0:46: `Create`, `Spaces ▾`, search, avatar) and **no
+  space sidebar**. This supersedes `RD-080`'s "no top bar, no sidebar".
+- Where a screenshot of the running application and a frame disagree, the frame wins unless a
+  decision here sanctions the difference (`CLAUDE.md` non-negotiable 5). The GUI review of
+  Slice 1 compares 1920×1080 screenshots with the frames named in the index.
