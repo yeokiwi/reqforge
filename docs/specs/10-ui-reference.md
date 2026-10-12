@@ -1127,6 +1127,8 @@ Owner: the page-view agent. Read `RD-059` first.
 | `pageMove.invalid` | The page can't be moved there: the page tree would be too deep, or that parent page no longer exists. *(ours, `RD-070`)* |
 | `pageMove.forbidden` | You can't move pages in this space. *(ours)* |
 | `pageMove.failed` | Couldn't move the page. Try again. *(ours)* |
+| `pageMove.loading` | Loading the page tree… *(ours — the list is the live tree the sidebar shows)* |
+| `pageMove.loadFailed` | Couldn't load the page tree, so the page can't be moved yet. Close this dialog and try again. *(ours)* |
 | `pageDelete.title` | Delete "{title}"? *(ours, `RD-056`)* |
 | `pageDelete.body.leaf` | This page will be deleted. *(ours, `RD-056`)* |
 | `pageDelete.body.oneChild` | This page and the page under it will be deleted: 2 pages in all. *(ours, `RD-056`)* |
@@ -1135,6 +1137,8 @@ Owner: the page-view agent. Read `RD-059` first.
 | `pageDelete.busy` | Deleting the page… *(ours)* |
 | `pageDelete.forbidden` | You can't delete pages in this space. *(ours)* |
 | `pageDelete.failed` | Couldn't delete the page. Try again. *(ours)* |
+| `pageDelete.counting` | Counting the pages that will be deleted… *(ours, `RD-056`: the count is read afresh when the dialog opens)* |
+| `pageDelete.countFailed` | Couldn't count the pages that would be deleted, so nothing can be deleted yet. Close this dialog and try again. *(ours, `RD-056`)* |
 
 ### 13.3 Editor toolbar, menus and dialogs (slice 1)
 

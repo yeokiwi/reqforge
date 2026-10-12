@@ -2,18 +2,32 @@
 
 // The top bar's `Create` (10 section 2, RD-052, RD-056). Inside a space the viewer can edit it
 // makes the page at once — `POST /api/v1/spaces/{KEY}/pages` with no body: an empty `Untitled`
-// page at the root of the space — and opens the editor on it. Elsewhere it is the `Choose a
-// space` picker, and picking a space does the same there. One request at a time: a second press
-// while one is in flight does nothing, so a double click makes one page. A refusal is an alert
-// with a copy-deck string chosen by the problem's `code` (08 §3.2).
-// spec: docs/specs/10-ui-reference.md section 2 (`Create`); docs/specs/09-decision-log.md sections RD-052, RD-056
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+// page at the root of the space — and opens the editor on it (RD-056). Elsewhere it is the
+// `Choose a space` picker (RD-052), and picking a space does the same there. 10 section 2's row
+// still carries the interim rule "until pages exist (slice 1) it is disabled inside a space the
+// user can edit"; slice 1 ends that period, and the row's own first clause ("new page in the
+// current space") is what is built — the row's stale sentence is handed to spec-keeper.
+//
+// One request at a time: a second press while one is in flight does nothing, so a double click
+// makes one page. After a success the lock is held until the browser navigates — the editor
+// normally replaces this whole frame — or for CREATE_LOCK_MS, whichever comes first: the top bar
+// lives in the frame's persistent layout, so if the push to the editor is superseded by another
+// click or bounced back into the frame, this same button stays on screen and must work again.
+// A refusal is an alert with a copy-deck string chosen by the problem's `code` (08 §3.2).
+// spec: docs/specs/10-ui-reference.md section 2 (`Create`: "new page in the current space, or space picker outside one"); docs/specs/09-decision-log.md sections RD-052, RD-056
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type ParamlessCopyId, t } from "@/copy";
 import { ApiError, type FetchLike, callApi, spaceUrls } from "./api-client";
 import { Menu, MenuItemDisabled, MenuLabel, menuItemButtonClass } from "./menu";
 import { CloseIcon } from "./page-view/icons";
 import { pageEditHref } from "./page-view/urls";
+
+/**
+ * After a successful create, how long a press still does nothing when no navigation has happened.
+ * The same hold as the page tree's own create (src/ui/page-tree/store.ts).
+ */
+export const CREATE_LOCK_MS = 5000;
 
 export interface CreatePageButtonProps {
   /** The space whose screen this is, when the viewer can edit it there; else null (the picker). */
@@ -47,9 +61,36 @@ export function editHrefOf(created: unknown): string | null {
 // spec: docs/specs/09-decision-log.md section RD-056 (`Create` makes the page immediately, then opens the editor)
 export function CreatePageButton({ spaceKey, creatableSpaces, fetchImpl }: CreatePageButtonProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<ParamlessCopyId | null>(null);
   const busyRef = useRef(false);
+  /** Set while a successful create holds the lock (it is waiting for the editor). */
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const releaseLock = useCallback(() => {
+    if (lockTimer.current === null) return; // no create is waiting for its navigation
+    clearTimeout(lockTimer.current);
+    lockTimer.current = null;
+    busyRef.current = false;
+    setBusy(false);
+  }, []);
+
+  // A navigation that left this button on screen: the editor did not replace the frame. A POST
+  // still in flight keeps its lock (freeing it would let a second press make a second page).
+  const seenPath = useRef(pathname);
+  useEffect(() => {
+    if (pathname === seenPath.current) return;
+    seenPath.current = pathname;
+    releaseLock();
+  }, [pathname, releaseLock]);
+
+  useEffect(
+    () => () => {
+      if (lockTimer.current !== null) clearTimeout(lockTimer.current);
+    },
+    [],
+  );
   // The shared Menu has no way for a button item to close it; a new key remounts it closed.
   const [menuGeneration, setMenuGeneration] = useState(0);
   const pickerAnchor = useRef<HTMLDivElement>(null);
@@ -69,8 +110,10 @@ export function CreatePageButton({ spaceKey, creatableSpaces, fetchImpl }: Creat
     try {
       const href = editHrefOf(await callApi("POST", spaceUrls(key).pages, undefined, fetchImpl));
       if (href === null) throw new ApiError("UNEXPECTED_RESPONSE", 0);
-      // Stays busy: the editor replaces this screen, and a second press must not make a second page.
+      // Stays busy: the editor replaces this screen, and a second press must not make a second page
+      // — until a navigation that leaves this button on screen, or CREATE_LOCK_MS.
       router.push(href);
+      lockTimer.current = setTimeout(releaseLock, CREATE_LOCK_MS);
     } catch (error) {
       busyRef.current = false;
       setBusy(false);

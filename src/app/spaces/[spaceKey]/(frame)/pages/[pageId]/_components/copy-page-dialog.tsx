@@ -7,14 +7,17 @@
 //
 // While the request is in flight the dialog cannot be dismissed and a second Copy sends nothing:
 // the copy is made under the space's tree lock and a second press would make a second copy.
+// The titles the suggestion skips are the frame's live tree's (the PageTreeStore the sidebar
+// shows); the server checks uniqueness again (TITLE_TAKEN goes under the field).
 // spec: docs/specs/10-ui-reference.md section 4.1; docs/specs/09-decision-log.md sections RD-056, RD-059, RD-067, RD-074
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { t } from "@/copy";
-import type { PageDetail, PageSummary } from "@/domain/documents/api-types";
+import type { PageDetail } from "@/domain/documents/api-types";
 import { checkTitle } from "@/domain/documents/title";
 import type { FetchLike } from "@/ui/api-client";
 import { Dialog } from "@/ui/dialog";
+import { usePageTreeStore } from "@/ui/page-tree/provider";
 import { pageHref } from "@/ui/page-view/urls";
 import { suggestCopyTitle } from "../_lib/copy-suggestion";
 import { copyFailure, titleProblemMessage } from "../_lib/dialog-messages";
@@ -24,16 +27,15 @@ import { DialogAlert, DialogFooter, DialogStatus, dialogPrimaryClass, dialogSeco
 export interface CopyPageDialogProps {
   readonly space: { readonly key: string; readonly name: string };
   readonly page: PageDetail;
-  /** The space's live pages: their titles are the ones the suggestion skips. */
-  readonly pages: readonly PageSummary[];
   readonly onClose: () => void;
   readonly fetchImpl?: FetchLike;
 }
 
 // spec: docs/specs/09-decision-log.md sections RD-056 (Copy duplicates one page as `Copy of <title>`, made unique), RD-067, RD-074
-export function CopyPageDialog({ space, page, pages, onClose, fetchImpl }: CopyPageDialogProps) {
+export function CopyPageDialog({ space, page, onClose, fetchImpl }: CopyPageDialogProps) {
   const router = useRouter();
-  const [title, setTitle] = useState(() => suggestCopyTitle(page.title, pages));
+  const store = usePageTreeStore();
+  const [title, setTitle] = useState(() => suggestCopyTitle(page.title, store.getModel().pages));
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [alert, setAlert] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

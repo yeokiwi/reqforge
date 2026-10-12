@@ -1,21 +1,24 @@
 // @vitest-environment jsdom
-// The page view's header row (10 §4.1): breadcrumb, byline icons, Edit (and `E`), the two
-// per-user toggles with rollback, Share, and the dialog seam the `···` menu and 📎 open.
+// The page view's header row (10 §4.1): breadcrumb (from the frame's live tree), byline icons,
+// Edit (and `E`), the two per-user toggles with rollback, Share, and the dialog seam the `···`
+// menu and 📎 open.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/copy";
-import type { PageDetail } from "@/domain/documents";
+import type { PageDetail, PageSummary } from "@/domain/documents";
+import type { PageTreeStore } from "@/ui/page-tree/store";
 import { pageCrumbs } from "@/ui/page-view/breadcrumb";
 import { PAGES, pageDetail } from "../../_lib/__tests__/fixtures";
 import { PageHeader, type PageHeaderProps } from "../page-header";
+import { TreeProvider } from "./tree-provider";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/spaces/TEAM/pages/p1" }));
 
 // PageDialogs is pass 2's; stand in a dialog that shows what it was asked to open.
 vi.mock("../page-dialogs", () => ({
-  PageDialogs: ({ kind, page, space, pages, onClose }: { kind: string; page: PageDetail; space: { key: string }; pages: readonly unknown[]; onClose: () => void }) => (
-    <div role="dialog" aria-label={`dialog:${kind}`} data-page={page.id} data-space={space.key} data-pages={pages.length}>
+  PageDialogs: ({ kind, page, space, onClose }: { kind: string; page: PageDetail; space: { key: string }; onClose: () => void }) => (
+    <div role="dialog" aria-label={`dialog:${kind}`} data-page={page.id} data-space={space.key}>
       <button type="button" onClick={onClose}>
         close
       </button>
@@ -53,20 +56,36 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, "clipboard");
 });
 
-function header(over: Partial<PageHeaderProps> = {}, page: Partial<PageDetail> = {}) {
+let store: PageTreeStore | null = null;
+
+/** The header inside the frame's tree provider; `live` is the tree the store holds (null: it failed to load). */
+function header(over: Partial<PageHeaderProps> = {}, page: Partial<PageDetail> = {}, live: readonly PageSummary[] | null = PAGES) {
   const detail = pageDetail(page);
   const props: PageHeaderProps = {
     space: { key: "TEAM", name: "Team" },
     page: detail,
-    pages: PAGES,
     crumbs: pageCrumbs("TEAM", detail.ancestors, detail.title),
     viewHref: "/spaces/TEAM/pages/p1",
     editHref: "/spaces/TEAM/pages/p1/edit",
     fetchImpl,
     ...over,
   };
-  return render(<PageHeader {...props} />);
+  return render(
+    <TreeProvider pages={live} fetchImpl={props.fetchImpl ?? fetchImpl} onStore={(s) => (store = s)}>
+      <PageHeader {...props} />
+    </TreeProvider>,
+  );
 }
+
+const theStore = () => {
+  if (store === null) throw new Error("no store");
+  return store;
+};
+
+const crumbTrail = () =>
+  within(screen.getByRole("navigation", { name: t("pageView.breadcrumb") }))
+    .getAllByRole("listitem")
+    .map((item) => (item.textContent ?? "").replace("/", "").trim());
 
 const button = (name: string) => screen.getByRole("button", { name });
 
@@ -100,6 +119,54 @@ describe("header row layout (10 §4)", () => {
       fireEvent.click(icon);
     }
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the breadcrumb follows the frame's live tree, not the render (RD-078)", () => {
+  // The view rendered Specifications under Product; then it was dragged to the top level in the
+  // sidebar of the same screen. The render was not refreshed; the frame's tree store was.
+  const MOVED_TO_TOP: readonly PageSummary[] = [
+    { ...(PAGES[0] as PageSummary) },
+    { ...(PAGES[1] as PageSummary), parentId: null, ordinal: 1 },
+  ];
+
+  it("after a sidebar move to the top level it reads `Pages / Specifications`", () => {
+    header({}, {}, MOVED_TO_TOP);
+    expect(crumbTrail()).toEqual(["Pages", "Specifications"]);
+    expect(screen.queryByRole("link", { name: "Product" })).toBeNull();
+  });
+
+  it("a move the tree makes while the view is open shows at once, and rolls back with it", async () => {
+    respond = (call) => (call.method === "POST" ? problem(409, "CYCLE") : new Response(JSON.stringify(PAGES), { status: 200 }));
+    header();
+    expect(crumbTrail()).toEqual(["Pages", "Product", "Specifications"]);
+    let moved: Promise<unknown> = Promise.resolve();
+    act(() => {
+      moved = theStore().move("p1", { parentId: null, index: 1 });
+    });
+    expect(crumbTrail()).toEqual(["Pages", "Specifications"]); // optimistic, as the sidebar shows it
+    await act(async () => {
+      await moved;
+    });
+    expect(crumbTrail()).toEqual(["Pages", "Product", "Specifications"]); // refused: rolled back
+  });
+
+  it("ancestors' titles are the live tree's", () => {
+    header({}, {}, [{ ...(PAGES[0] as PageSummary), title: "Product (renamed)" }, { ...(PAGES[1] as PageSummary) }]);
+    expect(screen.getByRole("link", { name: "Product (renamed)" })).toHaveAttribute("href", "/spaces/TEAM/pages/p0");
+  });
+
+  it("shows the render's crumbs while the live tree does not have the page", () => {
+    header({}, {}, null);
+    expect(crumbTrail()).toEqual(["Pages", "Product", "Specifications"]);
+  });
+
+  it("counts as a consumer of the tree while shown, so the store refetches on navigation even with the sidebar collapsed", async () => {
+    respond = (call) => (call.method === "GET" ? new Response(JSON.stringify(MOVED_TO_TOP), { status: 200 }) : noContent());
+    header();
+    act(() => theStore().invalidate()); // what a navigation or the tab coming back does
+    await waitFor(() => expect(crumbTrail()).toEqual(["Pages", "Specifications"]));
+    expect(calls).toEqual([{ method: "GET", url: "/api/v1/spaces/TEAM/pages" }]);
   });
 });
 
@@ -261,7 +328,7 @@ describe("⇪ Share (RD-061: copy link)", () => {
 });
 
 describe("the dialog seam (pass 2 fills PageDialogs)", () => {
-  it("📎 opens the Attachments dialog with the page, the space and the tree; closing returns focus to 📎", () => {
+  it("📎 opens the Attachments dialog with the page and the space; closing returns focus to 📎", () => {
     header();
     const clip = button(t("pageMenu.attachments"));
     clip.focus();
@@ -269,7 +336,6 @@ describe("the dialog seam (pass 2 fills PageDialogs)", () => {
     const dialog = screen.getByRole("dialog", { name: "dialog:attachments" });
     expect(dialog).toHaveAttribute("data-page", "p1");
     expect(dialog).toHaveAttribute("data-space", "TEAM");
-    expect(dialog).toHaveAttribute("data-pages", String(PAGES.length));
     fireEvent.click(within(dialog).getByRole("button", { name: "close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(clip);

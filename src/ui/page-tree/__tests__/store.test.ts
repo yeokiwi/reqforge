@@ -73,16 +73,6 @@ describe("freshness", () => {
     expect(store.getRootIds()).toEqual(["two"]);
   });
 
-  it("does not let a response issued before the server render it adopted overwrite it", async () => {
-    const store = make();
-    store.retain();
-    store.invalidate();
-    store.adopt([page("rendered", "Rendered")]);
-    api.calls[0]?.respond(200, [page("older", "Older")]);
-    await settle();
-    expect(store.getRootIds()).toEqual(["rendered"]);
-  });
-
   it("keeps what it shows when a refetch fails, and shows the error state only with nothing to show", async () => {
     const store = make();
     store.retain();
@@ -99,6 +89,21 @@ describe("freshness", () => {
     api.pending()[0]?.respond(200, []);
     await settle();
     expect(empty.getStatus()).toBe("ready");
+  });
+
+  it("goes back to the error state when a retry with nothing on screen fails too", async () => {
+    const store = new PageTreeStore({ spaceKey: "TEAM", canEdit: false, initial: { status: "error" }, fetchImpl: api.fetchImpl });
+    const retry = store.refresh();
+    expect(store.getStatus()).toBe("loading");
+    api.pending()[0]?.fail();
+    await retry;
+    expect(store.getStatus()).toBe("error");
+
+    const unloaded = make({ pages: null });
+    unloaded.retain();
+    api.pending()[0]?.respond(500, problem(500, "INTERNAL"));
+    await settle();
+    expect(unloaded.getStatus()).toBe("error");
   });
 
   it("does not fetch on navigation while no tree is on screen, but does once one is", async () => {
@@ -118,6 +123,140 @@ describe("freshness", () => {
     api.calls[0]?.respond(200, sampleTree());
     await settle();
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+/** The tree once the server has committed "Page Heading to the top of Team". */
+const movedTree = (): PageSummary[] => [
+  page("s", "Specifications", null, 0),
+  page("team", "Team", null, 1),
+  page("h", "Page Heading", "team", 0),
+  page("t1", "Test session 1", "s", 0),
+  page("t1a", "Test session 1a", "s", 1),
+  page("n", "Notes", "t1a", 0),
+  page("m", "Members", "team", 1),
+];
+const pendingGet = () => api.pending().find((c) => c.method === "GET");
+const gets = () => api.calls.filter((c) => c.method === "GET").length;
+
+/** Moves h to the top of Team and has the server confirm it; the post-move GET is left in flight. */
+async function confirmedMove(store: PageTreeStore): Promise<void> {
+  const done = store.move("h", { parentId: "team", index: 0 });
+  await settle();
+  api.pending().find((c) => c.method === "POST")?.respond(200, page("h", "Page Heading", "team", 0));
+  expect(await done).toEqual({ ok: true });
+}
+
+describe("server renders (adopt): when they were rendered is unknown", () => {
+  it("are shown while the store holds nothing it fetched or confirmed itself", () => {
+    const store = make();
+    store.adopt([page("rendered", "Rendered")]);
+    expect(store.getRootIds()).toEqual(["rendered"]);
+  });
+
+  it("a cached render from before a confirmed move does not undo it (Back to the overview)", async () => {
+    const store = make();
+    store.retain();
+    await confirmedMove(store);
+    pendingGet()?.respond(200, movedTree());
+    await settle();
+    store.adopt(sampleTree()); // Next replays the overview's pre-move payload
+    expect(childIds(store, "team")).toEqual(["h", "m"]);
+    expect(childIds(store, "s")).toEqual(["t1", "t1a"]);
+  });
+
+  it("a server action's render that read the tree before the move committed does not undo it; the post-move GET still applies", async () => {
+    const store = make();
+    store.retain();
+    await confirmedMove(store);
+    const postMove = pendingGet();
+    expect(postMove).toBeDefined();
+    store.adopt(sampleTree()); // the star's re-render, read before the move committed, arrives now
+    expect(childIds(store, "team")).toEqual(["h", "m"]);
+    const fresh = movedTree().map((p) => (p.id === "m" ? { ...p, title: "Members (renamed elsewhere)" } : p));
+    postMove?.respond(200, fresh);
+    await settle();
+    expect(childIds(store, "team")).toEqual(["h", "m"]);
+    expect(store.getNode("m")?.title).toBe("Members (renamed elsewhere)");
+  });
+
+  it("a render that differs from the store's own tree is not taken on its word: a GET issued after it decides", async () => {
+    const store = make();
+    store.retain();
+    await confirmedMove(store);
+    pendingGet()?.respond(200, movedTree());
+    await settle();
+    const before = gets();
+    store.adopt([...movedTree(), page("x", "Created elsewhere", null, 2)]);
+    expect(store.getNode("x")).toBeUndefined();
+    await settle();
+    expect(gets()).toBe(before + 1);
+    pendingGet()?.respond(200, [...movedTree(), page("x", "Created elsewhere", null, 2)]);
+    await settle();
+    expect(store.getRootIds()).toEqual(["s", "team", "x"]);
+  });
+
+  it("a render shown before the store has its own tree is checked too, so an older GET in flight cannot have the last word", async () => {
+    const store = make();
+    store.retain();
+    store.invalidate(); // in flight before the render arrives
+    const older = pendingGet();
+    store.adopt([page("rendered", "Rendered")]);
+    expect(store.getRootIds()).toEqual(["rendered"]);
+    await settle();
+    older?.respond(200, [page("older", "Older")]);
+    await settle();
+    pendingGet()?.respond(200, [page("newest", "Newest")]);
+    await settle();
+    expect(store.getRootIds()).toEqual(["newest"]);
+  });
+
+  it("asks once when a navigation refetches in the same turn, and not at all for the tree already shown", async () => {
+    const store = make();
+    store.retain();
+    store.adopt(sampleTree()); // the overview's first load: the layout's very tree
+    await settle();
+    expect(api.calls).toHaveLength(0);
+
+    await confirmedMove(store);
+    pendingGet()?.respond(200, movedTree());
+    await settle();
+    const before = gets();
+    store.adopt(sampleTree()); // Back to the overview: its effect runs before the provider's
+    store.navigated(null);
+    await settle();
+    expect(gets()).toBe(before + 1);
+  });
+});
+
+describe("the tree's own mutations outrank answers to requests issued before them", () => {
+  it("a refetch issued while a move was in flight, answered after it was confirmed, does not undo it", async () => {
+    const store = make();
+    store.retain();
+    const done = store.move("h", { parentId: "team", index: 0 });
+    await settle();
+    store.invalidate(); // a navigation or the tab shown again, mid-move
+    const midMove = pendingGet();
+    api.pending().find((c) => c.method === "POST")?.respond(200, page("h", "Page Heading", "team", 0));
+    expect(await done).toEqual({ ok: true });
+    midMove?.respond(200, sampleTree()); // read before the move committed
+    await settle();
+    expect(childIds(store, "team")).toEqual(["h", "m"]);
+    expect(childIds(store, "s")).toEqual(["t1", "t1a"]);
+  });
+
+  it("a refetch issued while a create was in flight, answered after it, does not remove the new page", async () => {
+    const store = make();
+    store.retain();
+    const done = store.createChild("h");
+    await settle();
+    store.invalidate();
+    const midCreate = pendingGet();
+    api.pending().find((c) => c.method === "POST")?.respond(201, page("new", "Untitled", "h", 0));
+    expect(await done).toMatchObject({ ok: true });
+    midCreate?.respond(200, sampleTree()); // read before the page existed
+    await settle();
+    expect(childIds(store, "h")).toEqual(["new"]);
   });
 });
 

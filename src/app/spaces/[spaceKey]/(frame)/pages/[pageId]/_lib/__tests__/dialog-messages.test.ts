@@ -6,6 +6,7 @@ import { LIMITS } from "@/domain/documents/limits";
 import { ApiError } from "@/ui/api-client";
 import {
   copyFailure,
+  countFailureMessage,
   deleteConfirmation,
   deleteFailureMessage,
   failureCode,
@@ -162,5 +163,18 @@ describe("delete (RD-056)", () => {
     ["INTERNAL", t("pageDelete.failed")],
   ] as const)("%s", (code, message) => {
     expect(deleteFailureMessage(problem(code))).toBe(message);
+  });
+
+  it.each([
+    ["NOT_FOUND", t("pageView.dialog.gone")],
+    ["UNAUTHENTICATED", t("pageView.dialog.signedOut")],
+    ["INTERNAL", t("pageDelete.countFailed")],
+    ["UNEXPECTED_RESPONSE", t("pageDelete.countFailed")],
+  ] as const)("the count could not be read: %s", (code, message) => {
+    expect(countFailureMessage(problem(code))).toBe(message);
+  });
+
+  it("a count failure that is not an ApiError is the generic count failure", () => {
+    expect(countFailureMessage(new TypeError("boom"))).toBe(t("pageDelete.countFailed"));
   });
 });

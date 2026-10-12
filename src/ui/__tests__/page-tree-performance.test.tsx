@@ -7,7 +7,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/copy";
 import type { PageSummary } from "@/domain/documents";
-import { PageTree } from "@/ui/page-tree/page-tree";
+import { PAGE_DRAG_TYPE, PageTree } from "@/ui/page-tree/page-tree";
 import { PageTreeProvider } from "@/ui/page-tree/provider";
 import type * as RowStyle from "@/ui/page-tree/row-style";
 import { fakeApi, page } from "@/ui/page-tree/__tests__/fake-api";
@@ -63,7 +63,7 @@ function dragOverAt(target: HTMLElement, y: number): number {
   target.getBoundingClientRect = () => ({ top: 0, bottom: 40, height: 40, left: 0, right: 200, width: 200, x: 0, y: 0, toJSON: () => ({}) });
   const event = new Event("dragover", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clientY", { value: y });
-  Object.defineProperty(event, "dataTransfer", { value: { effectAllowed: "move", dropEffect: "none", setData: () => undefined } });
+  Object.defineProperty(event, "dataTransfer", { value: { effectAllowed: "move", dropEffect: "none", types: [PAGE_DRAG_TYPE], setData: () => undefined } });
   const started = performance.now();
   act(() => {
     target.dispatchEvent(event);
@@ -118,5 +118,7 @@ describe("PageTree with 2,000 pages", () => {
     expect(renders.count).toBe(1);
 
     console.info(`[page-tree perf] jsdom, React dev build: mount of 2,000 rows ${mountMs.toFixed(0)} ms; dragover steps ${dragMs} ms`);
-  });
+    // What is asserted is render counts, not time: mounting 2,000 rows in jsdom takes seconds when
+    // the other test files run alongside, so the default 5 s would fail it for load alone.
+  }, 30_000);
 });

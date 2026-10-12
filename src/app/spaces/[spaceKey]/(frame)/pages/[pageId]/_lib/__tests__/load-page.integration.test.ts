@@ -28,7 +28,7 @@ async function notFound(promise: Promise<unknown>): Promise<void> {
 }
 
 describe("loadPageScreen — the current version", () => {
-  it("loads the page, its current version and the space's whole tree, with the canonical space key", async () => {
+  it("loads the page and its current version, with the canonical space key (the tree is the frame's, not loaded here)", async () => {
     const ids = await buildTree("alice", "team", [{ title: "Product", children: [{ title: "Specifications" }, { title: "Glossary" }] }]);
     const id = ids["Specifications"] ?? "";
 
@@ -47,7 +47,7 @@ describe("loadPageScreen — the current version", () => {
     expect(screen.page.createdBy.name).toBe("Alice Admin");
     expect(screen.version).toMatchObject({ number: 1, title: "Specifications", current: true });
     expect(screen.version.content).toEqual(paragraphDoc("Specifications v1"));
-    expect(screen.pages.map((p) => p.title)).toEqual(["Product", "Specifications", "Glossary"]);
+    expect(Object.keys(screen).sort()).toEqual(["page", "space", "version"]);
   });
 
   it("tells a viewer without EDIT what they may do: carol in TEAM, bob in PLAT", async () => {
@@ -65,11 +65,11 @@ describe("loadPageScreen — the current version", () => {
     expect((await loadPageScreen(alice, "TEAM", page.id)).page.hasDraft).toBe(false);
   });
 
-  it("leaves deleted pages out of the tree", async () => {
-    const ids = await buildTree("alice", "team", [{ title: "Keep" }, { title: "Gone", children: [{ title: "Gone child" }] }]);
+  it("counts only live pages under the page (the Delete confirmation re-reads this when it opens)", async () => {
+    const ids = await buildTree("alice", "team", [{ title: "Keep", children: [{ title: "Child" }, { title: "Gone", children: [{ title: "Gone child" }] }] }]);
     await deletePage(alice, "TEAM", ids["Gone"] ?? "");
     const screen = await loadPageScreen(alice, "TEAM", ids["Keep"] ?? "");
-    expect(screen.pages.map((p) => p.title)).toEqual(["Keep"]);
+    expect(screen.page.descendantCount).toBe(1);
   });
 });
 

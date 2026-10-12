@@ -8,7 +8,7 @@ import { TopBar, type TopBarProps } from "@/ui/top-bar";
 
 // `Create` is a client component that navigates (create-page-button.tsx); its own behaviour is
 // tested in create-page-button.test.tsx.
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => "/spaces/TEAM" }));
 
 afterEach(cleanup);
 

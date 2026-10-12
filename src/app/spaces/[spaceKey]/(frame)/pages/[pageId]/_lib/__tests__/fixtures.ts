@@ -51,6 +51,5 @@ export function pageScreen(over: { page?: Partial<PageDetail>; version?: Partial
     space: { key: "TEAM", name: "Team" },
     page: pageDetail(over.page),
     version: versionDetail(over.version),
-    pages: PAGES,
   };
 }

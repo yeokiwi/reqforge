@@ -5,10 +5,12 @@
 // Freshness. A Next layout is not re-rendered by client-side navigation, so the pages it passed
 // down go stale after a publish, rename, move, delete or create elsewhere. The store therefore
 //   - starts from the server's pages (first paint is right, and the links work without JS),
-//   - adopts newer server data whenever the layout or the overview re-render (router.refresh,
-//     a server action, navigating to the overview),
 //   - refetches GET /pages on every navigation, when the tab becomes visible again, and after
 //     each of its own mutations,
+//   - is offered the server's pages again whenever the layout or the overview re-render
+//     (router.refresh, a server action, navigating to the overview) — but when such a render
+//     was made is unknown, so it never replaces what the store fetched or confirmed itself; a
+//     render that differs from the tree shown is settled by a GET issued after it (`adopt`),
 // and applies a response only if nothing newer has been applied since its request was issued
 // (`issued` / `applied` sequence numbers), so a slow old response never overwrites a newer one.
 //
@@ -86,9 +88,14 @@ export class PageTreeStore {
   private readonly expanded = new Set<string>();
   private currentId: string | null;
   private revealCurrentPending: boolean;
-  /** Sequence numbers: the last request issued, and the newest state applied. */
+  /**
+   * Sequence numbers: the last request issued, and the newest state applied — a GET's answer or
+   * a confirmed mutation; 0 while the store shows nothing but server renders.
+   */
   private issued = 0;
   private applied = 0;
+  /** The sequence number of the last GET issued. */
+  private lastFetch = 0;
   private readonly listeners = new Set<() => void>();
   private chain: Promise<unknown> = Promise.resolve();
   /** The parent a create is running under (null: the root), or undefined when none is. */
@@ -182,6 +189,7 @@ export class PageTreeStore {
   // spec: docs/specs/08-api-surface.md section 3 (GET /pages); RD-072 (a bare PageSummary[])
   async refresh(): Promise<void> {
     const seq = ++this.issued;
+    this.lastFetch = seq;
     if (this.base === null && this.status !== "loading") {
       this.status = "loading";
       this.emit();
@@ -204,14 +212,38 @@ export class PageTreeStore {
     this.setBase(pages);
   }
 
-  /** Server-rendered pages, newer than any request issued before now. */
+  /**
+   * Pages from a server render: the layout re-rendered (router.refresh(), a server action) or the
+   * overview rendered. When that render was made is unknown — Back/Forward replays a payload
+   * cached before this tab's latest moves, and a server action's render can read the tree before
+   * a move commits yet arrive after the move is confirmed — so it never replaces anything this
+   * store fetched or confirmed itself (`applied > 0`), and it never outranks a GET in flight.
+   * It is shown at once only while the store holds nothing but server renders. Either way, a
+   * render that differs from the tree shown is settled by a GET issued after it.
+   */
+  // spec: docs/specs/10-ui-reference.md section 3.2 (PAGE TREE: drag to reorder and re-parent); docs/specs/08-api-surface.md section 3 (GET /pages); RD-056
   adopt(pages: readonly PageSummary[]): void {
-    this.applied = ++this.issued;
-    this.stale = false;
-    this.setBase(pages);
+    if (this.base !== null && samePages(this.base, pages)) return; // nothing it could tell us
+    if (this.applied === 0) {
+      this.stale = false;
+      this.setBase(pages);
+    }
+    this.checkSoon();
   }
 
-  /** The layout re-rendered (router.refresh, a server action) and passed new initial data. */
+  /**
+   * Refetches once the current turn is over, unless a GET has been issued by then anyway: a
+   * navigation's refetch, issued by the provider's effect right after the overview's `adopt`,
+   * is newer than the render and settles it just as well.
+   */
+  private checkSoon(): void {
+    const mark = this.issued;
+    queueMicrotask(() => {
+      if (this.lastFetch <= mark) this.invalidate();
+    });
+  }
+
+  /** The layout re-rendered (router.refresh, a server action) and passed new initial data (see `adopt`). */
   setInitial(initial: InitialTree): void {
     if (initial.status === "ready") {
       this.adopt(initial.pages);

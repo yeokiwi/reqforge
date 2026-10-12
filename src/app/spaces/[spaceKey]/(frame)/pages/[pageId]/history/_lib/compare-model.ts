@@ -2,11 +2,11 @@
 // per top-level block as diffDocuments classified it — `same`, `changed` (both sides), `removed`
 // (left only) or `added` (right only). Adds what the screen says about the whole comparison: the
 // counts, whether the content is identical, whether the titles differ, and whether RD-066's work
-// cap made the alignment approximate. Pure.
+// cap made the alignment approximate (reported by the server, or evident in the rows). Pure.
 // spec: docs/specs/09-decision-log.md sections RD-060 (Compare selected versions) and RD-066 (work cap); 10 section 11
 import { t } from "@/copy";
 import type { BlockDiff, BlockDiffStatus, PageDetail, VersionDetail } from "@/domain/documents";
-import { topLevelBlocks } from "@/domain/documents";
+import { canonicalJson, topLevelBlocks } from "@/domain/documents";
 import { historyHref, pageHref, pageVersionHref } from "@/ui/page-history/urls";
 import { formatDateTime } from "@/ui/time";
 import { type Crumb, historyCrumbs } from "./crumbs";
@@ -59,7 +59,10 @@ export interface CompareModel {
   readonly counts: CompareCounts;
   /** No block was added, removed or changed. */
   readonly identical: boolean;
-  /** RD-066: the alignment ran out of budget, so some equal blocks may show as different. */
+  /**
+   * RD-066: the alignment ran out of budget, so some equal blocks may show as different. True
+   * when the server says so or when the rows show it (alignmentCutShort).
+   */
   readonly approximate: boolean;
 }
 
@@ -69,6 +72,7 @@ export interface CompareInput {
   readonly left: VersionDetail;
   readonly right: VersionDetail;
   readonly blocks: readonly BlockDiff[];
+  /** What the server reports about RD-066's cap (readApproximate); the model also checks the rows. */
   readonly approximate: boolean;
 }
 
@@ -110,6 +114,33 @@ export function countRows(rows: readonly CompareRow[]): CompareCounts {
   return counts;
 }
 
+/**
+ * Whether the alignment left a left block and a canonically equal right block unmatched in the
+ * same run of non-`same` rows. An exact longest common subsequence never does that, because the
+ * pair could be added to it. So a true result means the cap cut the alignment short, and these
+ * rows show equal blocks as changed, removed or added. It is also true whenever the cap leaves
+ * unaligned a region holding a block both versions share. It cannot see a cut-short alignment
+ * whose surplus equal blocks fell into different runs (that looks like a move); only the
+ * server's flag can report that. Linear in the size of the non-`same` blocks.
+ */
+// spec: docs/specs/09-decision-log.md section RD-066 (past the cap some equal blocks may be shown as changed, removed or added)
+export function alignmentCutShort(rows: readonly CompareRow[]): boolean {
+  let lefts = new Set<string>();
+  let rights: string[] = [];
+  const runHasEqualPair = () => rights.some((key) => lefts.has(key));
+  for (const row of rows) {
+    if (row.status === "same") {
+      if (runHasEqualPair()) return true;
+      lefts = new Set();
+      rights = [];
+      continue;
+    }
+    if (row.leftIndex !== null) lefts.add(canonicalJson(row.left));
+    if (row.rightIndex !== null) rights.push(canonicalJson(row.right));
+  }
+  return runHasEqualPair();
+}
+
 // spec: docs/specs/09-decision-log.md sections RD-060, RD-066
 export function buildCompareModel(input: CompareInput): CompareModel {
   const spaceKey = input.space.key;
@@ -127,7 +158,7 @@ export function buildCompareModel(input: CompareInput): CompareModel {
     rows,
     counts,
     identical: counts.added + counts.removed + counts.changed === 0,
-    approximate: input.approximate,
+    approximate: input.approximate || alignmentCutShort(rows),
   };
 }
 
@@ -148,7 +179,8 @@ export function cellIdPrefix(side: "a" | "b", index: number): string {
 /**
  * Whether the comparison reports that RD-066's work cap cut the alignment short. The use case's
  * VersionComparison does not carry this yet (handed off to the server unit as `approximate:
- * boolean`); until it does, this reads false and the notice never shows.
+ * boolean`). Until it does, this reads false, and buildCompareModel relies on
+ * alignmentCutShort alone.
  */
 // spec: docs/specs/09-decision-log.md section RD-066 (past the cap some equal blocks may be shown as changed, removed or added)
 export function readApproximate(comparison: object): boolean {

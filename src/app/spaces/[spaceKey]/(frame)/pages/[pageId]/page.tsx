@@ -1,5 +1,6 @@
 // The page view, `/spaces/{SPACE}/pages/{pageId}[?version=N]` (10 sections 4 and 11). Thin:
-// parse, load (two use cases, one call), build the view model, render. An unknown or invisible
+// parse, load (one use case), build the view model, render. The space's tree comes from the
+// frame (AppFrame's PageTreeProvider), not from here. An unknown or invisible
 // space, page or version — and a malformed `?version` — is the 404 page: a viewer without
 // access never learns the page exists (RD-051).
 // spec: docs/specs/10-ui-reference.md sections 4 and 11; docs/specs/09-decision-log.md sections RD-051, RD-055, RD-059, RD-060, RD-078
@@ -53,7 +54,6 @@ export default async function PageViewRoute(props: Props) {
       <PageHeader
         space={view.space}
         page={view.page}
-        pages={view.pages}
         crumbs={view.crumbs}
         viewHref={view.hrefs.view}
         editHref={view.canEditHere ? view.hrefs.edit : null}

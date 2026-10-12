@@ -90,6 +90,15 @@ function useItemEnv(): ItemEnv {
 const itemDomId = (prefix: string, id: string) => `${prefix}-item-${id}`;
 const titleDomId = (prefix: string, id: string) => `${prefix}-title-${id}`;
 
+/**
+ * Whether a drag carries a page from a page tree. Files, selected text and links carry no
+ * PAGE_DRAG_TYPE, so they are never offered a drop, whatever this tree remembers.
+ */
+function carriesPage(event: DragEvent<HTMLElement>): boolean {
+  const types = event.dataTransfer?.types;
+  return types !== undefined && types !== null && Array.from(types).includes(PAGE_DRAG_TYPE);
+}
+
 /** Where in the row the pointer is, for the drop zone (top quarter: before; bottom quarter: after). */
 function zoneOf(event: DragEvent<HTMLElement>) {
   const rect = event.currentTarget.getBoundingClientRect();
@@ -240,6 +249,23 @@ export function PageTree({ variant, label, highlightId = null }: PageTreeProps) 
   useEffect(() => store.retain(), [store]);
   useLayoutEffect(() => view.attach(), [view]);
 
+  // A drag can end where React never hears of it: when a rollback re-mounts the dragged row's
+  // subtree mid-drag, the dragend goes to a row no longer in the document. So any drag starting
+  // anywhere replaces the one this tree remembers (capture: before a row's own onDragStart
+  // records the new one), and any drop or dragend reaching the document ends it (bubble: after
+  // a row's own onDrop has used it).
+  useEffect(() => {
+    const end = () => view.endDrag();
+    document.addEventListener("dragstart", end, true);
+    document.addEventListener("drop", end);
+    document.addEventListener("dragend", end);
+    return () => {
+      document.removeEventListener("dragstart", end, true);
+      document.removeEventListener("drop", end);
+      document.removeEventListener("dragend", end);
+    };
+  }, [view]);
+
   const focusItem = useCallback(
     (id: string) => {
       view.setActive(id);
@@ -301,13 +327,13 @@ export function PageTree({ variant, label, highlightId = null }: PageTreeProps) 
           try {
             data.setData(PAGE_DRAG_TYPE, id);
           } catch {
-            // Some browsers refuse custom types; the drag id is kept in the view anyway.
+            // A browser that refused the type offers no drop target (carriesPage); Alt+arrows still move.
           }
         }
       },
       onDragOver: (id, event) => {
         const dragId = view.dragId;
-        if (dragId === null) return;
+        if (dragId === null || !carriesPage(event)) return;
         const zone = zoneOf(event);
         const move = moveForDrop(store.getModel(), dragId, id, zone, view.isOpen(id));
         if (move === null) {
@@ -326,9 +352,11 @@ export function PageTree({ variant, label, highlightId = null }: PageTreeProps) 
       },
       onDrop: (id, event) => {
         const dragId = view.dragId;
-        if (dragId === null) return;
+        if (dragId === null || !carriesPage(event)) return;
         event.preventDefault();
-        const move = moveForDrop(store.getModel(), dragId, id, zoneOf(event), view.isOpen(id));
+        // The page dropped is the one the drag carries; a drag from another tab names another page.
+        const dropped = event.dataTransfer?.getData(PAGE_DRAG_TYPE) ?? "";
+        const move = dropped === dragId ? moveForDrop(store.getModel(), dragId, id, zoneOf(event), view.isOpen(id)) : null;
         view.endDrag();
         if (move !== null) runMove(dragId, move, "drag");
       },

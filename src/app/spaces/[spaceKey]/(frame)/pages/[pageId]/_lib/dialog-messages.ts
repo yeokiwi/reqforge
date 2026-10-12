@@ -171,6 +171,19 @@ export function deleteConfirmation(descendantCount: number): string {
   return t("pageDelete.body.children", { d: count.format(below), n: count.format(below + 1) });
 }
 
+/** The count the confirmation needs could not be read (fetchDescendantCount failed). */
+// spec: docs/specs/09-decision-log.md sections RD-051 (a page you can no longer see is gone) and RD-056; 08 section 3.2
+export function countFailureMessage(error: unknown): string {
+  switch (failureCode(error)) {
+    case "NOT_FOUND":
+      return t("pageView.dialog.gone");
+    case "UNAUTHENTICATED":
+      return t("pageView.dialog.signedOut");
+    default:
+      return t("pageDelete.countFailed");
+  }
+}
+
 /** A refused delete. */
 // spec: docs/specs/08-api-surface.md section 3.2; docs/specs/07-permissions-and-limits.md section 2.4 (EDIT)
 export function deleteFailureMessage(error: unknown): string {

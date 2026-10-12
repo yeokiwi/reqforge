@@ -8,9 +8,10 @@ import type { PageDetail, PageSummary } from "@/domain/documents/api-types";
 import { PAGES, pageDetail } from "../../_lib/__tests__/fixtures";
 import { CopyPageDialog } from "../copy-page-dialog";
 import { bodyOf, deferred, fakeApi, json, problem, type Responder } from "./fake-api";
+import { TreeProvider } from "./tree-provider";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/spaces/TEAM/pages/p1" }));
 
 const COPY_URL = "/api/v1/spaces/TEAM/pages/p1/copy";
 
@@ -20,7 +21,12 @@ afterEach(cleanup);
 function open(respond: Responder = () => json({ id: "p9" }, 201), page: Partial<PageDetail> = {}, pages: readonly PageSummary[] = PAGES) {
   const api = fakeApi(respond);
   const onClose = vi.fn();
-  render(<CopyPageDialog space={{ key: "TEAM", name: "Team" }} page={pageDetail(page)} pages={pages} onClose={onClose} fetchImpl={api.fetchImpl} />);
+  // The titles the suggestion skips are the frame's live tree's.
+  render(
+    <TreeProvider pages={pages} fetchImpl={api.fetchImpl}>
+      <CopyPageDialog space={{ key: "TEAM", name: "Team" }} page={pageDetail(page)} onClose={onClose} fetchImpl={api.fetchImpl} />
+    </TreeProvider>,
+  );
   const dialog = screen.getByRole("dialog", { name: t("pageCopy.title", { title: "Specifications" }) });
   const field = screen.getByLabelText(t("pageCopy.field")) as HTMLInputElement;
   const submit = screen.getByRole("button", { name: t("pageCopy.submit") });

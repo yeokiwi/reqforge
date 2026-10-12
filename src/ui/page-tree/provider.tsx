@@ -9,8 +9,9 @@
 // links work before JavaScript runs) and then:
 //   - refetches GET /api/v1/spaces/{KEY}/pages whenever the pathname changes, when the tab is shown
 //     again, and after each of its own moves;
-//   - adopts the layout's pages again whenever the layout re-renders (router.refresh(), a server
-//     action), and the overview's pages when the overview renders;
+//   - offers the store the layout's pages again whenever the layout re-renders (router.refresh(),
+//     a server action), and the overview's pages when the overview renders; a render of unknown
+//     age never replaces what the store fetched or confirmed itself (PageTreeStore.adopt);
 //   - applies a response only if nothing newer has been applied since its request was issued, so a
 //     slow, older response never overwrites a newer tree (PageTreeStore.refresh).
 // spec: docs/specs/10-ui-reference.md sections 3.2 (PAGE TREE) and 11; docs/specs/08-api-surface.md section 3 (GET /pages); RD-056, RD-072

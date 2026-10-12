@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/ui/api-client";
 import { suggestCopyTitle } from "../copy-suggestion";
-import { fetchAttachments, parseAttachment, requestCopy, requestDelete, requestHide, requestMove, requestUpload } from "../page-requests";
+import { fetchAttachments, fetchDescendantCount, parseAttachment, requestCopy, requestDelete, requestHide, requestMove, requestUpload } from "../page-requests";
 
 type Sent = { url: string; method: string; body: unknown; contentType: string | null };
 
@@ -100,6 +100,20 @@ describe("the calls", () => {
     expect(await requestDelete("TEAM", "p1", r.fetchImpl)).toBe(4);
     expect(r.sent[0]).toMatchObject({ url: "/api/v1/spaces/TEAM/pages/p1", method: "DELETE" });
   });
+
+  it("reads the page's live descendantCount from GET …/pages/{id}, segments encoded", async () => {
+    const r = recorder(() => json({ page: { id: "a/b", descendantCount: 3 }, version: { number: 1 } }));
+    expect(await fetchDescendantCount("日本", "a/b", r.fetchImpl)).toBe(3);
+    expect(r.sent).toEqual([{ url: `/api/v1/spaces/${encodeURIComponent("日本")}/pages/a%2Fb`, method: "GET", body: undefined, contentType: null }]);
+  });
+
+  it.each([[{}], [{ page: null }], [{ page: {} }], [{ page: { descendantCount: "3" } }], [{ page: { descendantCount: -1 } }], [{ page: { descendantCount: 1.5 } }], [[]]])(
+    "a count that is not a whole number of pages is UNEXPECTED_RESPONSE, never a guess: %j",
+    async (body) => {
+      const r = recorder(() => json(body));
+      await expect(fetchDescendantCount("TEAM", "p1", r.fetchImpl)).rejects.toMatchObject({ code: "UNEXPECTED_RESPONSE" });
+    },
+  );
 
   it("a refusal is the problem's ApiError", async () => {
     const r = recorder(() => json({ type: "about:blank", title: "x", status: 409, detail: "", code: "CYCLE" }, 409));

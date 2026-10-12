@@ -10,15 +10,19 @@ import { PAGES, pageDetail } from "../../_lib/__tests__/fixtures";
 import { PageDialogs, type PageDialogKind } from "../page-dialogs";
 import { PageHeader } from "../page-header";
 import { fakeApi, json } from "./fake-api";
+import { TreeProvider } from "./tree-provider";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/spaces/TEAM/pages/p1" }));
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 const SPACE = { key: "TEAM", name: "Team" };
-const api = () => fakeApi((request) => (request.method === "GET" ? json([]) : json({})));
+const api = () =>
+  fakeApi((request) =>
+    request.method !== "GET" ? json({}) : request.url.endsWith("/pages") ? json(PAGES) : request.url.endsWith("/attachments") ? json([]) : json({ page: pageDetail() }),
+  );
 
 describe("PageDialogs switches on kind", () => {
   it.each([
@@ -28,20 +32,30 @@ describe("PageDialogs switches on kind", () => {
     ["move", t("pageMove.title", { title: "Specifications" })],
     ["delete", t("pageDelete.title", { title: "Specifications" })],
   ] as const)("%s opens %s", (kind: PageDialogKind, name) => {
-    render(<PageDialogs kind={kind} page={pageDetail()} space={SPACE} pages={PAGES} onClose={vi.fn()} fetchImpl={api().fetchImpl} />);
+    const { fetchImpl } = api();
+    render(
+      <TreeProvider pages={PAGES} fetchImpl={fetchImpl}>
+        <PageDialogs kind={kind} page={pageDetail()} space={SPACE} onClose={vi.fn()} fetchImpl={fetchImpl} />
+      </TreeProvider>,
+    );
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(screen.getByRole("dialog", { name })).toBeTruthy();
   });
 
   it("renders nothing for null", () => {
-    const { container } = render(<PageDialogs kind={null} page={pageDetail()} space={SPACE} pages={PAGES} onClose={vi.fn()} />);
+    const { container } = render(<PageDialogs kind={null} page={pageDetail()} space={SPACE} onClose={vi.fn()} />);
     expect(container.innerHTML).toBe("");
   });
 
   it("each dialog closes through onClose on Escape", () => {
     for (const kind of ["attachments", "info", "copy", "move", "delete"] as const) {
       const onClose = vi.fn();
-      render(<PageDialogs kind={kind} page={pageDetail()} space={SPACE} pages={PAGES} onClose={onClose} fetchImpl={api().fetchImpl} />);
+      const { fetchImpl } = api();
+      render(
+        <TreeProvider pages={PAGES} fetchImpl={fetchImpl}>
+          <PageDialogs kind={kind} page={pageDetail()} space={SPACE} onClose={onClose} fetchImpl={fetchImpl} />
+        </TreeProvider>,
+      );
       fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
       expect(onClose, kind).toHaveBeenCalledTimes(1);
       cleanup();
@@ -52,16 +66,18 @@ describe("PageDialogs switches on kind", () => {
 describe("inside the header: focus goes back to the opener", () => {
   function header(page: Partial<PageDetail> = {}) {
     const detail = pageDetail(page);
+    const { fetchImpl } = api();
     render(
-      <PageHeader
-        space={SPACE}
-        page={detail}
-        pages={PAGES}
-        crumbs={pageCrumbs("TEAM", detail.ancestors, detail.title)}
-        viewHref="/spaces/TEAM/pages/p1"
-        editHref="/spaces/TEAM/pages/p1/edit"
-        fetchImpl={api().fetchImpl}
-      />,
+      <TreeProvider pages={PAGES} fetchImpl={fetchImpl}>
+        <PageHeader
+          space={SPACE}
+          page={detail}
+          crumbs={pageCrumbs("TEAM", detail.ancestors, detail.title)}
+          viewHref="/spaces/TEAM/pages/p1"
+          editHref="/spaces/TEAM/pages/p1/edit"
+          fetchImpl={fetchImpl}
+        />
+      </TreeProvider>,
     );
   }
 

@@ -6,7 +6,9 @@
 // at the root and a "+" on every page (RD-056).
 //
 // The overview renders on every navigation to it (the layout does not), so its server-loaded
-// pages are the freshest the client has: they are adopted into the frame's shared store.
+// pages are offered to the frame's shared store. They may come from a cached payload (Back,
+// Forward), so the store shows them only while it holds nothing it fetched or confirmed itself,
+// and settles any difference with a GET (PageTreeStore.adopt).
 // spec: docs/specs/10-ui-reference.md sections 11 and 12; RD-056, RD-059
 import { useEffect } from "react";
 import { t } from "@/copy";

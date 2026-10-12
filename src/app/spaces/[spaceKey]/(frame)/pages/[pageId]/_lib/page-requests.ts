@@ -70,6 +70,20 @@ export async function requestMove(spaceKey: string, pageId: string, move: MoveBo
   await callApi("POST", spaceUrls(spaceKey).move(pageId), { parentId: move.parentId, index: move.index }, fetchImpl);
 }
 
+/**
+ * `GET …/pages/{id}` read for one number: how many live pages are under the page now
+ * (PageDetail.descendantCount). The Delete confirmation asks this when it opens instead of
+ * trusting the page view's render, which a sidebar move or another user may have outdated.
+ */
+// spec: docs/specs/08-api-surface.md section 3 (GET /pages/{id}); docs/specs/09-decision-log.md section RD-056 (the confirmation names how many pages will go)
+export async function fetchDescendantCount(spaceKey: string, pageId: string, fetchImpl?: FetchLike): Promise<number> {
+  const body = await callApi("GET", spaceUrls(spaceKey).page(pageId), undefined, fetchImpl);
+  const page = isRecord(body) ? body.page : undefined;
+  const count = isRecord(page) ? page.descendantCount : undefined;
+  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) throw unexpected();
+  return count;
+}
+
 /** `DELETE …/pages/{id}`: soft-deletes the page and its subtree (EDIT), 200 `{ deletedCount }`. */
 // spec: docs/specs/08-api-surface.md section 3 (DELETE /pages/{id}); RD-056, RD-072
 export async function requestDelete(spaceKey: string, pageId: string, fetchImpl?: FetchLike): Promise<number | null> {

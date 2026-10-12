@@ -75,6 +75,20 @@ function dataTransfer() {
   };
 }
 
+/** Starts dragging a row, as a browser does: one DataTransfer for the whole drag, which the tree fills. */
+function startDrag(name: string): ReturnType<typeof dataTransfer> {
+  const transfer = dataTransfer();
+  fireEvent.dragStart(row(name), { dataTransfer: transfer });
+  return transfer;
+}
+
+/** A drag that did not start in this document: a file, selected text, or a page from another tab. */
+function foreignDrag(type: string, value = ""): ReturnType<typeof dataTransfer> {
+  const transfer = dataTransfer();
+  transfer.setData(type, value);
+  return transfer;
+}
+
 /** Fires a drag event at `y` pixels into a 40-pixel row; returns whether the tree accepted it (preventDefault). */
 function dragAt(type: "dragOver" | "drop", target: HTMLElement, y: number, transfer = dataTransfer()): boolean {
   target.getBoundingClientRect = () => ({ top: 100, bottom: 140, height: 40, left: 0, right: 200, width: 200, x: 0, y: 100, toJSON: () => ({}) });
@@ -236,10 +250,10 @@ describe("PageTree — drag to reorder and re-parent (10 §3.2)", () => {
 
   it("drops before and after a sibling, with a line where it will land", async () => {
     tree();
-    fireEvent.dragStart(row("Team"));
-    expect(dragAt("dragOver", row("Specifications"), 2)).toBe(true);
+    const transfer = startDrag("Team");
+    expect(dragAt("dragOver", row("Specifications"), 2, transfer)).toBe(true);
     expect(row("Specifications").querySelector('[data-drop-line="before"]')).not.toBeNull();
-    dragAt("drop", row("Specifications"), 2);
+    dragAt("drop", row("Specifications"), 2, transfer);
     expect(names()).toEqual(["team", "s"]);
     await flush();
     expect(api.calls[0]?.body).toEqual({ parentId: null, index: 0 });
@@ -248,17 +262,20 @@ describe("PageTree — drag to reorder and re-parent (10 §3.2)", () => {
   it("refuses, with no drop affordance, a drop on the page itself or a descendant (RD-056)", async () => {
     pathname = "/spaces/TEAM/pages/n"; // everything under Specifications is open
     tree();
-    fireEvent.dragStart(row("Specifications"));
-    for (const [name, y] of [
+    const refused = [
       ["Specifications", 20],
       ["Page Heading", 2],
       ["Test session 1a", 20],
       ["Notes", 38],
-    ] as const) {
-      expect(dragAt("dragOver", row(name), y), name).toBe(false);
+    ] as const;
+    const transfer = startDrag("Specifications");
+    for (const [name, y] of refused) {
+      expect(dragAt("dragOver", row(name), y, transfer), name).toBe(false);
       expect(row(name)).not.toHaveAttribute("data-drop");
-      dragAt("drop", row(name), y);
     }
+    expect(dragAt("dragOver", row("Team"), 20, transfer)).toBe(true); // the same drag is accepted elsewhere
+    // A drop ends its drag, so each refused drop gets a drag of its own.
+    for (const [name, y] of refused) dragAt("drop", row(name), y, startDrag("Specifications"));
     await flush();
     expect(api.calls).toHaveLength(0);
     expect(names()).toEqual(["s", "h", "t1", "t1a", "n", "team"]);
@@ -266,16 +283,106 @@ describe("PageTree — drag to reorder and re-parent (10 §3.2)", () => {
 
   it("ignores drags that did not start in the tree (files, text)", async () => {
     tree();
-    expect(dragAt("dragOver", row("Team"), 20)).toBe(false);
-    dragAt("drop", row("Team"), 20);
+    for (const transfer of [foreignDrag("Files"), foreignDrag("text/plain", "selected text")]) {
+      expect(dragAt("dragOver", row("Team"), 20, transfer)).toBe(false);
+      dragAt("drop", row("Team"), 20, transfer);
+    }
     await flush();
     expect(api.calls).toHaveLength(0);
   });
 
+  it("ignores a file or text dragged over the tree while a page drag whose end it never heard of is remembered", async () => {
+    tree();
+    fireEvent.click(row("Specifications").querySelector("[data-toggle]") as Element);
+    startDrag("Page Heading"); // ... and released where no dragend or drop reaches React
+    for (const transfer of [foreignDrag("Files"), foreignDrag("text/plain", "selected text")]) {
+      expect(dragAt("dragOver", row("Team"), 20, transfer)).toBe(false);
+      expect(row("Team")).not.toHaveAttribute("data-drop");
+      dragAt("drop", row("Team"), 20, transfer);
+    }
+    await flush();
+    expect(api.calls).toHaveLength(0);
+    expect(within(item("Specifications")).queryByRole("treeitem", { name: "Page Heading" })).not.toBeNull();
+  });
+
+  it("a page whose row a rollback re-mounted mid-drag is not moved by a later drop of something else", async () => {
+    pathname = "/spaces/TEAM/pages/n"; // Specifications and Test session 1a are open
+    tree();
+    // Drop Test session 1a onto Team; the move is in flight.
+    const first = startDrag("Test session 1a");
+    dragAt("drop", row("Team"), 20, first);
+    await flush();
+    // Start dragging Notes, its child, then the server refuses the move: the rollback re-parents
+    // Test session 1a, which re-mounts its subtree and detaches the row being dragged.
+    const source = row("Notes");
+    const second = startDrag("Notes");
+    await act(async () => {
+      api.calls[0]?.respond(422, problem(422, "VALIDATION"));
+      await settle();
+    });
+    expect(source.isConnected).toBe(false);
+    fireEvent.dragEnd(source, { dataTransfer: second }); // released outside the tree: React never hears it
+    await flush();
+    // Later, a file is dragged over a row and dropped.
+    const file = foreignDrag("Files");
+    expect(dragAt("dragOver", row("Team"), 20, file)).toBe(false);
+    dragAt("drop", row("Team"), 20, file);
+    await flush();
+    expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1); // only the refused move
+    expect(within(item("Test session 1a")).queryByRole("treeitem", { name: "Notes" })).not.toBeNull();
+  });
+
+  it("a drag that starts anywhere else replaces the one it remembers (a page dragged in the other tree)", async () => {
+    render(
+      <PageTreeProvider spaceKey="TEAM" canEdit initial={{ status: "ready", pages: sampleTree() }} fetchImpl={api.fetchImpl} storage={() => null}>
+        <PageTree variant="sidebar" label={t("tree.label")} />
+        <PageTree variant="overview" label={t("overview.tree", { space: "Team" })} />
+      </PageTreeProvider>,
+    );
+    const [sidebar, overview] = screen.getAllByRole("tree").map((el) => within(el));
+    const rowIn = (scope: ReturnType<typeof within> | undefined, name: string) =>
+      scope?.getByRole("treeitem", { name }).firstElementChild as HTMLElement;
+    fireEvent.click(rowIn(sidebar, "Specifications").querySelector("[data-toggle]") as Element);
+    fireEvent.click(rowIn(overview, "Team").querySelector("[data-toggle]") as Element);
+    // A drag of Page Heading in the sidebar whose end the sidebar never heard of.
+    fireEvent.dragStart(rowIn(sidebar, "Page Heading"), { dataTransfer: dataTransfer() });
+    // Members is dragged in the overview and released over the sidebar's Specifications.
+    const transfer = dataTransfer();
+    fireEvent.dragStart(rowIn(overview, "Members"), { dataTransfer: transfer });
+    expect(dragAt("dragOver", rowIn(sidebar, "Specifications"), 20, transfer)).toBe(false);
+    dragAt("drop", rowIn(sidebar, "Specifications"), 20, transfer);
+    await flush();
+    expect(api.calls).toHaveLength(0);
+  });
+
+  it("a drop whose payload names another page (dragged in another tab) moves nothing", async () => {
+    tree();
+    startDrag("Team"); // whose end this tree never heard of
+    const fromAnotherTab = foreignDrag(PAGE_DRAG_TYPE, "elsewhere");
+    dragAt("drop", row("Specifications"), 20, fromAnotherTab);
+    await flush();
+    expect(api.calls).toHaveLength(0);
+    expect(names()).toEqual(["s", "team"]);
+  });
+
+  it("a drop or dragend that reaches the document ends the drag and removes the indicator", () => {
+    tree();
+    let transfer = startDrag("Team");
+    dragAt("dragOver", row("Specifications"), 2, transfer);
+    expect(document.querySelector("[data-drop]")).not.toBeNull();
+    fireEvent.drop(document.body, { dataTransfer: transfer }); // dropped outside the tree
+    expect(document.querySelector("[data-drop]")).toBeNull();
+
+    transfer = startDrag("Team");
+    dragAt("dragOver", row("Specifications"), 2, transfer);
+    fireEvent.dragEnd(document.body, { dataTransfer: transfer });
+    expect(document.querySelector("[data-drop]")).toBeNull();
+  });
+
   it("rolls back a refused move, says why, and refetches (rollback)", async () => {
     tree();
-    fireEvent.dragStart(row("Team"));
-    dragAt("drop", row("Specifications"), 20);
+    const transfer = startDrag("Team");
+    dragAt("drop", row("Specifications"), 20, transfer);
     expect(item("Specifications")).toHaveAttribute("aria-expanded", "true");
     expect(within(item("Specifications")).queryByRole("treeitem", { name: "Team" })).not.toBeNull();
     await flush();
@@ -293,8 +400,8 @@ describe("PageTree — drag to reorder and re-parent (10 §3.2)", () => {
 
   it("keeps the moved page where it was dropped while the request is in flight", async () => {
     const { rerenderWith } = tree();
-    fireEvent.dragStart(row("Team"));
-    dragAt("drop", row("Specifications"), 2);
+    const transfer = startDrag("Team");
+    dragAt("drop", row("Specifications"), 2, transfer);
     await flush();
     // A navigation refetch lands before the move's answer, with the server's pre-move tree.
     pathname = "/spaces/TEAM/pages/h";
@@ -378,6 +485,29 @@ describe("PageTree — freshness", () => {
     expect(names()).toEqual(["fresh"]);
   });
 
+  it("refetches when the tab is shown again, and not while it is hidden", async () => {
+    tree();
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    try {
+      visibility.mockReturnValue("hidden");
+      fireEvent(document, new Event("visibilitychange"));
+      await flush();
+      expect(api.calls).toHaveLength(0);
+      visibility.mockReturnValue("visible");
+      fireEvent(document, new Event("visibilitychange"));
+      await flush();
+      expect(api.calls.map((c) => `${c.method} ${c.url}`)).toEqual(["GET /api/v1/spaces/TEAM/pages"]);
+      await act(async () => {
+        api.calls[0]?.respond(200, sampleTree().map((p) => (p.id === "team" ? { ...p, title: "Team (renamed elsewhere)" } : p)));
+        await settle();
+      });
+      expect(names()).toEqual(["s", "team"]);
+      expect(item("Team (renamed elsewhere)")).toBeTruthy();
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it("adopts newer pages when the layout re-renders (router.refresh)", () => {
     const { rerender } = tree();
     rerender(
@@ -395,12 +525,28 @@ describe("PageTree — viewers who cannot edit", () => {
     tree({ canEdit: false });
     expect(screen.queryAllByRole("button", { name: /Create a page/ })).toHaveLength(0);
     expect(row("Team")).not.toHaveAttribute("draggable");
-    fireEvent.dragStart(row("Page Heading"));
-    expect(dragAt("dragOver", row("Team"), 20)).toBe(false);
+    const transfer = startDrag("Page Heading");
+    expect(transfer.setData).not.toHaveBeenCalled();
+    expect(dragAt("dragOver", row("Team"), 20, foreignDrag(PAGE_DRAG_TYPE, "h"))).toBe(false);
     act(() => item("Test session 1").focus());
     key(item("Test session 1"), "ArrowUp", { altKey: true });
     await flush();
     expect(api.calls).toHaveLength(0);
+  });
+
+  it("lose '+', dragging and drop targets when the layout re-renders without EDIT, and get them back with it", () => {
+    const { rerenderWith } = tree();
+    const plus = () => screen.queryAllByRole("button", { name: t("tree.createChild", { title: "Team" }) });
+    expect(plus()).toHaveLength(1);
+    expect(row("Team")).toHaveAttribute("draggable", "true");
+    rerenderWith({ canEdit: false }); // router.refresh() after EDIT was revoked: same pages, new permission
+    expect(plus()).toHaveLength(0);
+    expect(row("Team")).not.toHaveAttribute("draggable");
+    expect(screen.getByRole("tree")).not.toHaveAttribute("aria-describedby");
+    expect(dragAt("dragOver", row("Team"), 20, foreignDrag(PAGE_DRAG_TYPE, "s"))).toBe(false);
+    rerenderWith({ canEdit: true });
+    expect(plus()).toHaveLength(1);
+    expect(row("Team")).toHaveAttribute("draggable", "true");
   });
 });
 
@@ -478,6 +624,20 @@ describe("PageTree — empty, loading and error states (10 §12)", () => {
       await settle();
     });
     expect(names()).toEqual(["s", "team"]);
+  });
+
+  it("a retry that fails again says so again, with Try again, instead of loading for ever", async () => {
+    tree({ initial: { status: "error" } });
+    fireEvent.click(screen.getByRole("button", { name: t("tree.retry") }));
+    expect(screen.getByText(t("tree.loading"))).toBeTruthy();
+    await act(async () => {
+      api.calls[0]?.fail();
+      await settle();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(t("tree.error"));
+    expect(screen.queryByText(t("tree.loading"))).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("tree.retry") }));
+    expect(api.calls).toHaveLength(2);
   });
 
   it("loads by itself when the server passed nothing", async () => {

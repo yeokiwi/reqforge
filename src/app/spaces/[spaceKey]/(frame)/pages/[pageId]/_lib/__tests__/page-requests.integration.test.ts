@@ -24,7 +24,7 @@ import { ApiError, type FetchLike } from "@/ui/api-client";
 import { suggestCopyTitle } from "../copy-suggestion";
 import { copyFailure, deleteConfirmation, uploadFailureMessage } from "../dialog-messages";
 import { moveBodyFor, moveTargets } from "../move-targets";
-import { fetchAttachments, requestCopy, requestDelete, requestHide, requestMove, requestUpload } from "../page-requests";
+import { fetchAttachments, fetchDescendantCount, requestCopy, requestDelete, requestHide, requestMove, requestUpload } from "../page-requests";
 
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
@@ -152,6 +152,27 @@ describe("Delete: the confirmation's count is what goes", () => {
     expect(deleteConfirmation(page.descendantCount)).toContain("4 pages");
     expect(await requestDelete("TEAM", root, await browserAs("bob"))).toBe(4);
     expect(await tree()).toEqual([]);
+  });
+
+  it("the count the dialog reads as it opens is what goes, though the tree changed after the view rendered", async () => {
+    const ids = await buildTree("alice", "team", [{ title: "A" }, { title: "C" }]);
+    const a = ids["A"] ?? "";
+    // The view rendered A as a leaf ...
+    expect((await getPageView(alice, "TEAM", a)).page.descendantCount).toBe(0);
+    // ... then C went under A (the sidebar's drag sends this very request).
+    await requestMove("TEAM", ids["C"] ?? "", { parentId: a, index: 0 }, await browserAs("alice"));
+    const bob = await browserAs("bob");
+    const count = await fetchDescendantCount("TEAM", a, bob);
+    expect(count).toBe(1);
+    expect(deleteConfirmation(count)).toBe(t("pageDelete.body.oneChild"));
+    expect(await requestDelete("TEAM", a, bob)).toBe(count + 1);
+  });
+
+  it("a page that has gone is NOT_FOUND when counted", async () => {
+    const ids = await buildTree("alice", "team", [{ title: "Gone" }]);
+    await requestDelete("TEAM", ids["Gone"] ?? "", await browserAs("alice"));
+    const error = await fetchDescendantCount("TEAM", ids["Gone"] ?? "", await browserAs("bob")).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("a viewer without EDIT is FORBIDDEN, and nothing goes", async () => {

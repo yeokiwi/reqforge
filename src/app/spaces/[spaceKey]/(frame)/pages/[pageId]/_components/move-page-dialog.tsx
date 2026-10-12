@@ -5,26 +5,31 @@
 // space's pages in tree order, indented — leaving out the page itself and all its descendants
 // (it cannot go under itself). The list is a single-select listbox: Up/Down/Home/End choose,
 // and a filter field above it narrows it by title (then each match shows where it is). The page's
-// present place is marked and chosen at first, and Move stays unavailable until another place is
-// chosen. The request is `{ parentId, index }` with the index that puts the page last among its
-// new siblings.
+// present place is marked and chosen until the user chooses, and Move stays unavailable until
+// another place is chosen. The request is `{ parentId, index }` with the index that puts the page
+// last among its new siblings.
+//
+// The tree is the frame's live one — the PageTreeStore the sidebar shows — never the view's
+// server render, which a drag in the sidebar or another user's move outdates. It is refetched as
+// the dialog opens and followed while it is open; until the tree is loaded nothing can be moved.
 // spec: docs/specs/10-ui-reference.md section 4.1; docs/specs/09-decision-log.md sections RD-056, RD-059, RD-067, RD-070
 import { useRouter } from "next/navigation";
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { t } from "@/copy";
-import type { PageDetail, PageSummary } from "@/domain/documents/api-types";
+import type { PageDetail } from "@/domain/documents/api-types";
 import type { FetchLike } from "@/ui/api-client";
 import { Dialog } from "@/ui/dialog";
 import { moveFailureMessage } from "../_lib/dialog-messages";
+import { liveParentId } from "../_lib/live-tree";
 import { type MoveTarget, filterMoveTargets, moveBodyFor, moveTargets } from "../_lib/move-targets";
 import { requestMove } from "../_lib/page-requests";
 import { DialogAlert, DialogFooter, DialogStatus, dialogPrimaryClass, dialogSecondaryClass } from "./dialog-parts";
+import { useLiveTree } from "./use-live-tree";
 
 export interface MovePageDialogProps {
   readonly space: { readonly key: string; readonly name: string };
+  /** The page as the view rendered it; where it is now comes from the live tree. */
   readonly page: PageDetail;
-  /** The space's live pages, flat (listPageTree). */
-  readonly pages: readonly PageSummary[];
   readonly onClose: () => void;
   readonly fetchImpl?: FetchLike;
 }
@@ -33,13 +38,17 @@ export interface MovePageDialogProps {
 const keyOf = (target: MoveTarget): string => target.parentId ?? "";
 
 // spec: docs/specs/09-decision-log.md section RD-056 (moving within one space; never under itself or a descendant)
-export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MovePageDialogProps) {
+export function MovePageDialog({ space, page, onClose, fetchImpl }: MovePageDialogProps) {
   const router = useRouter();
-  const targets = useMemo(() => moveTargets(pages, page.id, page.parentId), [pages, page.id, page.parentId]);
+  const { store, model, status } = useLiveTree();
+  const pages = model.pages;
+  const loaded = status === "ready";
+  const parentId = liveParentId(pages, page);
+  const targets = useMemo(() => moveTargets(pages, page.id, parentId), [pages, page.id, parentId]);
   const [query, setQuery] = useState("");
   const visible = useMemo(() => filterMoveTargets(targets, query), [targets, query]);
-  const currentKey = targets.find((target) => target.current) ? (page.parentId ?? "") : null;
-  const [selectedKey, setSelectedKey] = useState<string | null>(currentKey);
+  // null until the user chooses: until then the choice is wherever the live tree has the page.
+  const [chosenKey, setChosenKey] = useState<string | null>(null);
   const [alert, setAlert] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -50,11 +59,16 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
 
   const indexByKey = useMemo(() => new Map(targets.map((target, index) => [keyOf(target), index])), [targets]);
   const optionId = (target: MoveTarget) => `${baseId}-option-${indexByKey.get(keyOf(target)) ?? 0}`;
-  const selected = selectedKey === null ? undefined : targets.find((target) => keyOf(target) === selectedKey);
+  const selected = chosenKey === null ? targets.find((target) => target.current) : targets.find((target) => keyOf(target) === chosenKey);
   const activeVisible = selected !== undefined && visible.includes(selected) ? selected : undefined;
   const activeId = activeVisible !== undefined ? optionId(activeVisible) : undefined;
   const unchanged = selected === undefined || selected.current;
   const matchesSomething = visible.some((target) => target.parentId !== null);
+
+  // The tree as it is now, not as the store last fetched it.
+  useEffect(() => {
+    void store.refresh();
+  }, [store]);
 
   // Keep the chosen option in view as the arrows move through a long list.
   useEffect(() => {
@@ -68,7 +82,7 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
 
   const choose = (target: MoveTarget | undefined) => {
     if (target === undefined || busyRef.current) return;
-    setSelectedKey(keyOf(target));
+    setChosenKey(keyOf(target));
     setAlert(null);
   };
 
@@ -111,13 +125,15 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busyRef.current || selected === undefined || unchanged) return;
+    if (busyRef.current || !loaded || selected === undefined || unchanged) return;
     busyRef.current = true;
     setBusy(true);
     setAlert(null);
     try {
       await requestMove(space.key, page.id, moveBodyFor(pages, page.id, selected.parentId), fetchImpl);
       onClose();
+      // The tree (sidebar, breadcrumb) and the server's render of the page both follow.
+      void store.refresh();
       router.refresh();
     } catch (error) {
       setAlert(moveFailureMessage(error));
@@ -127,7 +143,7 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
   };
 
   const choice =
-    selected === undefined
+    selected === undefined || !loaded
       ? ""
       : selected.current
         ? t("pageMove.choice.same")
@@ -193,11 +209,14 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
             );
           })}
         </div>
-        <DialogStatus message={query.trim() !== "" && !matchesSomething ? t("pageMove.none", { q: query.trim() }) : ""} visible />
+        <DialogStatus
+          message={status === "loading" ? t("pageMove.loading") : query.trim() !== "" && loaded && !matchesSomething ? t("pageMove.none", { q: query.trim() }) : ""}
+          visible
+        />
         <p id={choiceId} className="mt-3 text-sm text-slate-700" data-testid="move-choice">
           {choice}
         </p>
-        <DialogAlert message={alert} />
+        <DialogAlert message={alert ?? (status === "error" ? t("pageMove.loadFailed") : null)} />
         <DialogStatus message={busy ? t("pageMove.busy") : ""} />
         <DialogFooter>
           <button type="button" className={dialogSecondaryClass} aria-disabled={busy || undefined} onClick={dismiss}>
@@ -206,7 +225,7 @@ export function MovePageDialog({ space, page, pages, onClose, fetchImpl }: MoveP
           <button
             type="submit"
             className={dialogPrimaryClass}
-            aria-disabled={busy || unchanged || undefined}
+            aria-disabled={busy || unchanged || !loaded || undefined}
             aria-busy={busy || undefined}
             aria-describedby={choiceId}
           >

@@ -6,7 +6,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { t } from "@/copy";
-import { diffDocuments } from "@/domain/documents";
+import { type BlockDiff, diffDocuments } from "@/domain/documents";
 import { buildCompareModel } from "../../_lib/compare-model";
 import { bob, detail, doc, h, p, page } from "../../_lib/__tests__/fixtures";
 import { CompareView } from "../compare-view";
@@ -16,7 +16,7 @@ afterEach(cleanup);
 function renderCompare(
   leftDoc: unknown,
   rightDoc: unknown,
-  over: { leftTitle?: string; rightTitle?: string; approximate?: boolean; leftMessage?: string | null } = {},
+  over: { leftTitle?: string; rightTitle?: string; approximate?: boolean; leftMessage?: string | null; blocks?: readonly BlockDiff[] } = {},
 ) {
   const left = detail(2, leftDoc, { title: over.leftTitle ?? "Specifications", message: over.leftMessage ?? null });
   const right = detail(5, rightDoc, { title: over.rightTitle ?? "Specifications", current: true, author: bob, message: "Restored from v. 1" });
@@ -25,7 +25,7 @@ function renderCompare(
     page: page(),
     left,
     right,
-    blocks: diffDocuments(left.content, right.content),
+    blocks: over.blocks ?? diffDocuments(left.content, right.content),
     approximate: over.approximate ?? false,
   });
   return render(<CompareView model={model} />);
@@ -178,6 +178,14 @@ describe("CompareView — headers and notices", () => {
     renderCompare(doc(), doc(p("First words")));
     expect(screen.getAllByTestId("compare-side")[0]).toHaveTextContent(t("compare.empty"));
     expect(statuses()).toEqual(["added"]);
+    expect(screen.queryByTestId("compare-identical")).toBeNull();
+    expect(screen.getByTestId("compare-summary").textContent).toBe("1 added, 0 removed, 0 changed");
+    cleanup();
+    renderCompare(doc(p("Last words")), doc());
+    expect(screen.getAllByTestId("compare-side")[1]).toHaveTextContent(t("compare.empty"));
+    expect(statuses()).toEqual(["removed"]);
+    expect(screen.queryByTestId("compare-identical")).toBeNull();
+    expect(screen.getByTestId("compare-summary").textContent).toBe("0 added, 1 removed, 0 changed");
     cleanup();
     renderCompare(doc(), doc());
     expect(screen.queryAllByTestId("compare-row")).toEqual([]);
@@ -189,6 +197,25 @@ describe("CompareView — headers and notices", () => {
     expect(screen.getByRole("note").textContent).toBe(t("compare.approximate"));
     cleanup();
     renderCompare(doc(p("A")), doc(p("B")));
+    expect(screen.queryByTestId("compare-approximate")).toBeNull();
+  });
+
+  it("warns when the alignment it is given left equal blocks unmatched, without the server's flag (RD-066)", () => {
+    // What the work cap returns for [A, B] → [B, A] when it leaves the region unaligned. An exact
+    // alignment would have kept one block as Unchanged.
+    const [A, B] = [p("A"), p("B")];
+    renderCompare(doc(A, B), doc(B, A), {
+      approximate: false,
+      blocks: [
+        { status: "changed", left: A, right: B, leftIndex: 0, rightIndex: 0 },
+        { status: "changed", left: B, right: A, leftIndex: 1, rightIndex: 1 },
+      ],
+    });
+    expect(statuses()).toEqual(["changed", "changed"]);
+    expect(screen.getByTestId("compare-approximate")).toHaveTextContent(t("compare.approximate"));
+    cleanup();
+    renderCompare(doc(A, B), doc(B, A), { approximate: false });
+    expect(statuses()).not.toContain("changed");
     expect(screen.queryByTestId("compare-approximate")).toBeNull();
   });
 });

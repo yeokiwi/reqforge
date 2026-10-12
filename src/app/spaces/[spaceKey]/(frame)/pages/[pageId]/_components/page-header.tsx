@@ -7,21 +7,27 @@
 // It owns which dialog is open (PageDialogKind | null): the 📎 icon and the `···` menu's dialog
 // items open one, <PageDialogs> renders it, and when it closes focus goes back to the control
 // that opened it (the menu's own item is gone by then, so the `···` button takes it).
-// spec: docs/specs/10-ui-reference.md section 4.1; docs/specs/09-decision-log.md sections RD-059, RD-078
-import { useEffect, useRef, useState } from "react";
-import type { PageDetail, PageSummary } from "@/domain/documents";
+//
+// The breadcrumb's ancestors are the frame's live tree's (the PageTreeStore the sidebar shows),
+// so a move made in the sidebar or from this view shows here at once; the render's crumbs are the
+// fallback while the tree does not have the page. While the header is shown it counts as one of
+// the tree's consumers, so the store refetches on navigation even when the sidebar is collapsed.
+// spec: docs/specs/10-ui-reference.md sections 3.2 and 4.1; docs/specs/09-decision-log.md sections RD-056, RD-059, RD-078
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PageDetail } from "@/domain/documents";
 import { type FetchLike, spaceUrls } from "@/ui/api-client";
-import { Breadcrumb, type Crumb } from "@/ui/page-view/breadcrumb";
+import { Breadcrumb, type Crumb, pageCrumbs } from "@/ui/page-view/breadcrumb";
+import { liveAncestors } from "../_lib/live-tree";
 import { BylineIcons } from "./byline-icons";
 import { PageActions } from "./page-actions";
 import { type PageDialogKind, PageDialogs } from "./page-dialogs";
 import { PageMenu } from "./page-menu";
+import { useLiveTree } from "./use-live-tree";
 
 export interface PageHeaderProps {
   readonly space: { readonly key: string; readonly name: string };
   readonly page: PageDetail;
-  /** The space's whole tree, for the Move dialog. */
-  readonly pages: readonly PageSummary[];
+  /** The render's crumbs (PageDetail.ancestors): shown while the live tree does not have the page. */
   readonly crumbs: readonly Crumb[];
   /** The page's own path (Share copies it). */
   readonly viewHref: string;
@@ -33,7 +39,13 @@ export interface PageHeaderProps {
 
 type Opener = "menu" | "attachments";
 
-export function PageHeader({ space, page, pages, crumbs, viewHref, editHref, fetchImpl }: PageHeaderProps) {
+export function PageHeader({ space, page, crumbs: renderedCrumbs, viewHref, editHref, fetchImpl }: PageHeaderProps) {
+  const { store, model } = useLiveTree();
+  const crumbs = useMemo(() => {
+    const ancestors = liveAncestors(model, page.id);
+    return ancestors === null ? renderedCrumbs : pageCrumbs(space.key, ancestors, page.title);
+  }, [model, page.id, page.title, space.key, renderedCrumbs]);
+  useEffect(() => store.retain(), [store]);
   const [dialog, setDialog] = useState<PageDialogKind | null>(null);
   const opener = useRef<Opener | null>(null);
   const menuAnchor = useRef<HTMLDivElement>(null);
@@ -75,7 +87,7 @@ export function PageHeader({ space, page, pages, crumbs, viewHref, editHref, fet
         }
       />
       {dialog !== null ? (
-        <PageDialogs kind={dialog} page={page} space={space} pages={pages} onClose={() => setDialog(null)} fetchImpl={fetchImpl} />
+        <PageDialogs kind={dialog} page={page} space={space} onClose={() => setDialog(null)} fetchImpl={fetchImpl} />
       ) : null}
     </div>
   );

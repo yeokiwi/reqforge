@@ -7,10 +7,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/copy";
 import { ApiError } from "@/ui/api-client";
-import { CreatePageButton, type CreatePageButtonProps, createFailureMessage, editHrefOf } from "@/ui/create-page-button";
+import { CREATE_LOCK_MS, CreatePageButton, type CreatePageButtonProps, createFailureMessage, editHrefOf } from "@/ui/create-page-button";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+/** The URL the browser is on; a test changes it and re-renders to stand for a navigation. */
+const nav = vi.hoisted(() => ({ pathname: "/spaces/TEAM" }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => nav.pathname }));
 
 type Call = { method: string; url: string; body: BodyInit | null | undefined; headers: Record<string, string> };
 let calls: Call[];
@@ -38,12 +40,16 @@ const problem = (status: number, code: string) =>
 beforeEach(() => {
   calls = [];
   respond = () => created("TEAM", "p-new");
+  nav.pathname = "/spaces/TEAM";
   vi.clearAllMocks();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
-function renderButton(over: Partial<CreatePageButtonProps> = {}) {
-  return render(
+function button(over: Partial<CreatePageButtonProps> = {}) {
+  return (
     <CreatePageButton
       spaceKey="TEAM"
       creatableSpaces={[
@@ -52,8 +58,12 @@ function renderButton(over: Partial<CreatePageButtonProps> = {}) {
       ]}
       fetchImpl={fetchImpl}
       {...over}
-    />,
+    />
   );
+}
+
+function renderButton(over: Partial<CreatePageButtonProps> = {}) {
+  return render(button(over));
 }
 
 const createButton = () => screen.getByRole("button", { name: t("shell.create") });
@@ -134,6 +144,70 @@ describe("Create inside a space the viewer can edit (RD-056)", () => {
     const alert = await screen.findByRole("alert");
     fireEvent.click(within(alert).getByRole("button", { name: t("create.dismiss") }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("after a create, the lock is released if the editor never replaces the screen", () => {
+  // The top bar lives in the frame's persistent layout. If the push to the editor is superseded
+  // (the user clicks a sidebar link before the editor arrives) or bounced back into the frame
+  // (EDIT revoked between the POST and the editor's load), this same button stays on screen.
+  it("a navigation that lands back in this frame frees Create, and the next press makes a page", async () => {
+    const view = renderButton();
+    fireEvent.click(createButton());
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/spaces/TEAM/pages/p-new/edit"));
+    expect(createButton()).toHaveAttribute("aria-disabled", "true");
+
+    nav.pathname = "/spaces/TEAM/pages/p-other";
+    view.rerender(button());
+    expect(createButton()).not.toHaveAttribute("aria-disabled");
+    expect(createButton()).not.toHaveAttribute("aria-busy");
+
+    respond = () => created("TEAM", "p-second");
+    fireEvent.click(createButton());
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/spaces/TEAM/pages/p-second/edit"));
+    expect(calls).toHaveLength(2);
+  });
+
+  it("with no navigation at all, Create is free again after CREATE_LOCK_MS — and not before", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    renderButton();
+    fireEvent.click(createButton());
+    await vi.waitFor(() => expect(router.push).toHaveBeenCalledTimes(1));
+    act(() => vi.advanceTimersByTime(CREATE_LOCK_MS - 200));
+    expect(createButton()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(createButton());
+    expect(calls).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(200));
+    expect(createButton()).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(createButton());
+    expect(calls).toHaveLength(2);
+  });
+
+  it("the picker is freed the same way", async () => {
+    respond = () => created("PLAT", "p9");
+    const view = renderButton({ spaceKey: null });
+    fireEvent.click(createButton());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Platform" }));
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1));
+    nav.pathname = "/spaces";
+    view.rerender(button({ spaceKey: null }));
+    fireEvent.click(createButton());
+    expect(screen.getByRole("menuitem", { name: "Team" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("a navigation while the POST is still in flight does not free it: that would make a second page", async () => {
+    let release: () => void = () => undefined;
+    respond = () => new Promise<Response>((resolve) => (release = () => resolve(created("TEAM", "p-new"))));
+    const view = renderButton();
+    fireEvent.click(createButton());
+    nav.pathname = "/spaces/TEAM/pages/p-other";
+    view.rerender(button());
+    expect(createButton()).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(createButton());
+    expect(calls).toHaveLength(1);
+    await act(async () => release());
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1));
+    expect(calls).toHaveLength(1);
   });
 });
 

@@ -67,10 +67,42 @@ describe("SpaceOverview", () => {
     expect(screen.getAllByRole("button", { name: t("tree.createPage") })).toHaveLength(1);
   });
 
-  it("adopts the pages it was rendered with, which are fresher than the layout's", async () => {
+  it("shows the pages it was rendered with while the store has nothing it fetched itself", async () => {
     overview({ layoutPages: [page("old", "Old")], pages: sampleTree() });
     await act(() => settle());
     expect(within(overviewTree()).getAllByRole("treeitem").map((el) => el.getAttribute("data-tree-id"))).toEqual(["s", "team"]);
+  });
+
+  it("a payload rendered before a confirmed move (Back to the overview) does not undo the move", async () => {
+    const layoutInitial = { status: "ready" as const, pages: sampleTree() };
+    const ui = (pages: PageSummary[]) => (
+      <PageTreeProvider spaceKey="TEAM" canEdit initial={layoutInitial} fetchImpl={api.fetchImpl} storage={() => null}>
+        <SpaceOverview space={{ key: "TEAM", name: "Team" }} initial={{ status: "ready", pages }} highlightId={null} />
+      </PageTreeProvider>
+    );
+    const { rerender } = render(ui(sampleTree()));
+    const specs = () => within(overviewTree()).getByRole("treeitem", { name: "Specifications" });
+    const childOrder = () => within(specs()).getAllByRole("treeitem").map((el) => el.getAttribute("data-tree-id"));
+    fireEvent.click(specs().querySelector("[data-toggle]") as Element);
+    const t1 = within(overviewTree()).getByRole("treeitem", { name: "Test session 1" });
+    act(() => t1.focus());
+    fireEvent.keyDown(t1, { key: "ArrowUp", altKey: true });
+    await act(() => settle());
+    expect(api.calls[0]).toMatchObject({ method: "POST", url: "/api/v1/spaces/TEAM/pages/t1/move", body: { parentId: "s", index: 0 } });
+    await act(async () => {
+      api.calls[0]?.respond(200, page("t1", "Test session 1", "s", 0));
+      await settle();
+    });
+    const moved = sampleTree().map((p) => (p.id === "t1" ? { ...p, ordinal: 0 } : p.id === "h" ? { ...p, ordinal: 1 } : p));
+    await act(async () => {
+      api.pending().find((c) => c.method === "GET")?.respond(200, moved);
+      await settle();
+    });
+    expect(childOrder()).toEqual(["t1", "h", "t1a"]);
+
+    rerender(ui(sampleTree())); // Next replays the overview's cached, pre-move payload
+    await act(() => settle());
+    expect(childOrder()).toEqual(["t1", "h", "t1a"]);
   });
 });
 
