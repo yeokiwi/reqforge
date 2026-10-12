@@ -1,7 +1,7 @@
 // Page history (RD-060): list, read, restore, delete one version, compare two.
 import {
   canDeleteVersion,
-  diffDocuments,
+  diffDocumentsReport,
   type BlockDiff,
   type PageDetail,
   type PublishResponse,
@@ -107,6 +107,8 @@ export interface VersionComparison {
   readonly right: VersionDetail;
   /** Top-level blocks aligned and classified (RD-060, capped by RD-066). */
   readonly blocks: BlockDiff[];
+  /** True when RD-066's work cap left the alignment possibly inexact: some equal blocks may show as changed. */
+  readonly approximate: boolean;
 }
 
 /** Compare selected versions: both, side by side, with changed top-level blocks. Needs space VIEW. */
@@ -122,11 +124,13 @@ export async function compareVersions(
   if (!isVersionNumber(a) || !isVersionNumber(b)) throw new NotFoundError("Version");
   const [left, right] = await Promise.all([readVersion(rootDb, actor.id, page.id, a), readVersion(rootDb, actor.id, page.id, b)]);
   if (!left || !right) throw new NotFoundError("Version");
+  const diff = diffDocumentsReport(left.content, right.content);
   return {
     space,
     page: toPageDetail(page, space),
     left: toVersionDetail(left),
     right: toVersionDetail(right),
-    blocks: diffDocuments(left.content, right.content),
+    blocks: diff.blocks,
+    approximate: diff.approximate,
   };
 }

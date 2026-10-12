@@ -302,9 +302,9 @@ test.describe("who can see what (spec 07 §2, rule X2)", () => {
     expect(response?.status()).toBe(404);
   });
 
-  test("inside a space they can edit, Create holds its slot but is inert until pages exist", async ({ page }) => {
+  test("inside a space they can edit, Create is an enabled button (it makes a page: RD-056, slice-1 spec)", async ({ page }) => {
     await signIn(page, "bob", "/spaces/TEAM");
-    await expect(page.getByRole("banner").getByRole("button", { name: t("shell.create") })).toBeDisabled();
+    await expect(page.getByRole("banner").getByRole("button", { name: t("shell.create") })).toBeEnabled();
   });
 
   test("a viewer with no edit rights is offered the space picker instead — with no spaces to pick", async ({ page }) => {

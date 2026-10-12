@@ -84,9 +84,21 @@ export function topLevelBlocks(doc: unknown): unknown[] {
  */
 // spec: docs/specs/09-decision-log.md section RD-060 (Compare selected versions)
 export function diffDocuments(a: unknown, b: unknown): BlockDiff[] {
+  return diffDocumentsReport(a, b).blocks;
+}
+
+/** `diffDocuments`, plus whether the alignment may have missed equal blocks (RD-066's cap). */
+export interface DiffReport {
+  readonly blocks: BlockDiff[];
+  /** True when a work or table budget was hit: some equal blocks may show as changed, removed or added. */
+  readonly approximate: boolean;
+}
+
+// spec: docs/specs/09-decision-log.md sections RD-060 (Compare selected versions), RD-066 (work cap)
+export function diffDocumentsReport(a: unknown, b: unknown, options: AlignOptions = {}): DiffReport {
   const left = topLevelBlocks(a);
   const right = topLevelBlocks(b);
-  const matches = alignSequences(left.map(canonicalJson), right.map(canonicalJson));
+  const { matches, exact } = alignReport(left.map(canonicalJson), right.map(canonicalJson), options);
 
   const out: BlockDiff[] = [];
   let i = 0;
@@ -107,7 +119,7 @@ export function diffDocuments(a: unknown, b: unknown): BlockDiff[] {
     j = mj + 1;
   }
   flushGap(left.length, right.length);
-  return out;
+  return { blocks: out, approximate: !exact };
 }
 
 export interface AlignOptions {
@@ -145,6 +157,24 @@ export function alignSequences<K>(
   right: readonly K[],
   options: AlignOptions = {},
 ): Array<[number, number]> {
+  return alignReport(left, right, options).matches;
+}
+
+/** The matches of `alignSequences`, and whether they are certainly a longest common subsequence. */
+export interface AlignReport {
+  readonly matches: Array<[number, number]>;
+  /**
+   * False as soon as a budget was hit (a region left unaligned, or split on patience anchors,
+   * which need not give the longest subsequence). True means exact: no equal pair was left
+   * unmatched that a longest alignment would have matched. Conservative: false may still be
+   * exact, true never is not.
+   */
+  readonly exact: boolean;
+}
+
+// spec: docs/specs/09-decision-log.md section RD-066 (the screen must say when the alignment is approximate)
+export function alignReport<K>(left: readonly K[], right: readonly K[], options: AlignOptions = {}): AlignReport {
+  let exact = true;
   const budget = options.cellBudget ?? DEFAULT_CELL_BUDGET;
   let workLeft = options.workBudget ?? DEFAULT_WORK_BUDGET;
   /** Spends `cost` if it fits in what is left of the work budget. */
@@ -187,7 +217,10 @@ export function alignSequences<K>(
     while (xs < xe && ys < ye && x[xs] === y[ys]) matches.push([xs++, ys++]);
     while (xs < xe && ys < ye && x[xe - 1] === y[ye - 1]) matches.push([--xe, --ye]);
     if (xs === xe || ys === ye) continue;
-    if (!charge(xe - xs + (ye - ys))) continue; // out of work: leave this region unaligned
+    if (!charge(xe - xs + (ye - ys))) {
+      exact = false;
+      continue; // out of work: leave this region unaligned
+    }
 
     // Only items present on both sides can be matched; the rest are gaps whatever happens.
     stamp++;
@@ -205,6 +238,9 @@ export function alignSequences<K>(
       continue;
     }
 
+    // Over a budget from here on: whatever is built is a valid common subsequence, not
+    // necessarily the longest.
+    exact = false;
     if (!charge(xi.length + yi.length)) continue;
     const anchors = patienceAnchors(xi, yi, x, y, scratch);
     if (anchors.length === 0) continue; // over budget and nothing unique to split on: leave unaligned
@@ -218,7 +254,7 @@ export function alignSequences<K>(
     }
     work.push([px, xe, py, ye]);
   }
-  return matches.sort((m1, m2) => m1[0] - m2[0]);
+  return { matches: matches.sort((m1, m2) => m1[0] - m2[0]), exact };
 }
 
 /** Exact LCS over the filtered positions, by a suffix-length table and a forward walk. */

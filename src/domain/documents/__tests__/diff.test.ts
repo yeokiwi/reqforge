@@ -1,6 +1,14 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { type BlockDiff, alignSequences, canonicalJson, diffDocuments, topLevelBlocks } from "@/domain/documents";
+import {
+  type BlockDiff,
+  alignReport,
+  alignSequences,
+  canonicalJson,
+  diffDocuments,
+  diffDocumentsReport,
+  topLevelBlocks,
+} from "@/domain/documents";
 
 // RD-060: compare shows both versions with changed top-level blocks highlighted (added,
 // removed, changed). Block identity is canonical-JSON equality.
@@ -338,5 +346,60 @@ describe("diffDocuments properties", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+describe("alignReport: whether the alignment is exact (RD-066)", () => {
+  it("is exact when every region fits the budgets, whatever the answer", () => {
+    expect(alignReport(["a", "b", "a"], ["b", "a", "b"]).exact).toBe(true);
+    expect(alignReport([], ["a"]).exact).toBe(true);
+    expect(alignReport(["a", "b"], ["a", "b"]).exact).toBe(true);
+  });
+
+  it("is not exact once the work budget leaves a region unaligned", () => {
+    const report = alignReport(["s", "x", "y", "e"], ["s", "y", "x", "e"], { workBudget: 0 });
+    expect(report.exact).toBe(false);
+    expect(report.matches).toEqual([
+      [0, 0],
+      [3, 3],
+    ]);
+  });
+
+  it("is not exact once the table budget forces patience anchors", () => {
+    const x = ["a", "b", "a", "c", "a"];
+    const y = ["a", "c", "a", "b", "a"];
+    expect(alignReport(x, y).exact).toBe(true);
+    expect(alignReport(x, y, { cellBudget: 4 }).exact).toBe(false);
+  });
+
+  it("alignSequences returns the same matches", () => {
+    const x = ["a", "b", "c", "d"];
+    const y = ["b", "a", "d", "c"];
+    for (const options of [{}, { cellBudget: 4 }, { workBudget: 0 }]) {
+      expect(alignSequences(x, y, options)).toEqual(alignReport(x, y, options).matches);
+    }
+  });
+});
+
+describe("diffDocumentsReport", () => {
+  const doc = (...texts: string[]) => ({
+    type: "doc",
+    content: texts.map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })),
+  });
+
+  it("returns the rows of diffDocuments, and approximate:false for an ordinary comparison", () => {
+    const a = doc("one", "two", "three");
+    const b = doc("one", "2", "three", "four");
+    const report = diffDocumentsReport(a, b);
+    expect(report.blocks).toEqual(diffDocuments(a, b));
+    expect(report.approximate).toBe(false);
+  });
+
+  it("says approximate when the budget was hit, with rows that are still a valid comparison", () => {
+    const a = doc("s", "x", "y", "e");
+    const b = doc("s", "y", "x", "e");
+    const report = diffDocumentsReport(a, b, { workBudget: 0 });
+    expect(report.approximate).toBe(true);
+    expect(report.blocks.map((r) => r.status)).toEqual(["same", "changed", "changed", "same"]);
   });
 });

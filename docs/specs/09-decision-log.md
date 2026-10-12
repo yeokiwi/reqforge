@@ -988,3 +988,145 @@ heartbeats.
 - **Shortcuts that are ours:** `Mod-K` link dialog, `Mod-F` find, `Mod-/` shortcut list, `Enter`
   on a selected status or date opens its editor; the rest is TipTap's default (justify's
   `Mod-Shift-J` is unbound).
+
+### RD-079 — `Create` makes a page; opening a page counts as opening its space
+**accepted.** Supersedes the interim clause of `RD-052` ("disabled inside a space the user can
+edit until pages exist"); `10` §2's `Create` row says so. Extends `RD-056`.
+
+- Inside a space the viewer can edit, `Create` posts with no body and opens the editor on the new
+  `Untitled` page. Elsewhere (no space, or a space the viewer cannot edit) it stays the "Choose a
+  space" menu, and **picking a space now creates the page there** the same way.
+- While the request is in flight the button is `aria-disabled` and `aria-busy` (it stays
+  focusable, `RD-078`'s convention), so a double click makes one page; it stays busy after
+  success until the editor replaces the screen. A failure shows a dismissible alert worded from
+  the problem `code` (`FORBIDDEN`, `NOT_FOUND`, anything else), never from the server's text.
+- **Reading a page counts as opening its space** for `Spaces ▾` and for `/` (`RD-052`): the page
+  view records the visit after the page was found, so an invisible space or page records nothing.
+
+### RD-080 — The page view
+**accepted.** Extends `10` §4, `RD-055`, `RD-059`, `RD-060`, `RD-061`, `RD-078`.
+
+- **A past version (`?version=N`)** shows that version's title as the `h1` and window title and its
+  content read-only under a `role=status` banner linking back to the current version; the
+  breadcrumb's last crumb stays the page's *current* title; `Edit` is hidden. `?version=` equal to
+  the current version is the current view. A malformed `?version` (empty, signed, padded,
+  fractional, beyond int4, repeated) is a 404 in a page URL, where the API answers 422
+  (`RD-072`): in a URL the value picks the resource.
+- **Draft notice.** `RD-055` says `Close` keeps the draft but not how the view shows it. Above the
+  title, only on the current version, only for the viewer's own draft and while they still have
+  `EDIT`: *Continue editing* and *Discard draft* (a confirmation, then `DELETE` draft).
+- **Toggles.** `Save for later` and `Watching` change at once (`aria-pressed`), then `PUT` /
+  `DELETE`; a failure rolls back with an alert; a press while one is in flight is ignored.
+- **Share** copies the page's own absolute URL, never `?version=N`, with a fallback when
+  `navigator.clipboard` is unavailable and a polite "Link copied" announcement.
+- **`E` opens the editor** unless `Ctrl`, `Meta`, `Alt` or `Shift` is held, on auto-repeat, during
+  IME composition, when another handler took the key, while a dialog is open, or while focus is
+  in a text field, `contenteditable`, or a widget with its own letter keys (menu, tree, listbox,
+  grid, combobox).
+- **The editor route** redirects a viewer who can see the page but cannot edit to the page view,
+  and shows the 404 page for an invisible space or page. The editor is a full-window surface in
+  its own route group: no top bar, no sidebar (`10` §5.1 draws the toolbar as the top row).
+- **Footer:** laid out with no elements (`10` §4.3) but with their rows reserved.
+
+### RD-081 — The page menu's dialogs
+**accepted.** Extends `RD-056`, `RD-058`, `RD-059`, `RD-074`.
+
+- **Attachments** lists the page's live attachments: name (a download link, with a 32 px
+  thumbnail when the file is an image), size, who, when (UTC); *Hide* for editors; one file per
+  upload, refused client-side when empty or over 10 MiB; no drag-and-drop; hidden attachments
+  and the content type are not listed.
+- **Page information** is read-only and shows only what the API returns: title, id, space,
+  created and last modified (who, when), the current version (a link to history), whether the
+  viewer watches.
+- **Copy:** one title field, prefilled `Copy of <title>` made unique and always sent explicitly,
+  so a title taken in the meantime comes back as `TITLE_TAKEN` under the field instead of
+  silently becoming `… 2`; no destination picker (`RD-074`: last among the source's siblings),
+  and the dialog says it copies one page only. On success the copy's view opens. `TOO_LARGE`
+  from the copy budget is worded as such, not as the content limit.
+- **Move:** a filterable single-select listbox (not a tree widget): *At the top level* first, then
+  pages in tree order, indented; the page and all its descendants are not offered; the current
+  parent is preselected and *Move* stays disabled until another place is chosen, so the dialog
+  never reorders within a parent (the tree's drag does that); the page goes last among its new
+  siblings.
+- **Delete** names how many pages will go (the page plus its descendants), says nothing about
+  Trash (slice 16a), and on success replaces the history entry with the space overview so *Back*
+  cannot land on the deleted page's 404.
+- **While a request is in flight** Copy, Move and Delete ignore Escape, backdrop and Cancel and
+  drop a second press. Failure wording is chosen from the problem `code`; `NOT_FOUND` always
+  reads "This page no longer exists" (`RD-051`).
+- **The page view loads the space's whole tree** for the Move picker. Cost grows with the space;
+  loading it when Move opens is the alternative if that ever matters.
+
+### RD-082 — The page tree and the space overview
+**accepted.** Extends `10` §3.2 and §11, `RD-056`, `RD-059`.
+
+- **Freshness.** A layout is not re-rendered by client navigation, so the tree is a client store
+  that starts from the server's pages (first paint right, links work without JavaScript) and
+  refetches `GET /pages` on every pathname change, when the tab becomes visible, and after its own
+  moves. Only a `GET` answer or a confirmed mutation decides which tree is newest (a response
+  older than the latest applied state is ignored); pending moves are replayed on top of every
+  refetch. After any mutation that stays on the same URL, the caller calls `router.refresh()`.
+- **Expansion** is remembered per space in `localStorage` (`reqforge.pageTree.expanded.{KEY}`, at
+  most 5,000 ids, every access guarded), shared by the sidebar and the overview; the current page's
+  ancestors open on each navigation; remembered state is read after hydration.
+- **Drag and drop** (editors only): a row's top quarter means *before*, the bottom quarter
+  *after*, the middle *onto* (last child); dropping after an open parent makes the page its first
+  child; a closed parent that receives a page opens. A drop target is offered only for a drag
+  carrying `application/x-reqforge-page` whose payload names the page this tree remembers
+  dragging, and never onto the page itself or a descendant. Updates are optimistic and **rolled
+  back with an alert on any refusal**; moves are sent one at a time and a refusal also cancels
+  the moves queued after it.
+- **Keyboard moves** (editors): `Alt+↑/↓` among siblings, `Alt+Shift+→` last child of the page
+  above, `Alt+Shift+←` up a level after its parent; `Alt+←` alone is never claimed (browser Back);
+  the result is announced after the server confirms.
+- **`+` (create a child)** on each row for editors: on hover or focus in the sidebar (always on
+  touch screens), always visible in the overview; one create at a time per tree.
+- **Tree markup** is the WAI-ARIA tree: `treeitem` takes focus (named by its title link), roving
+  tabindex, `aria-expanded`, `aria-current="page"` and bold on the current page.
+- **Space overview** (`/spaces/{KEY}`): the space name as `h1` and the whole tree; `?highlight=`
+  expands the path, marks the page (amber ring, `aria-current`), scrolls it into view once, and
+  ignores a missing, repeated, malformed or invisible id. Editors get a root *Create a page*
+  above the tree (below `space.empty` when the space is empty).
+- **The Requirements screen** keeps the real page tree in its sidebar until slice 8 builds
+  `TRACEABILITY MATRIXES`.
+
+### RD-083 — Page history and compare
+**accepted.** Extends `10` §23, `RD-060`, `RD-066`.
+
+- **Who sees what.** *Restore* needs `EDIT`, *Delete* space `ADMIN`; a missing permission **hides**
+  the control (as the `···` menu does), so an `ADMIN` without `EDIT` gets *Delete* but not
+  *Restore*. A control is *disabled with a reason* only for a state of the version itself: a pinned
+  version's *Delete*. The Actions column is always present. A version is never deletable when it is
+  the current one (no control at all).
+- **The pinned tooltip** is the video's "Pinned by baseline {n}" when the API names the baseline
+  (several: "Pinned by baseline 3, 5"); until slice 13 it sends only `pinned: true`, and the tooltip
+  reads "Pinned by a baseline".
+- **Selection.** The video draws `☐` on every row but `●` on the CURRENT row; read as that row's
+  box being ticked, with the header `☐` **not** a select-all ("exactly two" makes select-all
+  useless; its accessible name is "Select"). *Revisit against videos-2 frame 3:46–3:54.* Any number
+  of boxes may be ticked; *Compare selected versions* is `aria-disabled` (focusable) unless exactly
+  two distinct versions are ticked, and says why ("Select exactly two versions to compare. N
+  selected.").
+- **Compare URL** `?a={n}&b={m}`: the history page always sends the lower number as `a`; a
+  hand-typed reversed pair is shown as given; a missing, repeated, empty, signed, fractional,
+  padded, beyond-int4 or equal pair is a 404.
+- **Compare screen:** heading "Compare v. a with v. b", a link back to Page History, the breadcrumb
+  (the page title is a link there), then two equal columns with the version label (CURRENT links to
+  the view, others to `?version=N`), title, Published, Changed By, Comment. Every block appears in
+  order (no "show unchanged" toggle). Status is a coloured edge **and** a badge with a glyph and a
+  word (Added green, Removed red, Changed orange); unchanged rows carry a screen-reader-only
+  "Unchanged"; below the `md` breakpoint each row stacks. Above the table: a count, or "v. a and v. b
+  have the same content."; a "Title changed" badge when titles differ.
+- **RD-066's cap is reported.** `VersionComparison.approximate` is true when a work or table budget
+  left the alignment possibly inexact (`diffDocumentsReport`, `alignReport`); the screen then says
+  some equal blocks may show as changed, removed or added. The screen also infers it from the rows
+  (a left and a right block that are equal and unmatched in one stretch), which is never true of an
+  exact alignment.
+- **After an action:** *Restore* opens the page view; *Delete* stays on the history, unticks the
+  version, says "v. N was deleted." in a status region and moves focus there; one action at a time
+  across the table; a refusal that means the list is stale (`FORBIDDEN`, `NOT_FOUND`,
+  `CURRENT_VERSION`, `PINNED_VERSION`) also refreshes; `TITLE_TAKEN` on *Restore* has its own
+  message (the old title now belongs to another page).
+- **Names:** row buttons are "Restore v. N" / "Delete v. N" (visible text "Restore" / "Delete");
+  tab titles "Page History – {title}" and "Compare v. a with v. b – {title}". The deck's single
+  `history.col` is kept as the record of the frame; the screen uses `history.col.*` per column.

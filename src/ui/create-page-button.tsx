@@ -1,12 +1,14 @@
 "use client";
 
-// The top bar's `Create` (10 section 2, RD-052, RD-056). Inside a space the viewer can edit it
-// makes the page at once — `POST /api/v1/spaces/{KEY}/pages` with no body: an empty `Untitled`
-// page at the root of the space — and opens the editor on it (RD-056). Elsewhere it is the
-// `Choose a space` picker (RD-052), and picking a space does the same there. 10 section 2's row
-// still carries the interim rule "until pages exist (slice 1) it is disabled inside a space the
-// user can edit"; slice 1 ends that period, and the row's own first clause ("new page in the
-// current space") is what is built — the row's stale sentence is handed to spec-keeper.
+// The top bar's `Create`. Inside a space the viewer can edit it makes the page at once —
+// `POST /api/v1/spaces/{KEY}/pages` with no body: an empty `Untitled` page at the root of the
+// space — and opens the editor on it (RD-056). Elsewhere it is the `Choose a space` picker
+// (RD-052), and picking a space does the same there. 10 section 2 gives the slot and the picker.
+//
+// HANDOFF: spec-keeper — 10 section 2's `Create` row still says it "is disabled inside a space the
+// user can edit" (RD-052's slice-0 interim rule, which RD-056 replaces in slice 1).
+// HANDOFF: test-engineer — e2e/slice-0.spec.ts still expects that disabled button.
+// __tests__/create-page-spec-agreement.test.tsx fails until both say what this file builds.
 //
 // One request at a time: a second press while one is in flight does nothing, so a double click
 // makes one page. After a success the lock is held until the browser navigates — the editor
@@ -14,7 +16,7 @@
 // lives in the frame's persistent layout, so if the push to the editor is superseded by another
 // click or bounced back into the frame, this same button stays on screen and must work again.
 // A refusal is an alert with a copy-deck string chosen by the problem's `code` (08 §3.2).
-// spec: docs/specs/10-ui-reference.md section 2 (`Create`: "new page in the current space, or space picker outside one"); docs/specs/09-decision-log.md sections RD-052, RD-056
+// spec: docs/specs/09-decision-log.md section RD-056 (inside an editable space: create at once, open the editor) and RD-052 (the picker elsewhere); docs/specs/10-ui-reference.md section 2 (the slot and the picker)
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ParamlessCopyId, t } from "@/copy";

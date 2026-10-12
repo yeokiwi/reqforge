@@ -86,7 +86,7 @@ Present on every screen.
 | Logo + product name | v1 | home |
 | `Spaces ▾` | v1 | recent spaces, then "View all spaces" |
 | `People` | later | user directory — drawn inert until built (`RD-052`) |
-| **`Create`** | v1 | new page in the current space, or space picker outside one. Until pages exist (slice 1) it is disabled inside a space the user can edit; in a space they cannot edit it is the picker (`RD-052`) |
+| **`Create`** | v1 | new page in the current space — an `Untitled` page made at once and opened in the editor (`RD-056`) — or a space picker outside a space and in a space the user cannot edit (`RD-052`, whose slice-0 *disabled* interim is superseded by `RD-079`) |
 | `···` | v1 | overflow: Templates, Requirement types (admin) |
 | `Search` | v1 | global search over page titles and requirement keys; `Enter` opens results |
 | `?` | v1 | help, including the query syntax reference |
@@ -135,7 +135,7 @@ PAGE TREE
 | `Blog` | not built | a blog has no role in a requirements tool; the item is removed rather than left dead |
 | `Requirements` | v1 | opens the Requirements screen, §9 |
 | `SPACE SHORTCUTS` | v1 | admin-curated links; shown only when the space has shortcuts, which needs the Space tools screens (`RD-052`) |
-| `PAGE TREE` | v1 | drag to reorder and re-parent |
+| `PAGE TREE` | v1 | drag to reorder and re-parent; the same moves by keyboard; `+` creates a child (`RD-082`) |
 | `TRACEABILITY MATRIXES` | v1 | replaces `PAGE TREE` while on the Requirements screen, §9.5 |
 | `Space tools` | v1 | permissions, requirement types, key suggestions, history settings — space `ADMIN`s only (`RD-052`) |
 | `«` / `»` | v1 | collapse and expand; remembered per user |
@@ -1847,6 +1847,7 @@ contained it. This is the user-visible half of indexer contract I3.
 ```
 
 - The **Comment** column shows the change note from the editor footer.
+- Who sees `Restore` and `Delete`, the starting selection, the compare screen and what follows an action are `RD-083`.
 - **A version pinned by a baseline carries the comment `Baseline "<name>" for Reqforge`**
   and its `Delete` is disabled with the tooltip *"Pinned by baseline <n>"* (`05` §3.2,
   `RD-041`).

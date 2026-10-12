@@ -10,6 +10,7 @@ import { cache } from "react";
 import { NotFoundError } from "@/domain/errors";
 import { DocumentView } from "@/editor/render/document-view";
 import { requireUser } from "@/server/authz/current-user";
+import { openSpace } from "@/server/usecases/spaces";
 import { PageByline } from "@/ui/page-view/byline";
 import { DraftNotice } from "./_components/draft-notice";
 import { PageFooter } from "./_components/page-footer";
@@ -27,7 +28,11 @@ type Props = {
 /** One load per request, shared by generateMetadata and the page. */
 const load = cache(async (spaceKey: string, pageId: string, version: number | undefined) => {
   const actor = await requireUser();
-  return loadPageScreen(actor, spaceKey, pageId, version);
+  const screen = await loadPageScreen(actor, spaceKey, pageId, version);
+  // Reading a page counts as opening its space for `Spaces ▾` and for `/` (RD-079); only after the
+  // page was found, so an invisible space or page records nothing.
+  await openSpace(actor, spaceKey);
+  return screen;
 });
 
 async function resolve({ params, searchParams }: Props) {

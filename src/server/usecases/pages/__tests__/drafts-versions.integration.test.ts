@@ -259,6 +259,8 @@ describe("compareVersions (RD-060)", () => {
     expect(cmp.right.number).toBe(2);
     expect(cmp.page.id).toBe(page.id);
     expect(cmp.blocks.map((b) => b.status)).toEqual(["same", "changed", "added"]);
+    // An ordinary comparison is exact; the flag exists for RD-066's work cap.
+    expect(cmp.approximate).toBe(false);
   });
 
   it("is NotFound when either version is missing", async () => {
