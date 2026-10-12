@@ -3,8 +3,9 @@
 // The dialogs behind the page view's `···` menu and the 📎 byline icon (10 section 4.1, RD-059):
 // Attachments, Page information, Copy, Move, Delete — one file each, all on the shared Dialog of
 // src/ui/dialog.tsx, calling the REST API (src/ui/api-client.ts through _lib/page-requests.ts).
-// After a change they call router.refresh() (attachments, move) so the header, the tree and the
-// notices follow, or navigate: Copy opens the copy, Delete goes to the space overview.
+// After every successful change they call router.refresh() so the header, the tree and the notices
+// follow; Copy first opens the copy and Delete first replaces the screen with the space overview
+// (the refresh then runs on the new URL).
 //
 // The props are the contract with page-header.tsx (pass 1):
 //   kind     which dialog is open; null renders nothing

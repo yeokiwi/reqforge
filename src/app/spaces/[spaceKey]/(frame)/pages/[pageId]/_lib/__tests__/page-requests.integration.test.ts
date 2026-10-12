@@ -28,6 +28,12 @@ import { fetchAttachments, requestCopy, requestDelete, requestHide, requestMove,
 
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
+/** The route module's handler for `method` (a route module also exports `runtime` and the like). */
+function handlerOf(routeModule: Readonly<Record<string, unknown>>, method: string): Handler | undefined {
+  const exported = routeModule[method];
+  return typeof exported === "function" ? (exported as Handler) : undefined;
+}
+
 /** A browser's fetch, but answered by the route handlers in-process, signed in as `handle`. */
 async function browserAs(handle: Handle): Promise<FetchLike> {
   const session = await sessionFor(handle);
@@ -37,16 +43,16 @@ async function browserAs(handle: Handle): Promise<FetchLike> {
     if (!match) throw new Error(`no route for ${url}`);
     const [, spaceKey = "", id = "", tail, attachmentId] = match;
     const params: Record<string, string> = { spaceKey: decodeURIComponent(spaceKey), id: decodeURIComponent(id) };
-    let module: Partial<Record<string, Handler>>;
-    if (tail === undefined) module = pageRoute as Partial<Record<string, Handler>>;
-    else if (tail === "copy") module = copyRoute as Partial<Record<string, Handler>>;
-    else if (tail === "move") module = moveRoute as Partial<Record<string, Handler>>;
-    else if (attachmentId === undefined) module = attachmentsRoute as Partial<Record<string, Handler>>;
+    let routeModule: Readonly<Record<string, unknown>>;
+    if (tail === undefined) routeModule = pageRoute;
+    else if (tail === "copy") routeModule = copyRoute;
+    else if (tail === "move") routeModule = moveRoute;
+    else if (attachmentId === undefined) routeModule = attachmentsRoute;
     else {
-      module = attachmentRoute as Partial<Record<string, Handler>>;
+      routeModule = attachmentRoute;
       params.attachmentId = decodeURIComponent(attachmentId);
     }
-    const handler = module[method];
+    const handler = handlerOf(routeModule, method);
     if (handler === undefined) throw new Error(`${url} serves no ${method}`);
     const request = apiRequest(method, url, {
       session,

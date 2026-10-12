@@ -69,8 +69,12 @@ export function CopyPageDialog({ space, page, pages, onClose, fetchImpl }: CopyP
     try {
       const id = await requestCopy(space.key, page.id, checked.title, fetchImpl);
       if (id !== null) {
-        // Stays busy: the copy's page view replaces this screen.
+        // Stays busy: the copy's page view replaces this screen. The refresh comes second on
+        // purpose: Next queues it behind the navigation and runs it on the copy's URL, so the
+        // layout's data (the top bar, the tree) is re-read too; issued first, the navigation
+        // would discard it.
         router.push(pageHref(space.key, id));
+        router.refresh();
       } else {
         busyRef.current = false;
         onClose();

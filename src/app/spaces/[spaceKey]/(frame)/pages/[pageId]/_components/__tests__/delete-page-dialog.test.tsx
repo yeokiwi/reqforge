@@ -56,6 +56,9 @@ describe("Delete", () => {
     expect(api.sent).toEqual([{ method: "DELETE", url: "/api/v1/spaces/TEAM/pages/p1", body: undefined }]);
     expect(router.push).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+    // Refreshed AFTER the navigation: Next discards a refresh still pending when a navigation arrives.
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(router.replace.mock.invocationCallOrder[0]).toBeLessThan(router.refresh.mock.invocationCallOrder[0] ?? 0);
   });
 
   it("encodes the space key in both URLs", async () => {
@@ -90,6 +93,7 @@ describe("Delete", () => {
     fireEvent.click(confirm);
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(router.replace).not.toHaveBeenCalled();
+    expect(router.refresh).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(confirm).not.toHaveAttribute("aria-disabled");
   });

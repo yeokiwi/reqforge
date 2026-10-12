@@ -43,8 +43,10 @@ export function DeletePageDialog({ space, page, onClose, fetchImpl }: DeletePage
     setAlert(null);
     try {
       await requestDelete(space.key, page.id, fetchImpl);
-      // Stays busy: the space overview replaces this screen.
+      // Stays busy: the space overview replaces this screen. Refresh second, so Next runs it on
+      // the overview after the navigation (the layout's tree and the router cache drop the page).
       router.replace(spaceHref(space.key));
+      router.refresh();
     } catch (error) {
       setAlert(deleteFailureMessage(error));
       busyRef.current = false;

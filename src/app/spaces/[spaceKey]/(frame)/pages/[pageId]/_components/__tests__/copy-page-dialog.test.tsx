@@ -59,7 +59,9 @@ describe("Copy", () => {
     expect(api.sent).toHaveLength(1);
     expect(api.sent[0]).toMatchObject({ method: "POST", url: COPY_URL });
     expect(bodyOf(api.sent[0])).toEqual({ title: "Specs, copied" });
-    expect(router.refresh).not.toHaveBeenCalled();
+    // Refreshed AFTER the navigation: Next discards a refresh still pending when a push arrives.
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(router.push.mock.invocationCallOrder[0]).toBeLessThan(router.refresh.mock.invocationCallOrder[0] ?? 0);
   });
 
   it("Enter in the field submits", async () => {
@@ -159,6 +161,7 @@ describe("refusals", () => {
     fireEvent.click(submit);
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(router.push).not.toHaveBeenCalled();
+    expect(router.refresh).not.toHaveBeenCalled();
   });
 
   it("the network failing is a general failure, and Copy can be pressed again", async () => {
