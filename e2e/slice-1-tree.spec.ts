@@ -1,31 +1,25 @@
 // The sidebar's PAGE TREE and the space overview (10 §3.2, §11; RD-056, RD-082): nesting, the
 // current page, create a child with "+", drag and keyboard moves that persist, the refused move,
 // View in Hierarchy, and remembered expansion.
-import type { Locator, Page, Response } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { t } from "../src/copy";
 import { expect, signIn, test } from "./fixtures";
 import {
   type PageDetail,
   TEAM,
   createTreeViaApi,
+  dragRow,
   editUrl,
+  isMoveResponse as isMove,
   listPagesViaApi,
+  overviewTree,
   pageUrl,
   seedPageTree,
+  sidebarTree,
+  titlesAt,
+  treeItem as item,
+  treeRow as row,
 } from "./pages";
-
-const sidebarTree = (page: Page) => page.getByRole("complementary", { name: t("sidebar.nav") }).getByRole("tree", { name: t("tree.label") });
-const overviewTree = (page: Page) => page.getByRole("tree", { name: t("overview.tree", { space: "Team" }) });
-const item = (tree: Locator, title: string) => tree.getByRole("treeitem", { name: title, exact: true });
-/** The row of a treeitem: the draggable part (chevron, title, "+"), without its children. */
-const row = (treeitem: Locator) => treeitem.locator(":scope > div");
-
-/** Titles of the treeitems drawn at `level`, in order (a closed parent's children are not drawn). */
-async function titlesAt(tree: Locator, level: number): Promise<string[]> {
-  return tree.locator(`[role="treeitem"][aria-level="${level}"]`).evaluateAll((items) =>
-    items.map((li) => document.getElementById(li.getAttribute("aria-labelledby") ?? "")?.textContent ?? ""),
-  );
-}
 
 /** Every drawn treeitem as "level:title", in document order. */
 async function drawnTree(tree: Locator): Promise<string[]> {
@@ -34,8 +28,6 @@ async function drawnTree(tree: Locator): Promise<string[]> {
   );
 }
 
-const isMove = (response: Response) => response.request().method() === "POST" && /\/pages\/[^/]+\/move$/.test(new URL(response.url()).pathname);
-
 /** The space's pages as `parent > title` lines in sibling order (the server's truth). */
 async function serverTree(page: Page): Promise<string[]> {
   const pages = await listPagesViaApi(page.request, TEAM);
@@ -43,16 +35,6 @@ async function serverTree(page: Page): Promise<string[]> {
   return [...pages]
     .sort((a, b) => (a.parentId ?? "").localeCompare(b.parentId ?? "") || a.ordinal - b.ordinal)
     .map((p) => `${p.parentId === null ? "(root)" : byId.get(p.parentId)?.title} > ${p.title}`);
-}
-
-/** Drags a row onto another with a real mouse path; `zone` picks the drop position (RD-082). */
-async function dragRow(page: Page, source: Locator, target: Locator, zone: "before" | "inside" | "after"): Promise<Response> {
-  const box = await row(target).boundingBox();
-  if (box === null) throw new Error("drop target is not on screen");
-  const y = zone === "before" ? 2 : zone === "after" ? box.height - 2 : box.height / 2;
-  const moved = page.waitForResponse(isMove);
-  await row(source).dragTo(row(target), { sourcePosition: { x: 8, y: 8 }, targetPosition: { x: Math.min(120, box.width / 2), y } });
-  return moved;
 }
 
 const SPEC: Parameters<typeof createTreeViaApi>[2] = [

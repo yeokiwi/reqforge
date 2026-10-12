@@ -81,9 +81,12 @@ test.describe("signing in", () => {
 
   test("a session the server no longer knows is treated as signed out", async ({ page, context }) => {
     await signIn(page, "alice");
-    await context.addCookies([
-      { name: "rf_session", value: "forged-or-expired-token", url: page.url() },
-    ]);
+    // Overwrite the real session cookie (same domain and path), so the forged token is the only one
+    // sent. (A cookie set by `url` takes that URL's directory as its path: from a landing page such
+    // as /spaces/PLAT it would sit beside the real one instead of replacing it.)
+    const real = (await context.cookies()).find((cookie) => cookie.name === "rf_session");
+    expect(real, "signed in with an rf_session cookie").toBeDefined();
+    await context.addCookies([{ ...(real ?? { name: "rf_session", domain: "localhost", path: "/" }), value: "forged-or-expired-token" }]);
     await page.goto("/spaces");
     await expect(page).toHaveURL(/\/login/);
   });
@@ -131,7 +134,10 @@ test.describe("the top bar (spec 10 §2)", () => {
     await page.getByRole("button", { name: t("shell.spaces"), exact: true }).click();
     const menu = page.getByRole("menu", { name: t("shell.spaces") });
     const items = await menu.getByRole("menuitem").allTextContents();
-    expect(items).toEqual(["Team", t("shell.spaces.viewAll")]);
+    // Signing in landed on Platform (no history yet → first space by name), then Team was opened:
+    // both are recent, the latest first. (This used to expect Team alone, which held only when the
+    // test's navigation beat the landing redirect — a race; signIn now waits for the landing.)
+    expect(items).toEqual(["Team", "Platform", t("shell.spaces.viewAll")]);
     await menu.getByRole("menuitem", { name: t("shell.spaces.viewAll") }).click();
     await expect(page).toHaveURL(/\/spaces$/);
   });

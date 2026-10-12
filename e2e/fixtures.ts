@@ -29,8 +29,11 @@ export async function signIn(page: Page, handle: keyof typeof DEMO.users, next?:
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   // The form posts a server action and then redirects. Callers navigate straight afterwards,
-  // which would abort the sign-in if we returned before the redirect landed.
-  await page.waitForURL((url) => url.pathname !== "/login");
+  // which would abort the sign-in if we returned before the redirect landed. `/` is never a
+  // landing: it always redirects on (to the last space, else the first by name), and returning
+  // while that second redirect is in flight let it race the caller's next navigation — the space
+  // it lands on is recorded as visited, so `Spaces ▾` depended on who won.
+  await page.waitForURL((url) => url.pathname !== "/login" && url.pathname !== "/");
 }
 
 /** The sign-in form's message. (Next's route announcer is also role=alert, so scope to the form.) */

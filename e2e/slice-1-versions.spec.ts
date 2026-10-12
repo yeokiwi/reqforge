@@ -6,6 +6,7 @@ import { expect, signIn, test } from "./fixtures";
 import {
   SAME_ORIGIN,
   TEAM,
+  breadcrumbLinks,
   compareUrl,
   createPageViaApi,
   docOf,
@@ -17,6 +18,7 @@ import {
   pageViewPattern,
   paragraphs,
   publishSeries,
+  viewBreadcrumb,
   withDatabase,
 } from "./pages";
 
@@ -76,8 +78,9 @@ test.describe("versions: every Update is one", () => {
     await expect(rows.nth(4).getByRole("cell").nth(3)).toHaveText("");
     for (const i of [1, 2, 3, 4]) await expect(rows.nth(i).getByRole("cell").nth(2)).toHaveText(DEMO_BOB);
 
-    // The CURRENT row is the ticked one (RD-083), and it has no actions.
-    await expect(table.getByRole("checkbox", { name: t("history.select", { n: 4 }) })).toBeChecked();
+    // Every row has its box (whether CURRENT's starts ticked is RD-083 against the VB 3:51 frame:
+    // slice-1-reference.spec.ts pins the frame); a past version's starts unticked; CURRENT has no actions.
+    await expect(table.getByRole("checkbox")).toHaveCount(4);
     await expect(table.getByRole("checkbox", { name: t("history.select", { n: 3 }) })).not.toBeChecked();
     await expect(rows.nth(1).getByRole("button")).toHaveCount(0);
     await expect(table.getByRole("button", { name: t("history.restore.label", { n: 3 }) })).toBeVisible();
@@ -97,8 +100,10 @@ test.describe("versions: every Update is one", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("First title");
     await expect(page.getByTestId("page-view").getByText("First text")).toBeVisible();
     await expect(page.getByTestId("page-view").getByText("Second text")).toHaveCount(0);
-    // The breadcrumb ends with the page's CURRENT title (RD-080).
-    await expect(page.getByRole("navigation", { name: t("pageView.breadcrumb") }).locator('[aria-current="page"]')).toHaveText("Second title");
+    // The breadcrumb is the page's place, not the version's: `Pages` for a root page, and the past
+    // title is nowhere in it (RD-080, RD-084; the exact trail is asserted in slice-1-reference.spec.ts).
+    expect(await breadcrumbLinks(page)).toEqual([t("sidebar.pages")]);
+    await expect(viewBreadcrumb(page)).not.toContainText("First title");
     await expect(page.getByRole("link", { name: t("page.edit") })).toHaveCount(0);
     await expect(page).toHaveTitle(/First title/);
 
@@ -229,10 +234,21 @@ test.describe("versions: every Update is one", () => {
 
     await page.goto(historyUrl(TEAM, created.id));
     const compare = page.getByRole("button", { name: t("history.compare") });
-    // CURRENT (v. 3) starts ticked: one is not enough.
+    // Exactly two, no fewer and no more (RD-083). Start from none ticked, whatever the first state.
+    await page.getByRole("checkbox", { name: t("history.select", { n: 3 }) }).uncheck();
+    await expect(compare).toHaveAttribute("aria-disabled", "true");
+    await expect(compare).toHaveAccessibleDescription(t("history.compare.hint", { n: 0 }));
+    await page.getByRole("checkbox", { name: t("history.select", { n: 2 }) }).check();
     await expect(compare).toHaveAttribute("aria-disabled", "true");
     await expect(compare).toHaveAccessibleDescription(t("history.compare.hint", { n: 1 }));
-    await page.getByRole("checkbox", { name: t("history.select", { n: 2 }) }).check();
+    await compare.click({ force: true }); // aria-disabled stays focusable and clickable (RD-078); it must do nothing
+    await expect(page).toHaveURL(historyUrl(TEAM, created.id));
+    await page.getByRole("checkbox", { name: t("history.select", { n: 1 }) }).check();
+    await expect(compare).toHaveAccessibleDescription(t("history.compare.ready", { a: 1, b: 2 }));
+    await page.getByRole("checkbox", { name: t("history.select", { n: 3 }) }).check();
+    await expect(compare).toHaveAttribute("aria-disabled", "true");
+    await expect(compare).toHaveAccessibleDescription(t("history.compare.hint", { n: 3 }));
+    await page.getByRole("checkbox", { name: t("history.select", { n: 1 }) }).uncheck();
     await expect(compare).not.toHaveAttribute("aria-disabled", "true");
     await expect(compare).toHaveAccessibleDescription(t("history.compare.ready", { a: 2, b: 3 }));
     await compare.click();

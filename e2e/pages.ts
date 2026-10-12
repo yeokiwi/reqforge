@@ -10,7 +10,17 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
-import { type APIRequestContext, type APIResponse, type Browser, type BrowserContext, type Locator, type Page, type TestInfo, expect } from "@playwright/test";
+import {
+  type APIRequestContext,
+  type APIResponse,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type Response,
+  type TestInfo,
+  expect,
+} from "@playwright/test";
 import type {
   AttachmentRef,
   GetPageResponse,
@@ -19,6 +29,7 @@ import type {
   PublishResponse,
   VersionSummary,
 } from "../src/domain/documents/api-types";
+import { t } from "../src/copy";
 import { DEMO, signIn } from "./fixtures";
 
 export type { AttachmentRef, GetPageResponse, PageDetail, PageSummary, PublishResponse, VersionSummary };
@@ -49,7 +60,7 @@ export const pageViewPattern = (space: string, id: string) => new RegExp(`/space
 
 async function expectStatus(response: APIResponse, status: number): Promise<void> {
   if (response.status() !== status) {
-    throw new Error(`${response.request().method()} ${response.url()} answered ${response.status()}, expected ${status}: ${await response.text()}`);
+    throw new Error(`${response.url()} answered ${response.status()}, expected ${status}: ${await response.text()}`);
   }
 }
 
@@ -158,6 +169,56 @@ export const image = (ref: { readonly id: string; readonly url: string }, alt = 
   attrs: { attachmentId: ref.id, src: ref.url, alt },
 });
 
+export const strong = (value: string): Json => text(value, [{ type: "bold" }]);
+export const em = (value: string): Json => text(value, [{ type: "italic" }]);
+export const listOf = (type: "bulletList" | "orderedList", items: readonly string[]): Json => ({
+  type,
+  content: items.map((item) => ({ type: "listItem", content: [p(item)] })),
+});
+export const taskListOf = (items: readonly (readonly [string, boolean])[]): Json => ({
+  type: "taskList",
+  content: items.map(([item, checked]) => ({ type: "taskItem", attrs: { checked }, content: [p(item)] })),
+});
+export const codeBlock = (code: string): Json => ({ type: "codeBlock", content: [text(code)] });
+/** A table whose first row is a header row (as the editor makes them, RD-078). */
+export const tableOf = (header: readonly string[], rows: readonly (readonly string[])[]): Json => ({
+  type: "table",
+  content: [
+    { type: "tableRow", content: header.map((cell) => ({ type: "tableHeader", content: [p(cell)] })) },
+    ...rows.map((row) => ({ type: "tableRow", content: row.map((cell) => ({ type: "tableCell", content: [p(cell)] })) })),
+  ],
+});
+
+/**
+ * The page the video shows at 0:19 and 1:46, in our words: headings, a requirements-shaped table
+ * with a header row, lists, a task list, a link and a code block (no requirement macros yet:
+ * they are slice 2).
+ */
+export function specificationsDoc(): Json {
+  return docOf(
+    heading(2, "Business Requirements"),
+    tableOf(
+      ["Requirement", "Description", "Owner"],
+      [
+        ["BR-01", "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut iaculis maximus orci, et iaculis quam porta in.", "Albert"],
+        ["BR-02", "Suspendisse egestas neque eget placerat imperdiet. Etiam lacus massa, interdum quis egestas in, laoreet eu velit.", "Albert"],
+        ["BR-03", "Quisque vitae dolor at velit rutrum aliquet. Donec ac sollicitudin est.", "John"],
+        ["BR-04", "Maecenas ultricies eros velit, tempor interdum nulla sodales vitae.", "Patricia"],
+      ],
+    ),
+    heading(2, "Functional Requirements"),
+    paragraph(text("Each function is "), strong("traceable"), text(" to a business requirement and "), em("tested"), text(".")),
+    listOf("bulletList", ["Requirements are written in tables", "Each requirement has an owner"]),
+    listOf("orderedList", ["Draft the page", "Review it", "Publish a version"]),
+    taskListOf([
+      ["Write the acceptance tests", true],
+      ["Review with the customer", false],
+    ]),
+    paragraph(text("See "), text("the specification guide", [link("https://example.com/guide")]), text(" for the conventions.")),
+    codeBlock("npm run build"),
+  );
+}
+
 /** The canonical empty document (emptyDocument() in src/editor/schema), for rows written with SQL. */
 export const EMPTY_CANONICAL_DOC = { type: "doc", content: [{ type: "paragraph", attrs: { textAlign: null, indent: 0 } }] };
 
@@ -247,7 +308,71 @@ export function forbidScript(page: Page): { readonly errors: string[]; readonly 
   return seen;
 }
 
+// --------------------------------------------------------------------------- the page view
+
+/**
+ * The page view below its header row: banners, title, byline, content and footer. The header
+ * row (breadcrumb, byline icons, actions, `···`) is chrome and carries SVG icons, so checks for
+ * what the CONTENT may contain must not include it.
+ */
+export const pageBody = (page: Page): Locator => page.getByTestId("page-view").locator(':scope > :not([data-testid="page-header"])');
+
+/** The page view's breadcrumb (10 §4.1). */
+export const viewBreadcrumb = (page: Page): Locator => page.getByRole("navigation", { name: t("pageView.breadcrumb") });
+
+/** The texts of the breadcrumb's links: `Pages` and the ancestors, root first (RD-084). */
+export async function breadcrumbLinks(page: Page): Promise<string[]> {
+  return viewBreadcrumb(page)
+    .getByRole("link")
+    .evaluateAll((links) => links.map((a) => (a.textContent ?? "").trim()));
+}
+
+// ----------------------------------------------------------------------------- the tree
+
+/** The expanded sidebar's PAGE TREE (10 §3.2). */
+export const sidebarTree = (page: Page): Locator =>
+  page.getByRole("complementary", { name: t("sidebar.nav") }).getByRole("tree", { name: t("tree.label") });
+/** The space overview's tree (10 §11). */
+export const overviewTree = (page: Page, spaceName = "Team"): Locator => page.getByRole("tree", { name: t("overview.tree", { space: spaceName }) });
+export const treeItem = (tree: Locator, title: string): Locator => tree.getByRole("treeitem", { name: title, exact: true });
+/** The row of a treeitem: the draggable part (chevron, title, "+"), without its children. */
+export const treeRow = (treeitem: Locator): Locator => treeitem.locator(":scope > div");
+
+export const isMoveResponse = (response: Response): boolean =>
+  response.request().method() === "POST" && /\/pages\/[^/]+\/move$/.test(new URL(response.url()).pathname);
+
+/** Titles of the treeitems drawn at `level`, in order (a closed parent's children are not drawn). */
+export async function titlesAt(tree: Locator, level: number): Promise<string[]> {
+  return tree.locator(`[role="treeitem"][aria-level="${level}"]`).evaluateAll((items) =>
+    items.map((li) => document.getElementById(li.getAttribute("aria-labelledby") ?? "")?.textContent ?? ""),
+  );
+}
+
+/** Drags a row onto another with a real mouse path; `zone` picks the drop position (RD-082). */
+export async function dragRow(page: Page, source: Locator, target: Locator, zone: "before" | "inside" | "after"): Promise<Response> {
+  const box = await treeRow(target).boundingBox();
+  if (box === null) throw new Error("drop target is not on screen");
+  const y = zone === "before" ? 2 : zone === "after" ? box.height - 2 : box.height / 2;
+  const moved = page.waitForResponse(isMoveResponse);
+  await treeRow(source).dragTo(treeRow(target), { sourcePosition: { x: 8, y: 8 }, targetPosition: { x: Math.min(120, box.width / 2), y } });
+  return moved;
+}
+
 // ----------------------------------------------------------------------------- the editor
+
+/**
+ * Clicks a text block of the editor so that the caret lands at its start or its end. ProseMirror
+ * ignores DOM selection changes for about 50 ms after it handles a click, so a Home/End/Ctrl+End
+ * sent by the test straight after a click can move the browser's caret while the editor keeps the
+ * click position, and the next key acts there (seen: Enter splitting `npm run build` mid-word).
+ * Placing the caret with the click itself has no such window.
+ */
+export async function clickAtEdge(block: Locator, edge: "start" | "end"): Promise<void> {
+  const box = await block.boundingBox();
+  if (box === null) throw new Error("text block is not on screen");
+  const inset = Math.min(box.height / 2, 8);
+  await block.click({ position: edge === "start" ? { x: 1, y: inset } : { x: Math.max(1, box.width - 1), y: box.height - inset } });
+}
 
 /** The editor's content area (role textbox, named from the copy deck). */
 export const editorContent = (page: Page, name: string): Locator => page.getByRole("textbox", { name });
@@ -324,7 +449,7 @@ export interface SeededTree {
   readonly roots: readonly string[];
   /** Child ids per root, in order. */
   readonly children: readonly (readonly string[])[];
-  /** `${titlePrefix} 007` for root 7, `${titlePrefix} 007.012` for its 12th child. */
+  /** `${titlePrefix} 007` for root 7, `${titlePrefix} 007.012` for its 12th child (wider when there are 1,000 or more). */
   readonly title: (root: number, child?: number) => string;
 }
 
@@ -338,7 +463,9 @@ export async function seedPageTree(
   handle: Handle,
   spec: { readonly idPrefix: string; readonly titlePrefix: string; readonly roots: number; readonly childrenPerRoot: number },
 ): Promise<SeededTree> {
-  const pad = (n: number) => String(n).padStart(3, "0");
+  // At least 3 digits, and enough for the largest number (Postgres lpad would cut `1000` to `100`).
+  const width = Math.max(3, String(Math.max(spec.roots, spec.childrenPerRoot)).length);
+  const pad = (n: number) => String(n).padStart(width, "0");
   const title = (root: number, child?: number) => (child === undefined ? `${spec.titlePrefix} ${pad(root)}` : `${spec.titlePrefix} ${pad(root)}.${pad(child)}`);
   const rootId = (r: number) => `${spec.idPrefix}-r${pad(r)}`;
   const childId = (r: number, c: number) => `${rootId(r)}-c${pad(c)}`;
@@ -349,17 +476,17 @@ export async function seedPageTree(
       async (tx) => {
         await tx.$executeRaw`
           INSERT INTO "Document" ("id", "spaceId", "parentId", "title", "ordinal", "createdById")
-          SELECT ${spec.idPrefix} || '-r' || lpad(r::text, 3, '0'), ${spaceId}, NULL,
-                 ${spec.titlePrefix} || ' ' || lpad(r::text, 3, '0'),
+          SELECT ${spec.idPrefix} || '-r' || lpad(r::text, ${width}::int, '0'), ${spaceId}, NULL,
+                 ${spec.titlePrefix} || ' ' || lpad(r::text, ${width}::int, '0'),
                  (SELECT count(*) FROM "Document" WHERE "spaceId" = ${spaceId} AND "parentId" IS NULL AND "deletedAt" IS NULL)::int + r - 1,
                  ${userId}
           FROM generate_series(1, ${spec.roots}::int) AS r`;
         if (spec.childrenPerRoot > 0) {
           await tx.$executeRaw`
             INSERT INTO "Document" ("id", "spaceId", "parentId", "title", "ordinal", "createdById")
-            SELECT ${spec.idPrefix} || '-r' || lpad(r::text, 3, '0') || '-c' || lpad(c::text, 3, '0'), ${spaceId},
-                   ${spec.idPrefix} || '-r' || lpad(r::text, 3, '0'),
-                   ${spec.titlePrefix} || ' ' || lpad(r::text, 3, '0') || '.' || lpad(c::text, 3, '0'),
+            SELECT ${spec.idPrefix} || '-r' || lpad(r::text, ${width}::int, '0') || '-c' || lpad(c::text, ${width}::int, '0'), ${spaceId},
+                   ${spec.idPrefix} || '-r' || lpad(r::text, ${width}::int, '0'),
+                   ${spec.titlePrefix} || ' ' || lpad(r::text, ${width}::int, '0') || '.' || lpad(c::text, ${width}::int, '0'),
                    c - 1, ${userId}
             FROM generate_series(1, ${spec.roots}::int) AS r, generate_series(1, ${spec.childrenPerRoot}::int) AS c`;
         }
@@ -416,11 +543,14 @@ export const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] as const;
  */
 export async function checkA11y(page: Page, testInfo: TestInfo, screen: string): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags([...WCAG_TAGS]).analyze();
-  const describe = (v: (typeof results.violations)[number]) =>
-    `${v.impact ?? "unknown"} ${v.id}: ${v.help} — ${v.nodes
+  const describe = (v: (typeof results.violations)[number]) => {
+    const first = v.nodes[0];
+    const why = first ? [...first.any, ...first.all, ...first.none].map((check) => check.message).find((m) => m.length > 0) : undefined;
+    return `${v.impact ?? "unknown"} ${v.id}: ${v.help} — ${v.nodes
       .slice(0, 5)
       .map((n) => n.target.join(" "))
-      .join(" | ")}${v.nodes.length > 5 ? ` (+${v.nodes.length - 5} more)` : ""}`;
+      .join(" | ")}${v.nodes.length > 5 ? ` (+${v.nodes.length - 5} more)` : ""}${why ? ` — first: ${why}` : ""}`;
+  };
   if (results.violations.length > 0) {
     await testInfo.attach(`axe-${screen}`, { body: JSON.stringify(results.violations, null, 2), contentType: "application/json" });
     for (const v of results.violations) console.log(`[axe ${screen}] ${describe(v)}`);

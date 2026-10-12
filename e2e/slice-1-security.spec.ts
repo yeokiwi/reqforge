@@ -17,10 +17,12 @@ import {
   pageApi,
   pageUrl,
   paragraph,
+  pageBody,
   pasteInto,
   publishViaApi,
   text,
   uploadViaApi,
+  viewBreadcrumb,
 } from "./pages";
 
 const HOSTILE_TITLE = `<script>alert("title")</script><img src=x onerror=alert(1)>`;
@@ -67,9 +69,14 @@ test.describe("hostile content renders as text", () => {
     await expect(view.locator("img")).toHaveCount(0);
     await expect(view.getByRole("link", { name: "x", exact: true })).toHaveCount(0);
     await expect(page).toHaveTitle(new RegExp(`^${HOSTILE_TITLE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-    await expect(page.getByRole("navigation", { name: t("pageView.breadcrumb") })).toContainText(HOSTILE_TITLE);
     await expect(page.getByRole("tree", { name: t("tree.label") }).getByRole("treeitem", { name: HOSTILE_TITLE })).toBeVisible();
     await expectNoHorizontalOverflow(page);
+
+    // In a breadcrumb the title is an ancestor's link text (a page is not in its own view-mode
+    // breadcrumb, RD-084), so look from a child page.
+    const child = await createPageViaApi(page.request, TEAM, { title: "Under the hostile page", parentId: created.id });
+    await page.goto(pageUrl(TEAM, child.id));
+    await expect(viewBreadcrumb(page).getByRole("link", { name: HOSTILE_TITLE, exact: true })).toBeVisible();
 
     await page.goto(editUrl(TEAM, created.id));
     await expect(editorOf(page).title).toHaveValue(HOSTILE_TITLE);
@@ -107,9 +114,11 @@ test.describe("hostile content renders as text", () => {
 
     await e.update.click();
     await expect(page).toHaveURL(pageUrl(TEAM, created.id));
-    const view = page.getByTestId("page-view");
-    await expect(view).toContainText("Click here now");
-    await expect(view.locator('[href^="javascript" i], [onclick], [onerror], script, iframe, svg')).toHaveCount(0);
+    const view = pageBody(page); // not the header row, whose icons are SVG
+    await expect(view.getByText("Click here now")).toBeVisible();
+    await expect(view.locator('[href^="javascript" i], [onclick], [onmouseover], [onerror], [onload], script, iframe, svg')).toHaveCount(0);
+    await expect(view.locator("[href]")).toHaveCount(1);
+    await expect(view.getByRole("link", { name: "safe link" })).toHaveAttribute("href", "https://example.com/safe");
     await view.getByText("para").click();
     expect(seen).toEqual({ errors: [], dialogs: [] });
   });

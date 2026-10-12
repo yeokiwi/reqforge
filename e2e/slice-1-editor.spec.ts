@@ -1,7 +1,7 @@
 // The editor's interactions (10 §5.1, §5.4, §5.5; RD-057, RD-058, RD-076, RD-077, RD-078):
 // `{` suggestions, the `+` menu, undo/redo, find and replace, paste and drop, uploads and the
 // guards while one is in flight.
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { t } from "../src/copy";
 import { expect, signIn, test } from "./fixtures";
 import {
@@ -205,6 +205,51 @@ test.describe("inserting", () => {
     await expect(editor(page).content).toHaveText("apple Apple apple pie");
     await query.press("Escape");
     await expect(bar).toHaveCount(0);
+  });
+});
+
+test.describe("the editor draws content as the view does", () => {
+  /** How far the checkbox's middle is from the middle of its item's first line, and whether it is left of the text. */
+  async function taskGeometry(item: Locator): Promise<{ readonly offset: number; readonly leftOfText: boolean }> {
+    const box = await item.getByRole("checkbox").boundingBox();
+    const text = await item.locator("p").first().boundingBox();
+    if (!box || !text) throw new Error("task item not on screen");
+    return { offset: Math.abs(box.y + box.height / 2 - (text.y + Math.min(text.height, 24) / 2)), leftOfText: box.x + box.width <= text.x };
+  }
+
+  test("a task item's box sits on its text's first line, in the editor as in the view (content.css: one look in both)", async ({ page }) => {
+    const id = await openEditor(page, "Tasks page");
+    await editor(page).toolbar.getByRole("button", { name: t("editor.taskList"), exact: true }).click();
+    await page.keyboard.type("Write the acceptance tests");
+    const inEditor = editor(page).content.getByRole("listitem").filter({ hasText: "Write the acceptance tests" });
+    await expect(inEditor.getByRole("checkbox")).toBeVisible();
+    const edited = await taskGeometry(inEditor);
+
+    await editor(page).update.click();
+    await expect(page).toHaveURL(pageViewPattern(TEAM, id));
+    const inView = page.getByTestId("page-view").getByRole("listitem").filter({ hasText: "Write the acceptance tests" });
+    const viewed = await taskGeometry(inView);
+    expect(viewed.leftOfText, "in the page view the box is left of the text").toBe(true);
+    expect(viewed.offset, "in the page view the box is on the text's first line").toBeLessThanOrEqual(6);
+    expect(edited.leftOfText, "in the editor the box is left of the text, as in the view").toBe(true);
+    expect(edited.offset, "in the editor the box is on the text's first line, as in the view").toBeLessThanOrEqual(6);
+  });
+
+  test("the { popup opened near the bottom of the window stays on screen", async ({ page }) => {
+    await signIn(page, "bob");
+    const created = await createPageViaApi(page.request, TEAM, { title: "Long page" });
+    const lines = Array.from({ length: 60 }, (_, i) => p(`Line ${i + 1}`));
+    const publish = await page.request.put(pageApi(TEAM, created.id), { headers: SAME_ORIGIN, data: { title: "Long page", content: docOf(...lines), baseVersion: 1 } });
+    expect(publish.status()).toBe(200);
+    await page.goto(editUrl(TEAM, created.id));
+    await editor(page).content.getByText("Line 60", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("{");
+    const list = suggestions(page);
+    await expect(list).toBeVisible();
+    // Every option can be seen (and clicked): the popup flips or shifts rather than run off the window.
+    for (const option of await list.getByRole("option").all()) await expect(option).toBeInViewport({ ratio: 1 });
   });
 });
 

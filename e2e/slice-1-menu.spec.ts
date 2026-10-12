@@ -8,6 +8,7 @@ import {
   BASE_URL,
   PNG_1PX,
   TEAM,
+  breadcrumbLinks,
   createPageViaApi,
   createTreeViaApi,
   getPageViaApi,
@@ -125,7 +126,8 @@ test.describe("the ··· menu", () => {
     await dialog.getByRole("button", { name: t("pageCopy.submit"), exact: true }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Copy of Spec");
     await expect(page.getByTestId("page-view").getByText("Spec body text")).toBeVisible();
-    await expect(page.getByRole("navigation", { name: t("pageView.breadcrumb") })).toHaveText(/Pages\s*\/\s*Parent\s*\/\s*Copy of Spec/);
+    // Its place: under Parent (the trail's links are `Pages` and the ancestors, RD-084).
+    await expect.poll(() => breadcrumbLinks(page)).toEqual([t("sidebar.pages"), "Parent"]);
 
     const pages = await listPagesViaApi(page.request, TEAM);
     const copy = pages.find((p) => p.title === "Copy of Spec");
@@ -167,7 +169,7 @@ test.describe("the ··· menu", () => {
     await expect(dialog.getByText(t("pageMove.choice.under", { parent: "Other" }))).toBeVisible();
     await submit.click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: t("pageView.breadcrumb") })).toHaveText(/Pages\s*\/\s*Other\s*\/\s*Parent/);
+    await expect.poll(() => breadcrumbLinks(page)).toEqual([t("sidebar.pages"), "Other"]);
 
     const pages = await listPagesViaApi(page.request, TEAM);
     const parentOf = (title: string) => pages.find((p) => p.id === pages.find((q) => q.title === title)?.parentId)?.title ?? "(root)";
