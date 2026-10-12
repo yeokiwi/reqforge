@@ -19,6 +19,7 @@ const NOT_FOUND = vi.hoisted(() => new Error("NEXT_NOT_FOUND"));
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }));
 const mocks = vi.hoisted(() => ({
   loadPageScreen: vi.fn(),
+  openSpace: vi.fn(async () => ({})),
   requireUser: vi.fn(async () => ({ id: "u-alice", name: "Alice Admin" })),
 }));
 
@@ -30,6 +31,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/spaces/TEAM/pages/p1",
 }));
 vi.mock("@/server/authz/current-user", () => ({ requireUser: mocks.requireUser }));
+vi.mock("@/server/usecases/spaces", () => ({ openSpace: mocks.openSpace }));
 vi.mock("../../_lib/load-page", () => ({ loadPageScreen: mocks.loadPageScreen }));
 
 const { default: PageViewRoute, generateMetadata } = await import("../../page");
@@ -129,6 +131,16 @@ describe("the 404 page (RD-051)", () => {
       expect(mocks.loadPageScreen).not.toHaveBeenCalled();
     },
   );
+
+  it("reading a page records the visit to its space (RD-079) — and a page that is not found records nothing", async () => {
+    serve();
+    await show();
+    expect(mocks.openSpace).toHaveBeenCalledWith(expect.objectContaining({ id: "u-alice" }), "team");
+    mocks.openSpace.mockClear();
+    mocks.loadPageScreen.mockRejectedValueOnce(new NotFoundError("Page"));
+    await expect(PageViewRoute(props({}, "gone"))).rejects.toBe(NOT_FOUND);
+    expect(mocks.openSpace).not.toHaveBeenCalled();
+  });
 
   it("a NotFoundError from the use case is the 404 page; anything else reaches the error boundary unchanged", async () => {
     mocks.loadPageScreen.mockRejectedValueOnce(new NotFoundError("Page"));
