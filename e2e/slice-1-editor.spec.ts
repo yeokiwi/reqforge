@@ -8,6 +8,7 @@ import {
   PNG_1PX,
   SAME_ORIGIN,
   TEAM,
+  clickAtEdge,
   createPageViaApi,
   docOf,
   dropFilesOn,
@@ -79,8 +80,7 @@ test.describe("inserting", () => {
     await expect(editor(page).content).not.toContainText("{tab");
 
     // Recency: the list now starts with what was inserted last (10 §5.4).
-    await editor(page).content.getByText("Intro text").click();
-    await page.keyboard.press("End");
+    await clickAtEdge(editor(page).content.locator("p").filter({ hasText: "Intro text" }), "end");
     await page.keyboard.press("Enter");
     await page.keyboard.type("{");
     await expect(list.getByRole("option").first()).toHaveText(labelled(t("editor.macro.toc"))[0] ?? "");
@@ -242,12 +242,16 @@ test.describe("the editor draws content as the view does", () => {
     const publish = await page.request.put(pageApi(TEAM, created.id), { headers: SAME_ORIGIN, data: { title: "Long page", content: docOf(...lines), baseVersion: 1 } });
     expect(publish.status()).toBe(200);
     await page.goto(editUrl(TEAM, created.id));
-    await editor(page).content.getByText("Line 60", { exact: true }).click();
-    await page.keyboard.press("End");
+    const last = editor(page).content.locator("p").filter({ hasText: /^Line 60$/ });
+    await last.scrollIntoViewIfNeeded();
+    await clickAtEdge(last, "end");
     await page.keyboard.press("Enter");
     await page.keyboard.type("{");
     const list = suggestions(page);
     await expect(list).toBeVisible();
+    // The caret is at the foot of the window, where a popup drawn below it would be cut off.
+    const caret = await last.boundingBox();
+    expect(caret?.y ?? 0, "the new line sits in the bottom quarter of the window").toBeGreaterThan(1080 * 0.75);
     // Every option can be seen (and clicked): the popup flips or shifts rather than run off the window.
     for (const option of await list.getByRole("option").all()) await expect(option).toBeInViewport({ ratio: 1 });
   });

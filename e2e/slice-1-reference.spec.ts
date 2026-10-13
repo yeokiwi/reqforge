@@ -15,7 +15,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { t } from "../src/copy";
 import { DEMO, expect, signIn, test } from "./fixtures";
-import { type PageDetail, TEAM, createTreeViaApi, editUrl, historyUrl, pageUrl, paragraphs, publishSeries, viewBreadcrumb } from "./pages";
+import { PNG_1PX, type PageDetail, TEAM, createTreeViaApi, editUrl, historyUrl, pageUrl, paragraphs, publishSeries, uploadViaApi, viewBreadcrumb } from "./pages";
 
 async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const b = await locator.boundingBox();
@@ -24,6 +24,15 @@ async function box(locator: Locator): Promise<{ x: number; y: number; width: num
 }
 
 const editorBreadcrumb = (page: Page) => page.getByRole("navigation", { name: t("editor.breadcrumb") });
+
+/** The accessible names of the buttons in `container`, in document order (from Playwright's ARIA snapshot). */
+async function buttonNames(container: Locator): Promise<string[]> {
+  const snapshot = await container.ariaSnapshot();
+  return [...snapshot.matchAll(/- button "((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1] ?? ""}"`) as string);
+}
+
+/** `link` in tailwind.config.ts (#0B5BD3): the colour every link in the content is drawn in. */
+const LINK_BLUE = "rgb(11, 91, 211)";
 
 /** The video's own tree: Specifications > Page Heading > Subsection. */
 async function videoTree(page: Page): Promise<Record<string, PageDetail>> {
@@ -65,6 +74,10 @@ test.describe("RD-084: the page view, as the frames show it", () => {
   test("the header row: breadcrumb, the 🔓 📎 ⛹ icons right after it, and Edit · Save for later · Watching · Share · ··· on the right (0:19)", async ({ page }) => {
     await signIn(page, "bob");
     const pages = await videoTree(page);
+    // 0:19 shows 📎 on a page that has attachments; 1:46 shows no 📎 on one that seems to have none.
+    // Whether Reqforge hides 📎 without attachments is not decided (10 §4.1 lists it unconditionally),
+    // so the page here has one and the three icons are expected either way.
+    await uploadViaApi(page.request, TEAM, id(pages, "Page Heading"), { name: "diagram.png", mimeType: "image/png", buffer: PNG_1PX });
     await page.goto(pageUrl(TEAM, id(pages, "Page Heading")));
     const header = page.getByTestId("page-header");
     const crumbs = viewBreadcrumb(page);
@@ -117,6 +130,21 @@ test.describe("RD-084: the page view, as the frames show it", () => {
     for (let i = 1; i < rightBoxes.length; i++) expect((rightBoxes[i]?.x ?? 0) > (rightBoxes[i - 1]?.x ?? 0)).toBe(true);
     expect(Math.abs(headerBox.x + headerBox.width - (dots.x + dots.width))).toBeLessThanOrEqual(4);
     expect(edit.x - (lastIcon.x + lastIcon.width)).toBeGreaterThan(200); // a wide gap between the two clusters
+  });
+
+  test("the breadcrumb's crumbs are links drawn in link blue, in the view and in the editor (0:19, 1:46, 0:46)", async ({ page }) => {
+    // Every frame draws `Pages`, the ancestors and the editor's `Team / Pages` in the blue of a link
+    // (10 §0: colour roles are reproduced; 10 §1.1 "link blue").
+    await signIn(page, "bob");
+    const pages = await videoTree(page);
+    await page.goto(pageUrl(TEAM, id(pages, "Page Heading")));
+    for (const name of [t("sidebar.pages"), "Specifications"]) {
+      await expect.soft(viewBreadcrumb(page).getByRole("link", { name, exact: true }), `view crumb ${name}`).toHaveCSS("color", LINK_BLUE);
+    }
+    await page.goto(editUrl(TEAM, id(pages, "Page Heading")));
+    for (const name of ["Team", t("sidebar.pages"), "Specifications"]) {
+      await expect.soft(editorBreadcrumb(page).getByRole("link", { name, exact: true }), `editor crumb ${name}`).toHaveCSS("color", LINK_BLUE);
+    }
   });
 
   test("`Created by <name>, last modified <relative time>` sits under the title, left-aligned with it (0:19)", async ({ page }) => {
@@ -225,6 +253,46 @@ test.describe("RD-084: the editor, as the 0:46 frame shows it", () => {
     const toolbarBox = await box(toolbar);
     expect(barBox.y).toBeLessThanOrEqual(1);
     expect(toolbarBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
+  });
+
+  test("toolbar row 1 is in the frames' order: the alignment group reads left, centre, right (0:46, 0:59)", async ({ page }) => {
+    // Zoomed, the three alignment glyphs after ⇤ ⇥ are left-aligned, centred and right-aligned lines,
+    // in that order (test-results/gui-review/reference/ref-main-059.png). RD-057 read them as left,
+    // right, centre and said the mapping was a guess to revisit against the 0:46 frame.
+    await signIn(page, "bob");
+    const pages = await videoTree(page);
+    await page.goto(editUrl(TEAM, id(pages, "Specifications")));
+    const toolbar = page.getByRole("toolbar", { name: t("editor.toolbar") });
+    await expect(toolbar).toBeVisible();
+    const expected = [
+      t("editor.style.label"),
+      t("editor.bold"),
+      t("editor.italic"),
+      t("editor.underline"),
+      t("editor.textColour"),
+      t("editor.moreFormatting"),
+      t("editor.bulletList"),
+      t("editor.orderedList"),
+      t("editor.taskList"),
+      t("editor.outdent"),
+      t("editor.indent"),
+      t("editor.alignLeft"),
+      t("editor.alignCentre"),
+      t("editor.alignRight"),
+      t("editor.infoPanel"),
+      t("editor.files"),
+      t("editor.link"),
+      t("editor.table"),
+      t("editor.emoji"),
+      t("editor.insertMore"),
+      t("editor.undo"),
+      t("editor.redo"),
+      t("editor.find"),
+      t("editor.help"),
+    ];
+    // Dropdowns that show a value are named "label value" (RD-078): compare their label part.
+    const names = (await buttonNames(toolbar)).map((name) => expected.find((label) => name === label || name.startsWith(`${label} `)) ?? name);
+    expect(names).toEqual(expected);
   });
 
   test("the editor's breadcrumb is `<space> / Pages / <ancestors> / <title>` (0:46)", async ({ page }) => {

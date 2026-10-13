@@ -7,6 +7,7 @@ import {
   SAME_ORIGIN,
   TEAM,
   breadcrumbLinks,
+  clickAtEdge,
   compareUrl,
   createPageViaApi,
   docOf,
@@ -38,8 +39,7 @@ test.describe("versions: every Update is one", () => {
       await page.goto(pageUrl(TEAM, created.id));
       await page.getByRole("group", { name: t("pageView.actions") }).getByRole("link", { name: t("page.edit") }).click();
       const content = page.getByRole("textbox", { name: t("editor.content.label") });
-      await content.click();
-      await page.keyboard.press("Control+End");
+      await clickAtEdge(content.locator(":scope > p").last(), "end");
       await page.keyboard.type(`Edit number ${n}. `);
       await page.getByRole("textbox", { name: t("editor.changeNote.placeholder") }).fill(`Change note ${n}`);
       await page.getByRole("button", { name: t("editor.update"), exact: true }).click();

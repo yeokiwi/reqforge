@@ -17,6 +17,7 @@ import {
   PNG_1PX,
   SAME_ORIGIN,
   TEAM,
+  clickAtEdge,
   compareUrl,
   createPageViaApi,
   createTreeViaApi,
@@ -43,7 +44,11 @@ const VIDEO_FILE: Record<Video, string> = {
   main: "docs/research/ry-screencast.mp4",
   vb: "docs/research/How to create baselines and compare requirement versions - Confluence Data Center - Requirement Yogi (1080p).mp4",
 };
-/** The application window inside each recording (the rest is the vendor's title card). */
+/**
+ * The application window inside each recording (the rest is the vendor's title card). A few
+ * stretches of a recording are framed differently (at 3:24 the main one zooms out to show the
+ * sidebar): such a shot names its own crop.
+ */
 const APP_WINDOW: Record<Video, string> = { main: "crop=838:676:394:14", vb: "crop=1220:984:630:48" };
 const REFERENCE_DIR = "test-results/gui-review/reference";
 
@@ -51,7 +56,7 @@ interface Shot {
   readonly file: string;
   readonly shows: string;
   /** The reference frame: recording and time (requirement-yogi-video.md §10a, videos-2 §6). */
-  readonly ref?: { readonly video: Video; readonly at: string; readonly note?: string };
+  readonly ref?: { readonly video: Video; readonly at: string; readonly note?: string; readonly crop?: string };
   /** An element screenshot (no composite is made). */
   readonly element?: boolean;
 }
@@ -62,7 +67,7 @@ const SHOTS: readonly Shot[] = [
   { file: "03-overview-empty.png", shows: "Space overview of an empty space (10 §12 empty state, Create a page for an editor)." },
   { file: "04-overview-populated.png", shows: "Space overview with a populated page tree (Specifications open)." },
   { file: "05-overview-highlighted.png", shows: "Space overview after View in Hierarchy: the page highlighted (amber ring) and its path open." },
-  { file: "06-page-view-content.png", shows: "Page view of Specifications, sidebar expanded: breadcrumb, byline icons, actions, title, byline, a table with a header row, headings, lists, a task list, a link and a code block.", ref: { video: "main", at: "3:24" } },
+  { file: "06-page-view-content.png", shows: "Page view of Specifications, sidebar expanded: breadcrumb, byline icons, actions, title, byline, a table with a header row, headings, lists, a task list, a link and a code block.", ref: { video: "main", at: "3:24", crop: "crop=1054:594:115:96" } },
   { file: "07-page-menu-open.png", shows: "Page view with the ··· menu open (RD-059 order; inert items greyed).", ref: { video: "vb", at: "3:50" } },
   { file: "08-dialog-attachments.png", shows: "··· → Attachments dialog with one image attachment." },
   { file: "09-dialog-page-information.png", shows: "··· → Page information dialog." },
@@ -139,7 +144,7 @@ test.afterAll(() => {
           "-i",
           frame,
           "-filter_complex",
-          `[0]scale=-2:1080[a];[1]${APP_WINDOW[shot.ref.video]},scale=-2:1080[b];[a][b]hstack=inputs=2`,
+          `[0]scale=-2:1080[a];[1]${shot.ref.crop ?? APP_WINDOW[shot.ref.video]},scale=-2:1080[b];[a][b]hstack=inputs=2`,
           side,
         ]);
         sideCell = made ? `[side-by-side/${shot.file}](side-by-side/${shot.file})` : "composite failed";
@@ -265,28 +270,30 @@ test.describe("GUI review screenshots (1920×1080)", () => {
     await snap(page, "14-draft-notice.png");
   });
 
-  test("the editor: empty, with content, in a table, popups, menus, dialogs and footer states", async ({ page }) => {
+  test("the editor: empty, from Create, with the footer before any edit", async ({ page }) => {
     await signIn(page, "bob");
     const { specs } = await videoSpace(page);
-    const content = page.getByRole("textbox", { name: t("editor.content.label") });
-    const toolbar = page.getByRole("toolbar", { name: t("editor.toolbar") });
     const footer = page.getByTestId("editor-footer");
-    const saveState = footer.getByRole("status");
-
-    // Empty: a new page from Create.
     await page.goto(pageUrl(TEAM, specs.id));
     await page.getByRole("banner").getByRole("button", { name: t("shell.create"), exact: true }).click();
     await page.waitForURL(/\/edit$/);
-    await expect(saveState).toHaveText(t("editor.state.ready"));
+    await expect(footer.getByRole("status")).toHaveText(t("editor.state.ready"));
     await snap(page, "15-editor-empty.png");
     await snap(page, "23-editor-footer-ready.png", footer);
+  });
 
-    // With content.
+  test("the editor: with content, in a table (row 2), and the footer while saving and once saved", async ({ page }) => {
+    await signIn(page, "bob");
+    const { specs } = await videoSpace(page);
+    const content = page.getByRole("textbox", { name: t("editor.content.label") });
+    const footer = page.getByTestId("editor-footer");
+    const saveState = footer.getByRole("status");
+
     await page.goto(editUrl(TEAM, specs.id));
     await expect(content.getByRole("table")).toBeVisible();
     await snap(page, "16-editor-content.png");
 
-    // In a table: row 2. Hold the autosave so `Saving changes` can be photographed, then let it land.
+    // Hold the autosave so `Saving changes` can be photographed, then let it land.
     let release: () => void = () => undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -295,8 +302,7 @@ test.describe("GUI review screenshots (1920×1080)", () => {
       if (route.request().method() === "PUT") await held;
       await route.continue();
     });
-    await content.getByRole("cell", { name: "Patricia" }).click();
-    await page.keyboard.press("End");
+    await clickAtEdge(content.getByRole("cell", { name: "Patricia" }).locator("p"), "end");
     await page.keyboard.type(" (lead)");
     await expect(page.getByRole("toolbar", { name: t("editor.tableToolbar") })).toBeVisible();
     await expect(saveState).toHaveText(t("editor.state.saving"));
@@ -306,40 +312,45 @@ test.describe("GUI review screenshots (1920×1080)", () => {
     await page.unroute(/\/draft$/);
     await snap(page, "17-editor-table-row2.png");
     await snap(page, "25-editor-footer-saved.png", footer);
+  });
 
-    // `{` Macro suggestions, at the end of the page. Leaving the table removes toolbar row 2 and
-    // shifts the page up under the pointer, so click once to leave it and again to place the caret.
-    await content.getByText("npm run build").click();
-    await expect(page.getByRole("toolbar", { name: t("editor.tableToolbar") })).toHaveCount(0);
-    await content.getByText("npm run build").click();
-    await page.keyboard.press("End");
+  test("the editor: the { Macro suggestions popup", async ({ page }) => {
+    await signIn(page, "bob");
+    const { specs } = await videoSpace(page);
+    const content = page.getByRole("textbox", { name: t("editor.content.label") });
+    await page.goto(editUrl(TEAM, specs.id));
+    // On a new line after the page's last paragraph (the frame opens it on an empty line too).
+    await clickAtEdge(content.locator("p").filter({ hasText: "for the conventions" }), "end");
     await page.keyboard.press("Enter");
-    await page.keyboard.press("Enter");
-    await page.keyboard.press("Enter"); // leaves the code block
     await page.keyboard.type("{");
     await expect(page.getByRole("listbox", { name: t("autocomplete.title") })).toBeVisible();
     await snap(page, "18-editor-macro-suggestions.png");
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Backspace");
+  });
 
-    // The + menu.
+  test("the editor: the + menu, the text colour menu and the Status dialog", async ({ page }) => {
+    await signIn(page, "bob");
+    const { specs } = await videoSpace(page);
+    const content = page.getByRole("textbox", { name: t("editor.content.label") });
+    const toolbar = page.getByRole("toolbar", { name: t("editor.toolbar") });
+    await page.goto(editUrl(TEAM, specs.id));
+    await clickAtEdge(content.locator("p").filter({ hasText: "for the conventions" }), "end");
+
     await toolbar.getByRole("button", { name: t("editor.insertMore") }).click();
     await expect(page.getByRole("menu", { name: t("editor.insertMore") })).toBeVisible();
     await snap(page, "19-editor-insert-menu.png");
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu", { name: t("editor.insertMore") })).toHaveCount(0);
 
-    // The text colour menu.
     await toolbar.getByRole("button", { name: t("editor.textColour") }).click();
     await expect(page.getByRole("menu", { name: t("editor.textColour") })).toBeVisible();
     await snap(page, "20-editor-text-colour-menu.png");
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu", { name: t("editor.textColour") })).toHaveCount(0);
 
-    // The Status lozenge's colours.
     await toolbar.getByRole("button", { name: t("editor.insertMore") }).click();
     await page.getByRole("menu", { name: t("editor.insertMore") }).getByRole("menuitem", { name: t("editor.macro.status") }).click();
     await expect(page.getByRole("dialog", { name: t("editor.status.title") })).toBeVisible();
     await snap(page, "21-editor-status-colours.png");
-    await page.keyboard.press("Escape");
   });
 
   test("the editor's conflict banner", async ({ page, browser }) => {
@@ -352,8 +363,7 @@ test.describe("GUI review screenshots (1920×1080)", () => {
     const { context, page: alice } = await signedInContext(browser, "alice");
     await publishSeries(alice.request, TEAM, { ...created, currentVersion: 2 }, [{ content: specificationsDoc(), message: "alice" }]);
     await context.close();
-    await content.getByText("Business Requirements").click();
-    await page.keyboard.press("End");
+    await clickAtEdge(content.getByRole("heading", { name: "Business Requirements" }), "end");
     await page.keyboard.type(" (draft)");
     await expect(page.getByRole("alert").filter({ hasText: t("editor.conflict.help") })).toBeVisible();
     await snap(page, "22-editor-conflict-banner.png");

@@ -7,6 +7,7 @@ import { expect, signIn, test } from "./fixtures";
 import {
   type PageDetail,
   TEAM,
+  breadcrumbLinks,
   createTreeViaApi,
   dragRow,
   editUrl,
@@ -120,6 +121,26 @@ test.describe("the page tree", () => {
     await page.reload();
     expect(await titlesAt(overviewTree(page), 1)).toEqual(["Specifications", "Archive"]);
     expect((await serverTree(page)).sort()).toEqual(expected.sort());
+  });
+
+  test("dragging in the sidebar re-parents the page being viewed; its breadcrumb follows at once, and it persists", async ({ page }) => {
+    await page.goto(pageUrl(TEAM, id("Archive")));
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Archive");
+    const tree = sidebarTree(page);
+    expect(await breadcrumbLinks(page)).toEqual([t("sidebar.pages")]);
+
+    // Archive onto Team notes (the middle of the row): its first and only child.
+    expect((await dragRow(page, item(tree, "Archive"), item(tree, "Team notes"), "inside")).status()).toBe(200);
+    await expect.poll(() => drawnTree(tree)).toEqual(["1:Specifications", "1:Team notes", "2:Archive"]);
+    await expect(item(tree, "Archive")).toHaveAttribute("aria-current", "page");
+    // The header's trail is the live tree's (RD-082): no reload needed.
+    await expect.poll(() => breadcrumbLinks(page)).toEqual([t("sidebar.pages"), "Team notes"]);
+    expect(await serverTree(page)).toContain("Team notes > Archive");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Archive");
+    await expect.poll(() => drawnTree(sidebarTree(page))).toEqual(["1:Specifications", "1:Team notes", "2:Archive"]);
+    await expect.poll(() => breadcrumbLinks(page)).toEqual([t("sidebar.pages"), "Team notes"]);
   });
 
   test("Alt+arrow keys move the focused page, announce where it went, and the move persists", async ({ page }) => {

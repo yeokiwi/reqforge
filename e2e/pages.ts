@@ -361,17 +361,34 @@ export async function dragRow(page: Page, source: Locator, target: Locator, zone
 // ----------------------------------------------------------------------------- the editor
 
 /**
- * Clicks a text block of the editor so that the caret lands at its start or its end. ProseMirror
- * ignores DOM selection changes for about 50 ms after it handles a click, so a Home/End/Ctrl+End
- * sent by the test straight after a click can move the browser's caret while the editor keeps the
- * click position, and the next key acts there (seen: Enter splitting `npm run build` mid-word).
- * Placing the caret with the click itself has no such window.
+ * Clicks a text block of the editor so that the caret lands at its start or its end, and waits
+ * until the editor has taken that caret. ProseMirror reads the browser's selection only after it
+ * has handled the click (a few tens of milliseconds later), so a key sent straight after a click
+ * acts where the editor's selection still is: a Home/End/Ctrl+End moves the browser's caret while
+ * the editor keeps the click position (seen: Enter splitting `npm run build` mid-word), and on a
+ * freshly opened editor a key lands at the document's start (seen: `{` typed before the first
+ * heading). A person cannot type that fast; a test can, so it waits for the editor's selection
+ * (TipTap's editor on its root element, `TiptapEditorHTMLElement`) to equal the browser's caret.
  */
 export async function clickAtEdge(block: Locator, edge: "start" | "end"): Promise<void> {
   const box = await block.boundingBox();
   if (box === null) throw new Error("text block is not on screen");
   const inset = Math.min(box.height / 2, 8);
   await block.click({ position: edge === "start" ? { x: 1, y: inset } : { x: Math.max(1, box.width - 1), y: box.height - inset } });
+  await expect
+    .poll(
+      () =>
+        block.evaluate((element) => {
+          type View = { state: { selection: { head: number } }; posAtDOM(node: Node, offset: number): number };
+          const root = element.closest<HTMLElement & { editor?: { view?: View } }>('[contenteditable="true"]');
+          const view = root?.editor?.view;
+          const caret = document.getSelection();
+          if (!root || !view || !caret?.focusNode || !element.contains(caret.focusNode)) return false;
+          return view.state.selection.head === view.posAtDOM(caret.focusNode, caret.focusOffset);
+        }),
+      { message: "the editor took the clicked caret" },
+    )
+    .toBe(true);
 }
 
 /** The editor's content area (role textbox, named from the copy deck). */

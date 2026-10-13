@@ -11,6 +11,7 @@ import {
   SAME_ORIGIN,
   TEAM,
   checkA11y,
+  clickAtEdge,
   compareUrl,
   createTreeViaApi,
   editUrl,
@@ -159,10 +160,10 @@ test.describe("axe: WCAG 2.1 AA on every slice-1 screen", () => {
 
     // Leaving the table removes toolbar row 2 and shifts the page under the pointer: click to
     // leave, wait for the row to go, click again to place the caret.
-    await content.getByText("for the conventions").click();
+    const lastParagraph = content.locator("p").filter({ hasText: "for the conventions" });
+    await lastParagraph.click();
     await expect(page.getByRole("toolbar", { name: t("editor.tableToolbar") })).toHaveCount(0);
-    await content.getByText("for the conventions").click();
-    await page.keyboard.press("End");
+    await clickAtEdge(lastParagraph, "end");
     await page.keyboard.press("Control+k");
     const linkDialog = page.getByRole("dialog", { name: t("editor.linkDialog.title") });
     await expect(linkDialog).toBeVisible();
@@ -181,8 +182,7 @@ test.describe("axe: WCAG 2.1 AA on every slice-1 screen", () => {
     await checkA11y(page, testInfo, "editor, find bar");
     await page.keyboard.press("Escape");
 
-    await content.getByText("for the conventions").click();
-    await page.keyboard.press("End");
+    await clickAtEdge(lastParagraph, "end");
     await page.keyboard.press("Enter");
     await page.keyboard.type("{");
     await expect(page.getByRole("listbox", { name: t("autocomplete.title") })).toBeVisible();

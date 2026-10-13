@@ -3,7 +3,7 @@
 import type { Page } from "@playwright/test";
 import { t } from "../src/copy";
 import { DEMO, expect, signIn, test } from "./fixtures";
-import { TEAM, createPageViaApi, editUrl, getPageViaApi, listVersionsViaApi, pageApi, pageViewPattern, paragraphs, publishSeries, signedInContext } from "./pages";
+import { TEAM, clickAtEdge, createPageViaApi, editUrl, getPageViaApi, listVersionsViaApi, pageApi, pageViewPattern, paragraphs, publishSeries, signedInContext } from "./pages";
 
 function editor(page: Page) {
   return {
@@ -18,8 +18,7 @@ function editor(page: Page) {
 }
 
 async function typeAtStart(page: Page, words: string): Promise<void> {
-  await editor(page).content.click();
-  await page.keyboard.press("Control+Home");
+  await clickAtEdge(editor(page).content.locator(":scope > p").first(), "start");
   await page.keyboard.type(words);
 }
 
