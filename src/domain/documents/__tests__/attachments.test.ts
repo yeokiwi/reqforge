@@ -344,3 +344,44 @@ describe("attachment properties", () => {
     );
   });
 });
+
+describe("filename work is bounded (RD-085)", () => {
+  const time = (fn: () => void) => {
+    const started = performance.now();
+    fn();
+    return performance.now() - started;
+  };
+
+  it("sanitizes a 2,000,000-unit name made of combining marks in milliseconds (it took ~15 s per 200,000)", () => {
+    const name = "a" + "\u0316\u0301".repeat(1_000_000) + ".txt";
+    let result = "";
+    expect(time(() => (result = sanitizeFilename(name)))).toBeLessThan(500);
+    expect(result.endsWith(".txt")).toBe(true);
+    expect(codePointLength(result)).toBeLessThanOrEqual(255);
+  });
+
+  it("classifies a name of 200,000 dots or spaces in milliseconds (the trailing-run regex took ~19 s per 120,000)", () => {
+    for (const filler of [".", " ", ". "]) {
+      const filename = "a" + filler.repeat(200_000) + "b";
+      expect(time(() => classifyAttachment({ filename, declaredContentType: null, bytes: bytes([1, 2, 3]) }))).toBeLessThan(500);
+    }
+  });
+
+  it("still sees .svg behind any amount of trailing whitespace and dots, however long", () => {
+    for (const trail of [" ", "  ".repeat(100_000), ". . .", "\t\n"]) {
+      expect(classifyAttachment({ filename: `logo.svg${trail}`, declaredContentType: null, bytes: bytes([1]) })).toEqual({
+        kind: "rejected",
+        reason: "SVG",
+      });
+    }
+    expect(classifyAttachment({ filename: "logo.svgz.", declaredContentType: null, bytes: bytes([1]) })).toEqual({
+      kind: "rejected",
+      reason: "SVG",
+    });
+    expect(classifyAttachment({ filename: "svg.txt", declaredContentType: null, bytes: bytes([1]) }).kind).toBe("file");
+  });
+
+  it("keeps the extension of an overlong name", () => {
+    expect(sanitizeFilename("x".repeat(5000) + ".pdf").endsWith(".pdf")).toBe(true);
+  });
+});

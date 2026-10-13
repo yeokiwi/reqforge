@@ -22,7 +22,21 @@ const FORBIDDEN = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}]/u;
 const FORBIDDEN_RUNS = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}]+/gu;
 
 /**
- * Unicode NFC, then trim. Idempotent. Stored titles are always in this form.
+ * How many UTF-16 units of raw input one stored code point may need. NFC can expand a few
+ * characters (U+FB2C becomes three code points) and a title typed in NFD takes up to a base plus
+ * a few marks per character, so 8 is generous; past it the text is certainly over the limit.
+ */
+export const RAW_TEXT_FACTOR = 8;
+
+/** Whether `raw` is too long to be worth normalising for a limit of `maxCodePoints` (RD-085). */
+// spec: docs/specs/09-decision-log.md section RD-085 (NFC and filename work are bounded before they run)
+export function exceedsRaw(raw: string, maxCodePoints: number): boolean {
+  return raw.length > maxCodePoints * RAW_TEXT_FACTOR;
+}
+
+/**
+ * Unicode NFC, then trim. Idempotent. Stored titles are always in this form. Callers with
+ * unbounded input check `exceedsRaw` first (`checkTitle` does).
  */
 // spec: docs/specs/09-decision-log.md section RD-056 (titles: 1–255 characters after trimming)
 export function normalizeTitle(raw: string): string {
@@ -37,6 +51,10 @@ export function normalizeTitle(raw: string): string {
  */
 // spec: docs/specs/09-decision-log.md section RD-056; docs/specs/07-permissions-and-limits.md section 4 (Page title)
 export function checkTitle(raw: string): TitleCheck {
+  // NFC takes time quadratic in the length of a run of combining marks, so raw text far past the
+  // limit is refused before it is normalised (RD-085). A valid title never needs more than
+  // RAW_TEXT_FACTOR units per code point it keeps.
+  if (exceedsRaw(raw, LIMITS.titleMax)) return { ok: false, problem: "TOO_LONG" };
   const title = normalizeTitle(raw);
   if (title.length === 0) return { ok: false, problem: "EMPTY" };
   if (FORBIDDEN.test(title)) return { ok: false, problem: "CONTROL_CHARACTERS" };

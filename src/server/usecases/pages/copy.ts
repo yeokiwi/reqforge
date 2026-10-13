@@ -1,4 +1,4 @@
-// Copy one page (RD-056) — with the attachments its images reference (RD-058).
+// Copy one page (RD-056) — with the attachments its images and file links reference (RD-058, RD-086).
 import { copyTitle, type PageDetail } from "@/domain/documents";
 import { NotFoundError, TooLargeError } from "@/domain/errors";
 import { t } from "@/copy";
@@ -14,7 +14,7 @@ import { createPage as insertPage, getPage, listTitlesInSpace } from "@/server/r
 import { setWatching as setWatchingRow } from "@/server/repositories/social";
 import { lockTree, rootDb, transaction } from "@/server/repositories/transaction";
 import { getVersion as readVersion, insertVersion } from "@/server/repositories/versions";
-import { imageAttachmentIds, rewriteImageAttachments, type CopiedAttachment } from "./copy-content";
+import { imageAttachmentIds, linkedAttachmentIds, rewriteImageAttachments, type CopiedAttachment } from "./copy-content";
 import { auditPage, canonicalContent, requireTitle, reread, resolvePage, toPageDetail } from "./shared";
 
 /**
@@ -37,9 +37,10 @@ export interface CopyPageInput {
 /**
  * Copies ONE page (not its descendants) under the same parent, at the end of its siblings, as
  * `Copy of <title>` made unique. Its first version holds the source's current content, with
- * every image re-pointed at a copy of its attachment made on the new page (same bytes, same
- * name, hidden if the original was hidden) — an image may only reference its own page's
- * attachments (RD-058), so without this the copy could never be published again. The copier
+ * every image and every file link re-pointed at a copy of its attachment made on the new page
+ * (same bytes, same name, hidden if the original was hidden) — an image may only reference its
+ * own page's attachments (RD-058), so without this the copy could never be published again, and a
+ * file link would die with its source (RD-086). The copier
  * watches the copy (RD-061). Needs space EDIT.
  *
  * Cost: the attachments the images reference may total at most COPY_ATTACHMENT_BYTES_MAX, else
@@ -58,8 +59,11 @@ export async function copyPage(actor: Actor, spaceKey: string, pageId: string, i
 
   // Outside any lock, and without loading any bytes: canonicalise the source against its own
   // attachments, and refuse early when its live referenced attachments alone are over the limit.
-  const content = canonicalContent(version.content, await allAttachmentIdsForPage(rootDb, actor.id, source.id));
-  const referenced = [...imageAttachmentIds(content)].sort();
+  const ownIds = await allAttachmentIdsForPage(rootDb, actor.id, source.id);
+  const content = canonicalContent(version.content, ownIds);
+  // Images (which can only reference this page's attachments) and file links to this page's
+  // attachments are carried over; a link to anything else is left exactly as it is (RD-086).
+  const referenced = [...new Set([...imageAttachmentIds(content), ...[...linkedAttachmentIds(content)].filter((id) => ownIds.has(id))])].sort();
   if (referenced.length > 0) {
     const wanted = new Set(referenced);
     const live = (await listAttachments(rootDb, actor.id, source.id)) ?? [];
@@ -73,10 +77,12 @@ export async function copyPage(actor: Actor, spaceKey: string, pageId: string, i
       // Re-read under the lock: a delete may have committed while we waited (RD-070).
       const current = await getPage(tx, actor.id, source.id);
       if (!current || current.spaceId !== space.id) throw new NotFoundError("Page");
+      // Name and place the copy from what the page is NOW, not from the read before the lock: a
+      // move or rename may have committed while this waited (RD-074, RD-086).
       const title =
         explicitTitle ??
-        copyTitle(source.title, await listTitlesInSpace(tx, actor.id, space.id), (original) => t("page.copyOf", { title: original }));
-      const created = await insertPage(tx, { spaceId: space.id, parentId: source.parentId, title, createdById: actor.id });
+        copyTitle(current.title, await listTitlesInSpace(tx, actor.id, space.id), (original) => t("page.copyOf", { title: original }));
+      const created = await insertPage(tx, { spaceId: space.id, parentId: current.parentId, title, createdById: actor.id });
 
       const copies = new Map<string, CopiedAttachment>();
       let copiedBytes = 0;
@@ -109,7 +115,7 @@ export async function copyPage(actor: Actor, spaceKey: string, pageId: string, i
         sourceId: source.id,
         sourceVersion: version.number,
         title,
-        parentId: source.parentId,
+        parentId: current.parentId,
         ordinal: created.ordinal,
         version: first.number,
         attachments: [...copies].map(([from, to]) => ({ from, to: to.id })),

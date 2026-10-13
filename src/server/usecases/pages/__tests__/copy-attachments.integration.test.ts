@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { attachmentUrl } from "@/domain/documents";
 import { ForbiddenError, NotFoundError, TitleTakenError, TooLargeError, UnsupportedMediaError, ValidationError } from "@/domain/errors";
 import { sha256Hex } from "@/server/repositories/attachments";
-import { softDeleteSubtree } from "@/server/repositories/documents";
+import { applyOrdinals, softDeleteSubtree } from "@/server/repositories/documents";
 import { lockTree, transaction } from "@/server/repositories/transaction";
 import {
   COPY_ATTACHMENT_BYTES_MAX,
@@ -17,12 +17,13 @@ import {
   listAttachments,
   listPageTree,
   publishPage,
+  renamePage,
   readAttachment,
   uploadAttachment,
 } from "@/server/usecases/pages";
 import { buildTree, createPageAs, demoIds, paragraphDoc } from "@/test-support/documents-fixtures";
 import { prisma, resetDemoInstance } from "@/test-support/fixtures";
-import { imageAttachmentIds } from "../copy-content";
+import { imageAttachmentIds, linkedAttachmentIds } from "../copy-content";
 import {
   PLAT,
   TEAM,
@@ -299,5 +300,103 @@ describe("listAttachments, hideAttachment, readAttachment", () => {
     const plat = await createPageAs("alice", "plat", { title: "Plat" });
     await expectError(listAttachments(who.carol, PLAT, plat.id), NotFoundError);
     await expect(listAttachments(who.bob, PLAT, plat.id)).resolves.toEqual([]);
+  });
+});
+
+// RD-086: the copy is made from the page as it is under the lock, and carries the file links the
+// editor writes for non-image uploads (a link mark to /api/v1/attachments/{id}/{name}).
+describe("copyPage — file links and what the copy is made from (RD-086)", () => {
+  const linkDoc = (...links: { readonly text: string; readonly href: string }[]) => ({
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: links.flatMap((l, i) => [
+          ...(i > 0 ? [{ type: "text", text: " " }] : []),
+          { type: "text", text: l.text, marks: [{ type: "link", attrs: { href: l.href } }] },
+        ]),
+      },
+    ],
+  });
+
+  it("duplicates a linked file and re-points the link, so the copy outlives its source; a link to another page's file is left alone", async () => {
+    const source = await createPage(who.alice, TEAM, { title: "Spec" });
+    const other = await createPage(who.alice, TEAM, { title: "Other" });
+    const file = await uploadAttachment(who.alice, TEAM, source.id, { filename: "report.pdf", bytes: new TextEncoder().encode("%PDF-1.4 report") });
+    const foreign = await uploadAttachment(who.alice, TEAM, other.id, { filename: "elsewhere.pdf", bytes: new TextEncoder().encode("%PDF-1.4 other") });
+    await publishPage(who.alice, TEAM, source.id, {
+      title: "Spec",
+      content: linkDoc({ text: "report.pdf", href: file.url }, { text: "elsewhere.pdf", href: foreign.url }),
+      baseVersion: 1,
+    });
+
+    const copy = await copyPage(who.bob, TEAM, source.id);
+
+    const rows = await prisma.attachment.findMany({ where: { documentId: copy.id } });
+    expect(rows.map((r) => r.filename)).toEqual(["report.pdf"]);
+    const copied = (await getPageView(who.bob, TEAM, copy.id)).version.content;
+    const own = rows[0]!;
+    expect(linkedAttachmentIds(copied)).toEqual(new Set([own.id, foreign.id]));
+    expect(JSON.stringify(copied)).toContain(attachmentUrl(own.id, "report.pdf"));
+    expect(JSON.stringify(copied)).not.toContain(file.id);
+    expect((await listAttachments(who.bob, TEAM, copy.id)).map((a) => a.filename)).toEqual(["report.pdf"]);
+
+    // Delete the original: the copy's file still downloads, byte for byte.
+    await deletePage(who.alice, TEAM, source.id);
+    const served = await readAttachment(who.bob, own.id);
+    expect(served.sha256).toBe(sha256Hex(new TextEncoder().encode("%PDF-1.4 report")));
+  });
+
+  it("places the copy under the parent the page has under the lock, not the one it had when the request began", async () => {
+    const oldParent = await createPage(who.alice, TEAM, { title: "Old parent" });
+    const newParent = await createPage(who.alice, TEAM, { title: "New parent" });
+    const source = await createPage(who.alice, TEAM, { title: "Source", parentId: oldParent.id });
+    const ids = await demoIds();
+
+    let copying: Promise<{ id: string; parentId: string | null; title: string }> | undefined;
+    await transaction(async (tx) => {
+      expect(await lockTree(tx, ids.spaces.team)).toBe(true);
+      copying = copyPage(who.bob, TEAM, source.id);
+      copying.catch(() => undefined); // awaited below
+      await untilSomeoneWaitsForALock();
+      // A move commits while the copy waits (it holds the lock itself here, as the winning move would).
+      await applyOrdinals(tx, ids.spaces.team, [
+        { id: newParent.id, parentId: null, ordinal: 0 },
+        { id: oldParent.id, parentId: null, ordinal: 1 },
+        { id: source.id, parentId: newParent.id, ordinal: 0 },
+      ]);
+    });
+    const copy = await copying!;
+    expect(copy.parentId).toBe(newParent.id);
+    const audit = (await auditRows(copy.id)).find((r) => r.operation === "page.copy");
+    expect((audit?.parameters as { parentId: string }).parentId).toBe(newParent.id);
+  });
+
+  it("still copies a live page whose old parent was deleted while the copy waited", async () => {
+    const oldParent = await createPage(who.alice, TEAM, { title: "Old parent" });
+    const newParent = await createPage(who.alice, TEAM, { title: "New parent" });
+    const source = await createPage(who.alice, TEAM, { title: "Source", parentId: oldParent.id });
+    const ids = await demoIds();
+
+    let copying: Promise<{ id: string; parentId: string | null }> | undefined;
+    await transaction(async (tx) => {
+      expect(await lockTree(tx, ids.spaces.team)).toBe(true);
+      copying = copyPage(who.bob, TEAM, source.id);
+      copying.catch(() => undefined);
+      await untilSomeoneWaitsForALock();
+      await applyOrdinals(tx, ids.spaces.team, [
+        { id: newParent.id, parentId: null, ordinal: 0 },
+        { id: oldParent.id, parentId: null, ordinal: 1 },
+        { id: source.id, parentId: newParent.id, ordinal: 0 },
+      ]);
+      await softDeleteSubtree(tx, { documentId: oldParent.id, deletedById: ids.users.alice });
+    });
+    expect((await copying!).parentId).toBe(newParent.id);
+  });
+
+  it("names the copy from the title the page has now", async () => {
+    const source = await createPage(who.alice, TEAM, { title: "First name" });
+    await renamePage(who.alice, TEAM, source.id, { title: "Second name" });
+    expect((await copyPage(who.bob, TEAM, source.id)).title).toBe("Copy of Second name");
   });
 });

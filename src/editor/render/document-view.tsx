@@ -12,7 +12,13 @@ import "../content.css";
 import { type CSSProperties, Fragment, type ReactNode, createElement } from "react";
 import { CLASS, HEADING_ID_PREFIX, MENTION_PREFIX, NUMBER_COLUMN_WIDTH } from "@/editor/schema/dom";
 import { formatDateValue } from "@/editor/schema/format";
-import { type HeadingIndex, MAX_VISITED_NODES, indexHeadings } from "@/editor/schema/headings";
+import {
+  type HeadingIndex,
+  MAX_VISITED_NODES,
+  TOC_ENTRIES_PER_DOCUMENT,
+  TOC_ENTRIES_PER_NODE,
+  indexHeadings,
+} from "@/editor/schema/headings";
 import {
   INDENT_MAX,
   MAX_COLSPAN,
@@ -71,6 +77,8 @@ interface RenderContext {
   readonly headings: HeadingIndex;
   readonly custom: NodeRenderers;
   budget: number;
+  /** Table-of-contents entries still allowed in this document (RD-085). */
+  tocBudget: number;
 }
 
 const NO_ATTRS: Readonly<Record<string, unknown>> = Object.freeze({});
@@ -271,7 +279,10 @@ function tableCell(tag: "th" | "td") {
 function tableOfContents(node: ContentNode, _children: () => ReactNode, ctx: RenderContext): ReactNode {
   const min = isIntegerInRange(node.attrs.minLevel, 1, 6) ? node.attrs.minLevel : 1;
   const max = isIntegerInRange(node.attrs.maxLevel, 1, 6) ? node.attrs.maxLevel : 6;
-  const entries = ctx.headings.entries.filter((e) => e.level >= min && e.level <= max && e.text.length > 0);
+  const wanted = ctx.headings.entries.filter((e) => e.level >= min && e.level <= max && e.text.length > 0);
+  // Capped per table and per document, so many tables over many headings cannot multiply (RD-085).
+  const entries = wanted.slice(0, Math.max(0, Math.min(TOC_ENTRIES_PER_NODE, ctx.tocBudget)));
+  ctx.tocBudget -= entries.length;
   return (
     <nav data-type="tableOfContents" className={CLASS.toc} data-min-level={min} data-max-level={max}>
       {entries.length > 0 ? (
@@ -454,6 +465,7 @@ export function DocumentView({ content, className, nodeRenderers, idPrefix = HEA
     headings: headingsOf(content, idPrefix),
     custom: nodeRenderers ?? {},
     budget: MAX_VISITED_NODES,
+    tocBudget: TOC_ENTRIES_PER_DOCUMENT,
   };
   return (
     <div className={className ? `${CLASS.content} ${className}` : CLASS.content}>{renderNode(content, 1, 0, ctx)}</div>

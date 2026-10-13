@@ -1,8 +1,10 @@
-// Image nodes reference attachments of their OWN page (RD-058), so copying a page's content
-// to another page means pointing every image at the copy's own attachment rows. Pure functions
+// Image nodes reference attachments of their OWN page (RD-058), and so do the links the editor
+// writes for non-image uploads (RD-086), so copying a page's content to another page means
+// pointing every image and every file link at the copy's own attachment rows. Pure functions
 // over canonical ProseMirror JSON: a node is `{ type, attrs?, content?, marks?, text? }` and
 // only `content` holds child nodes.
 import { attachmentUrl } from "@/domain/documents";
+import { parseAttachmentSrc } from "@/editor/schema";
 
 type JsonObject = Record<string, unknown>;
 
@@ -32,6 +34,23 @@ export function imageAttachmentIds(doc: unknown): Set<string> {
   return ids;
 }
 
+function linkMarks(node: JsonObject): JsonObject[] {
+  return Array.isArray(node.marks) ? (node.marks as unknown[]).filter((m): m is JsonObject => isObject(m) && m.type === "link" && isObject(m.attrs)) : [];
+}
+
+/** The ids of every attachment a link mark in `doc` points at (`/api/v1/attachments/{id}/{name}`): the file links the editor writes for non-image uploads. */
+// spec: docs/specs/09-decision-log.md sections RD-058 (other files are links), RD-086 (a copy carries them)
+export function linkedAttachmentIds(doc: unknown): Set<string> {
+  const ids = new Set<string>();
+  forEachNode(doc, (node) => {
+    for (const mark of linkMarks(node)) {
+      const parsed = parseAttachmentSrc((mark.attrs as JsonObject).href);
+      if (parsed) ids.add(parsed.attachmentId);
+    }
+  });
+  return ids;
+}
+
 export interface CopiedAttachment {
   /** The copy's attachment row id. */
   readonly id: string;
@@ -40,8 +59,8 @@ export interface CopiedAttachment {
 }
 
 /**
- * A deep copy of `doc` in which every image whose `attachmentId` is a key of `map` points at
- * the mapped attachment: `attachmentId` replaced and `src` rebuilt with attachmentUrl, so the
+ * A deep copy of `doc` in which every image whose `attachmentId` (and every link whose attachment
+ * URL) is a key of `map` points at the mapped attachment: `attachmentId` replaced and `src` rebuilt with attachmentUrl, so the
  * copy validates against the new page's attachments. Everything else — key order included — is
  * left as it was, so canonical input stays canonical. `doc` is not modified.
  */
@@ -49,6 +68,13 @@ export interface CopiedAttachment {
 export function rewriteImageAttachments(doc: unknown, map: ReadonlyMap<string, CopiedAttachment>): unknown {
   const copy: unknown = structuredClone(doc);
   forEachNode(copy, (node) => {
+    // File links: only a link whose attachment was copied is touched; any other keeps its href.
+    for (const mark of linkMarks(node)) {
+      const attrs = mark.attrs as JsonObject;
+      const parsed = parseAttachmentSrc(attrs.href);
+      const to = parsed ? map.get(parsed.attachmentId) : undefined;
+      if (to) attrs.href = attachmentUrl(to.id, to.filename);
+    }
     if (node.type !== "image" || !isObject(node.attrs)) return;
     const from = node.attrs.attachmentId;
     if (typeof from !== "string") return;

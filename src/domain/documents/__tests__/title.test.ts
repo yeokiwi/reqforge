@@ -4,8 +4,10 @@ import {
   LIMITS,
   UNTITLED_TITLE,
   checkTitle,
+  RAW_TEXT_FACTOR,
   codePointLength,
   copyTitle,
+  exceedsRaw,
   normalizeTitle,
   suggestUniqueTitle,
   titleKey,
@@ -272,5 +274,29 @@ describe("properties", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+describe("raw text is bounded before NFC (RD-085)", () => {
+  // NFC takes time quadratic in a run of combining marks: 200,000 marks took ~14 s unguarded.
+  const marks = (n: number) => "a" + "\u0316\u0301".repeat(n / 2);
+
+  it("refuses an oversized title as TOO_LONG in milliseconds, not seconds", () => {
+    const started = performance.now();
+    expect(checkTitle(marks(200_000))).toEqual({ ok: false, problem: "TOO_LONG" });
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
+  it("exceedsRaw is a length test with a generous factor", () => {
+    expect(RAW_TEXT_FACTOR).toBeGreaterThanOrEqual(4);
+    expect(exceedsRaw("x".repeat(255 * RAW_TEXT_FACTOR), 255)).toBe(false);
+    expect(exceedsRaw("x".repeat(255 * RAW_TEXT_FACTOR + 1), 255)).toBe(true);
+  });
+
+  it("still accepts a legitimate title typed in NFD (a base and two marks per letter)", () => {
+    const nfd = "e\u0301\u0323".repeat(127); // 381 units; NFC leaves two code points per letter (254 in all)
+    const checked = checkTitle(nfd);
+    expect(checked.ok).toBe(true);
+    if (checked.ok) expect(codePointLength(checked.title)).toBeLessThanOrEqual(255);
   });
 });

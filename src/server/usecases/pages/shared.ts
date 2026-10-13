@@ -6,6 +6,7 @@ import {
   attachmentUrl,
   checkTitle,
   codePointLength,
+  exceedsRaw,
   normalizeTitle,
   type AttachmentRef,
   type PageDetail,
@@ -108,6 +109,7 @@ function unstorableText(s: string): string | null {
  */
 // spec: docs/specs/09-decision-log.md section RD-055 (autosave); docs/specs/01-domain-model.md (DocumentDraft); RD-067
 export function draftTitle(raw: string): string {
+  if (exceedsRaw(raw, LIMITS.titleMax)) throw new ValidationError([{ path: "title", message: TITLE_MESSAGES.TOO_LONG }]);
   const title = normalizeTitle(raw);
   const bad = unstorableText(title);
   if (bad) throw new ValidationError([{ path: "title", message: bad }]);
@@ -121,6 +123,10 @@ export function draftTitle(raw: string): string {
 // spec: docs/specs/07-permissions-and-limits.md section 4 (Change note, 500 characters); RD-063
 export function changeNote(raw: string | null | undefined): string | null {
   if (raw === undefined || raw === null) return null;
+  // Bounded before NFC, which is quadratic on a run of combining marks (RD-085).
+  if (exceedsRaw(raw, LIMITS.messageMax)) {
+    throw new ValidationError([{ path: "message", message: `must be at most ${LIMITS.messageMax} characters` }]);
+  }
   const note = raw.normalize("NFC").trim();
   if (note === "") return null;
   const bad = unstorableText(note);

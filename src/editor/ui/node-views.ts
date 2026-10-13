@@ -22,6 +22,7 @@ import {
   PANEL_VARIANTS,
   type PanelVariant,
   STATUS_COLOURS,
+  TOC_ENTRIES_PER_NODE,
   collectHeadings,
   formatDateValue,
   type HeadingEntry,
@@ -266,6 +267,10 @@ interface HeadingAt {
 
 /** Every heading of the document in document order, with its position. Does not enter textblocks. */
 export function headingsWithPositions(doc: PMNode): HeadingAt[] {
+  // Every table of contents view asks on every transaction; one walk per document state serves
+  // them all instead of one walk per table (RD-085).
+  const cached = HEADINGS_OF.get(doc);
+  if (cached) return cached;
   const found: HeadingAt[] = [];
   doc.descendants((node, pos) => {
     if (node.type.name === "heading") {
@@ -275,8 +280,11 @@ export function headingsWithPositions(doc: PMNode): HeadingAt[] {
     }
     return !node.isTextblock;
   });
+  HEADINGS_OF.set(doc, found);
   return found;
 }
+
+const HEADINGS_OF = new WeakMap<PMNode, HeadingAt[]>();
 
 export interface TocEntry extends HeadingEntry {
   /** Which heading of the document it is (0 = the first), whatever its level. */
@@ -296,11 +304,12 @@ export function tableOfContentsEntries(doc: PMNode, minLevel: number, maxLevel: 
   // whole document, without serialising the whole document.
   const entries = collectHeadings({ type: "doc", content: headings.map((h) => h.json) });
   const out: TocEntry[] = [];
-  entries.forEach((entry, i) => {
+  for (let i = 0; i < entries.length && out.length < TOC_ENTRIES_PER_NODE; i++) {
+    const entry = entries[i] as HeadingEntry;
     const at = headings[i];
-    if (!at || entry.level < minLevel || entry.level > maxLevel || entry.text.length === 0) return;
+    if (!at || entry.level < minLevel || entry.level > maxLevel || entry.text.length === 0) continue;
     out.push({ ...entry, index: i, pos: at.pos });
-  });
+  }
   return out;
 }
 

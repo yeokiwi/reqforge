@@ -67,8 +67,21 @@ function declaresSvg(declared: string | null | undefined): boolean {
   return essence.includes("svg");
 }
 
+/** `s` without its trailing whitespace and dots, in one linear pass (a regex for this backtracks quadratically). */
+function trimTrailingSpaceAndDots(s: string): string {
+  let end = s.length;
+  while (end > 0) {
+    const c = s.charCodeAt(end - 1);
+    // "." and anything /\s/ matches that fits one unit; the rest of \s is tested on the character.
+    if (c === 0x2e || WHITESPACE.test(s[end - 1] as string)) end--;
+    else break;
+  }
+  return s.slice(0, end);
+}
+const WHITESPACE = /^\s$/u;
+
 function namedSvg(filename: string): boolean {
-  const looks = (name: string) => /\.svgz?$/i.test(name.replace(/[\s.]+$/u, ""));
+  const looks = (name: string) => /\.svgz?$/i.test(trimTrailingSpaceAndDots(name).slice(-8));
   return looks(filename) || looks(sanitizeFilename(filename));
 }
 
@@ -147,6 +160,9 @@ const FILENAME_STRIP = /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}\u061C\u200E\u200F\u202A-\u202E
 /** The longest extension (dot included) kept intact when a long filename is shortened. */
 export const MAX_PRESERVED_EXTENSION = 16;
 const MAX_FILENAME = 255;
+/** Longest raw filename (UTF-16 units) processed as is; longer ones keep their head and their last RAW_TAIL units. */
+const MAX_RAW_FILENAME = 2048;
+const RAW_TAIL = 128;
 
 /**
  * A filename safe to store and show: the last path component (either slash kind), with
@@ -156,7 +172,10 @@ const MAX_FILENAME = 255;
  */
 // spec: docs/specs/09-decision-log.md section RD-058 (attachments)
 export function sanitizeFilename(raw: string): string {
-  const base = raw.split(/[/\\]/).pop() ?? "";
+  const last = raw.split(/[/\\]/).pop() ?? "";
+  // NFC is quadratic on a run of combining marks, and a multipart filename is limited only by the
+  // body cap, so an overlong name is cut to its head and its tail (the extension) first (RD-085).
+  const base = last.length > MAX_RAW_FILENAME ? last.slice(0, MAX_RAW_FILENAME - RAW_TAIL) + last.slice(-RAW_TAIL) : last;
   const name = base
     .replace(FILENAME_STRIP, "")
     .normalize("NFC")

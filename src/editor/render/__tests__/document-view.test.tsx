@@ -3,7 +3,16 @@ import path from "node:path";
 import fc from "fast-check";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CLASS, HEADING_ID_PREFIX, NUMBER_COLUMN_WIDTH, collectHeadings, documentSchema, validateDocumentJson } from "@/editor/schema";
+import {
+  CLASS,
+  HEADING_ID_PREFIX,
+  NUMBER_COLUMN_WIDTH,
+  TOC_ENTRIES_PER_DOCUMENT,
+  TOC_ENTRIES_PER_NODE,
+  collectHeadings,
+  documentSchema,
+  validateDocumentJson,
+} from "@/editor/schema";
 import {
   ATTACHMENT_ID,
   IMAGE_SRC,
@@ -515,5 +524,30 @@ describe("renderDocumentHtml", () => {
       .filter((name) => /\.(ts|tsx)$/.test(name))
       .filter((name) => /from\s+["']react-dom(\/[^"']*)?["']|import\(\s*["']react-dom/.test(readFileSync(path.join(dir, name), "utf8")));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("tables of contents are capped so they cannot multiply (RD-085)", () => {
+  const tocs = (n: number) => Array.from({ length: n }, () => ({ type: "tableOfContents" }));
+  const headings = (n: number) => Array.from({ length: n }, (_, i) => h(1, text(`H${i}`)));
+  const items = (markup: string) => (markup.match(/<li /g) ?? []).length;
+
+  it("one table lists at most TOC_ENTRIES_PER_NODE headings", () => {
+    const out = html(canonical(doc(...tocs(1), ...headings(TOC_ENTRIES_PER_NODE + 500))));
+    expect(items(out)).toBe(TOC_ENTRIES_PER_NODE);
+  });
+
+  it("all the tables of a document together list at most TOC_ENTRIES_PER_DOCUMENT entries, and render fast", () => {
+    // 2,000 headings x 2,000 tables was 290 MB of HTML and 86 s before the cap.
+    const content = canonical(doc(...tocs(2_000), ...headings(2_000)));
+    const started = performance.now();
+    const out = html(content);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(items(out)).toBe(TOC_ENTRIES_PER_DOCUMENT);
+    expect(out.length).toBeLessThan(5_000_000);
+  });
+
+  it("a small document is untouched", () => {
+    expect(items(html(canonical(doc(...tocs(2), h(1, text("A")), h(2, text("B"))))))).toBe(4);
   });
 });

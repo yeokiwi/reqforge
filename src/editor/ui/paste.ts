@@ -94,9 +94,24 @@ function convertTaskLists(doc: Document): void {
 }
 
 /**
+ * ProseMirror's `data-pm-slice="openStart openEnd [context JSON]"`: the context names wrapper nodes
+ * and their attributes, and ProseMirror builds them with `type.create(attrs)`, skipping every
+ * parseHTML rule. Pasted from a hostile page it could put values in the document that the server
+ * refuses (an autosave that 422s forever) or that TipTap writes raw into a style attribute. Only
+ * the two open depths are kept; the structure comes from the markup itself (RD-085).
+ */
+function restrictSliceAttribute(element: Element): void {
+  const value = element.getAttribute("data-pm-slice");
+  if (value === null) return;
+  const depths = /^\s*(\d{1,3})\s+(\d{1,3})(?=\s|$)/.exec(value);
+  if (depths) element.setAttribute("data-pm-slice", `${depths[1]} ${depths[2]} []`);
+  else element.removeAttribute("data-pm-slice");
+}
+
+/**
  * Pasted (or Markup-dialog) HTML made safe to hand to the schema's parser. Parsing happens in a
  * DOMParser document, which runs no script and loads no image. Everything the schema reads
- * (`data-*` attributes, classes, inline colours, ProseMirror's own `data-pm-slice`) is kept.
+ * (`data-*` attributes, classes, inline colours, ProseMirror's own `data-pm-slice` without its context) is kept.
  */
 // spec: docs/specs/09-decision-log.md sections RD-058 (a remote <img> is dropped, its text kept), RD-063 (links), RD-068
 export function sanitizeHtml(html: string, options: SanitizeOptions = {}): string {
@@ -111,6 +126,7 @@ export function sanitizeHtml(html: string, options: SanitizeOptions = {}): strin
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || (URL_ATTRIBUTES as readonly string[]).includes(name)) element.removeAttribute(attribute.name);
     }
+    restrictSliceAttribute(element);
     const tag = element.tagName;
     if (tag === "IMG") {
       if (!parseAttachmentSrc(element.getAttribute("src"))) element.remove();

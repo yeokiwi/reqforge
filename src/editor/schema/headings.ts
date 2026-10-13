@@ -37,6 +37,14 @@ export interface HeadingIndex {
  */
 export const MAX_VISITED_NODES = 300_000;
 
+/**
+ * Entries one table of contents shows, and all of a document's tables of contents together. Every
+ * table lists the document's headings, so without a cap render work is tables x headings: a page of
+ * 2,000 headings and 2,000 tables produced 290 MB of HTML (RD-085).
+ */
+export const TOC_ENTRIES_PER_NODE = 1_000;
+export const TOC_ENTRIES_PER_DOCUMENT = 5_000;
+
 /** What a heading whose text has no letters or digits is called. */
 export const EMPTY_HEADING_SLUG = "heading";
 

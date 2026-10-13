@@ -24,6 +24,8 @@ export {
   indexHeadings,
   slugify,
   Slugger,
+  TOC_ENTRIES_PER_DOCUMENT,
+  TOC_ENTRIES_PER_NODE,
   type HeadingEntry,
   type HeadingIdOptions,
   type HeadingIndex,

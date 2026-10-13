@@ -66,6 +66,40 @@ describe("originAllowed", () => {
     expect(originAllowed(new Request(`http://${HOST}/x`, { method: "POST", headers }), none)).toBe(false);
   });
 
+  describe("an http page for an https site is a downgrade, refused (RD-085)", () => {
+    const post = (url: string, headers: Record<string, string>) => new Request(url, { method: "POST", headers: { host: HOST, ...headers } });
+
+    it("when the request arrived over https", () => {
+      expect(originAllowed(post(`https://${HOST}/x`, { origin: `http://${HOST}` }), none)).toBe(false);
+      expect(originAllowed(post(`https://${HOST}/x`, { origin: `https://${HOST}` }), none)).toBe(true);
+    });
+
+    it("when a proxy says it was https (X-Forwarded-Proto)", () => {
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `http://${HOST}`, "x-forwarded-proto": "https" }), none)).toBe(false);
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `https://${HOST}`, "x-forwarded-proto": "https, http" }), none)).toBe(true);
+    });
+
+    it("in a production deployment with Secure cookies on a real host, even without a proxy header", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `http://${HOST}` }), none)).toBe(false);
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `https://${HOST}` }), none)).toBe(true);
+    });
+
+    it("but not on localhost, which production builds are tried on, nor when cookies are not Secure", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(
+        originAllowed(new Request("http://localhost:3100/x", { method: "POST", headers: { host: "localhost:3100", origin: "http://localhost:3100" } }), none),
+      ).toBe(true);
+      vi.stubEnv("REQFORGE_COOKIE_SECURE", "0");
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `http://${HOST}` }), none)).toBe(true);
+    });
+
+    it("unless the http origin is listed as trusted", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(originAllowed(post(`http://${HOST}/x`, { origin: `http://${HOST}` }), new Set([`http://${HOST}`]))).toBe(true);
+    });
+  });
+
   it("allows an origin listed in REQFORGE_TRUSTED_ORIGINS, and only that one", () => {
     const trusted = trustedOrigins(" https://app.example.com , junk, , http://other.example:8443/path ");
     expect([...trusted].sort()).toEqual(["http://other.example:8443", "https://app.example.com"]);

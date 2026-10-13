@@ -87,7 +87,8 @@ export async function listPeople(actor: Actor, spaceKey: string, query: string):
   if (query.includes("\u0000") || /\p{Cs}/u.test(query)) {
     throw new ValidationError([{ path: "q", message: "must be text" }]);
   }
-  const q = [...query.normalize("NFC").trim()].slice(0, PEOPLE_QUERY_MAX).join("");
+  // Bounded before NFC, whose cost grows quadratically with a run of combining marks (RD-085).
+  const q = [...query.slice(0, PEOPLE_QUERY_MAX * 8).normalize("NFC").trim()].slice(0, PEOPLE_QUERY_MAX).join("");
   const people = await listSpacePeople(rootDb, actor.id, space.id, q);
   if (!people) throw new NotFoundError("Space");
   return people.map((u) => ({ id: u.id, name: u.name }));

@@ -179,6 +179,32 @@ describe("filesToUpload", () => {
   });
 });
 
+describe("a hostile data-pm-slice context (RD-085)", () => {
+  // ProseMirror builds the context's wrapper nodes with type.create(attrs): no parseHTML rule runs.
+  const hostile = (context: string) => `<span data-pm-slice='2 2 ${context}'>Pasted</span>`;
+
+  it("sanitizeHtml keeps the two open depths and drops the context", () => {
+    const out = sanitizeHtml(hostile('["blockquote",{},"paragraph",{"textAlign":"left;position:fixed"}]'));
+    expect(out).toContain('data-pm-slice="2 2 []"');
+    expect(out).not.toContain("position:fixed");
+    expect(sanitizeHtml('<p data-pm-slice="garbage [">x</p>')).not.toContain("data-pm-slice");
+  });
+
+  it.each([
+    ['a style smuggled through textAlign', '["blockquote",{},"paragraph",{"textAlign":"left;position:fixed;inset:0;background:url(https://evil.example/x)"}]'],
+    ["an out-of-range heading level", '["heading",{"level":9}]'],
+    ["a task item with a non-boolean checked", '["taskList",{},"taskItem",{"checked":"yes"}]'],
+  ])("pasting %s leaves a document the server accepts, with no style or remote URL", (_label, context) => {
+    const editor = newEditor(doc(p()));
+    editor.view.pasteHTML(hostile(context), pasteEvent({}));
+    expectStorable(editor);
+    const html = editor.view.dom.innerHTML;
+    expect(html).not.toContain("position");
+    expect(html).not.toContain("evil.example");
+    expect(editor.getText()).toBe("Pasted");
+  });
+});
+
 describe("pasting into the editor", () => {
   it("strips U+0000 and half an emoji from pasted plain text (transformPastedText)", () => {
     const editor = newEditor(doc(p()));
